@@ -99,6 +99,21 @@
 
       <div class="toggle" onclick="toggleAdd()">➕ Добавить новую запись по этой машине</div>
       <div id="addForm">
+        <div id="newVehicleFields" style="display:none;">
+          <div class="empty" style="text-align:left; color:var(--accent-2); padding:0 0 8px;">🆕 Этой машины ещё нет в базе — укажите владельца</div>
+          <label>Владелец (ФИО)</label>
+          <input id="f_owner" placeholder="Иванов Иван">
+
+          <label>Телефон владельца</label>
+          <input id="f_phone" placeholder="+996...">
+
+          <label>VIN (необязательно)</label>
+          <input id="f_vin" placeholder="VIN номер">
+
+          <label>Марка и модель (необязательно)</label>
+          <input id="f_model" placeholder="Например, Chery Tiggo 4">
+        </div>
+
         <label>Пробег, км</label>
         <input id="f_mileage" type="number" placeholder="45000">
 
@@ -193,6 +208,9 @@
     location.reload();
   }
 
+  var lastRows = [];
+  var isKnownVehicle = true; // по умолчанию считаем машину известной, пока не проверили
+
   function doSearch() {
     var plate = document.getElementById('plateInput').value.trim();
     if (!plate) return;
@@ -200,17 +218,26 @@
     document.getElementById('searchStatus').innerText = 'Ищу...';
     document.getElementById('resultsCard').style.display = 'none';
 
-    apiGet({ action: 'search', pw: PW, plate: plate })
-      .then(function (res) {
-        if (res.ok) {
-          renderResults(res.rows);
-        } else {
-          handleAuthError({ message: res.error });
-        }
-      })
-      .catch(function () {
-        handleAuthError({ message: 'Ошибка сети' });
-      });
+    Promise.all([
+      apiGet({ action: 'search', pw: PW, plate: plate }),
+      apiGet({ action: 'vehicleinfo', pw: PW, plate: plate })
+    ]).then(function (results) {
+      var searchRes = results[0];
+      var vehRes = results[1];
+      if (!searchRes.ok) { handleAuthError({ message: searchRes.error }); return; }
+
+      isKnownVehicle = vehRes.ok ? !!vehRes.exists : true; // при ошибке не мешаем работе — считаем известной
+      var newFields = document.getElementById('newVehicleFields');
+      newFields.style.display = isKnownVehicle ? 'none' : 'block';
+      document.getElementById('f_owner').value = (vehRes.ok && vehRes.owner) || '';
+      document.getElementById('f_phone').value = (vehRes.ok && vehRes.phone) || '';
+      document.getElementById('f_vin').value = (vehRes.ok && vehRes.vin) || '';
+      document.getElementById('f_model').value = (vehRes.ok && vehRes.model) || '';
+
+      renderResults(searchRes.rows);
+    }).catch(function () {
+      handleAuthError({ message: 'Ошибка сети' });
+    });
   }
 
   function handleAuthError(err) {
@@ -220,8 +247,6 @@
       setTimeout(function () { location.reload(); }, 1200);
     }
   }
-
-  var lastRows = [];
 
   function renderResults(rows) {
     lastRows = rows;
@@ -319,6 +344,15 @@
   }
 
   function submitAdd() {
+    if (!isKnownVehicle) {
+      var owner = document.getElementById('f_owner').value.trim();
+      var phone = document.getElementById('f_phone').value.trim();
+      if (!owner || !phone) {
+        document.getElementById('addStatus').innerText = '⚠️ Для новой машины укажите владельца и телефон';
+        return;
+      }
+    }
+
     var data = {
       plate: currentPlate,
       mileage: document.getElementById('f_mileage').value,
@@ -326,7 +360,11 @@
       description: document.getElementById('f_description').value,
       parts: document.getElementById('f_parts').value,
       cost: document.getElementById('f_cost').value,
-      master: document.getElementById('f_master').value
+      master: document.getElementById('f_master').value,
+      owner: document.getElementById('f_owner').value,
+      phone: document.getElementById('f_phone').value,
+      vin: document.getElementById('f_vin').value,
+      model: document.getElementById('f_model').value
     };
     document.getElementById('addStatus').innerText = 'Сохраняю...';
 
