@@ -255,11 +255,28 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         link.textContent = oldText;
-        if (data.ok) {
-          window.open(data.url, '_blank');
-        } else {
+        if (!data.ok) {
           alert(data.error || 'Не удалось сформировать PDF');
+          return;
         }
+        // собираем PDF из base64 и скачиваем его прямо в браузере —
+        // без Google Drive, без всплывающих окон
+        var byteChars = atob(data.base64);
+        var byteNumbers = new Array(byteChars.length);
+        for (var i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        var byteArray = new Uint8Array(byteNumbers);
+        var blob = new Blob([byteArray], { type: 'application/pdf' });
+        var blobUrl = URL.createObjectURL(blob);
+
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = data.fileName || ('История_ТО_' + currentPlate + '.pdf');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 10000);
       })
       .catch(function (err) {
         link.textContent = oldText;
