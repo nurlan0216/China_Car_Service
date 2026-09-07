@@ -85,7 +85,7 @@
     <div id="resultsCard" class="card" style="display:none;">
       <div id="summary" class="summary"></div>
       <div id="tableWrap"></div>
-      <a id="pdfLink" class="pdf-link" style="display:none;" target="_blank">📄 Скачать PDF-историю</a>
+      <a id="pdfLink" class="pdf-link" style="display:none;" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
 
       <div class="toggle" onclick="toggleAdd()">➕ Добавить новую запись по этой машине</div>
       <div id="addForm">
@@ -240,10 +240,31 @@
     }
 
     var pdfLink = document.getElementById('pdfLink');
-    pdfLink.href = SCRIPT_URL + '?action=pdf&plate=' + encodeURIComponent(currentPlate) + '&pw=' + encodeURIComponent(PW);
     pdfLink.style.display = 'inline-block';
 
     document.getElementById('addForm').style.display = 'none';
+  }
+
+  function downloadPdf(evt) {
+    evt.preventDefault();
+    var link = document.getElementById('pdfLink');
+    var oldText = link.textContent;
+    link.textContent = '⏳ Готовим файл...';
+
+    fetch(SCRIPT_URL + '?action=pdf&plate=' + encodeURIComponent(currentPlate) + '&pw=' + encodeURIComponent(PW))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        link.textContent = oldText;
+        if (data.ok) {
+          window.open(data.url, '_blank');
+        } else {
+          alert(data.error || 'Не удалось сформировать PDF');
+        }
+      })
+      .catch(function (err) {
+        link.textContent = oldText;
+        alert('Ошибка соединения: ' + err);
+      });
   }
 
   function toggleAdd() {
