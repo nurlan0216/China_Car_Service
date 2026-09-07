@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  :root{
+    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
+    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:16px;
+  }
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:16px;
+  }
+  .row{display:flex; gap:8px;}
+  input, select, textarea{
+    width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
+    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
+  }
+  input:focus, select:focus, textarea:focus{outline:1px solid var(--accent);}
+  button{
+    padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
+    cursor:pointer;
+  }
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-full{width:100%;}
+  label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
+  .summary{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
+  .pill{
+    background:#0d141e; border:1px solid var(--border); border-radius:10px;
+    padding:8px 12px; font-size:13px; flex:1; min-width:140px;
+  }
+  .pill b{display:block; color:var(--text); font-size:14px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th, td{text-align:left; padding:8px 6px; border-bottom:1px solid var(--border);}
+  th{color:var(--muted); font-weight:600;}
+  .empty{color:var(--muted); text-align:center; padding:20px 0;}
+  .toggle{color:var(--accent); font-size:14px; cursor:pointer; user-select:none; margin-top:4px;}
+  #addForm{display:none; margin-top:12px; border-top:1px solid var(--border); padding-top:12px;}
+  .loading{color:var(--muted); font-size:13px;}
+  a.pdf-link{
+    display:inline-block; margin-top:10px; text-decoration:none; color:#fff;
+    background:var(--accent-2); padding:10px 14px; border-radius:10px; font-weight:600; font-size:14px;
+  }
+  #gate{max-width:320px; margin:60px auto 0;}
+  #gate input{text-align:center; letter-spacing:4px; font-size:20px;}
+  .gate-error{color:var(--danger); font-size:13px; min-height:18px; text-align:center; margin-top:4px;}
+  .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
+</style>
+</head>
+<body>
+
+  <!-- ЭКРАН ВХОДА -->
+  <div id="gate">
+    <h1 style="text-align:center">🔒 Учёт ТО</h1>
+    <div class="sub" style="text-align:center">Введите код доступа</div>
+    <div class="card">
+      <input id="pwInput" type="password" inputmode="numeric" placeholder="••••••" maxlength="12">
+      <button class="btn-primary btn-full" onclick="tryLogin()">Войти</button>
+      <div class="gate-error" id="gateError"></div>
+    </div>
+  </div>
+
+  <!-- ОСНОВНОЕ ПРИЛОЖЕНИЕ (скрыто до входа) -->
+  <div id="mainApp" style="display:none;">
+    <span class="logout" onclick="logout()">Выйти</span>
+    <h1>🚗 Учёт обслуживания автопарка</h1>
+    <div class="sub">Поиск истории ТО по гос. номеру, PDF-выгрузка, добавление новых работ</div>
+
+    <div class="card">
+      <label>Гос. номер автомобиля</label>
+      <div class="row">
+        <input id="plateInput" placeholder="Например, 123ABC02" autocapitalize="characters">
+        <button class="btn-primary" onclick="doSearch()">Найти</button>
+      </div>
+      <div id="searchStatus" class="loading"></div>
+    </div>
+
+    <div id="resultsCard" class="card" style="display:none;">
+      <div id="summary" class="summary"></div>
+      <div id="tableWrap"></div>
+      <a id="pdfLink" class="pdf-link" style="display:none;" target="_blank">📄 Скачать PDF-историю</a>
+
+      <div class="toggle" onclick="toggleAdd()">➕ Добавить новую запись по этой машине</div>
+      <div id="addForm">
+        <label>Пробег, км</label>
+        <input id="f_mileage" type="number" placeholder="45000">
+
+        <label>Тип работы</label>
+        <select id="f_type">
+          <option>Замена масла</option>
+          <option>Замена фильтра</option>
+          <option>Замена тормозных колодок</option>
+          <option>Шиномонтаж</option>
+          <option>Диагностика</option>
+          <option>Ремонт двигателя</option>
+          <option>Ремонт ходовой</option>
+          <option>ТО</option>
+          <option>Другое</option>
+        </select>
+
+        <label>Описание работы</label>
+        <textarea id="f_description" rows="2" placeholder="Что сделали"></textarea>
+
+        <label>Запчасти</label>
+        <input id="f_parts" placeholder="Например, масляный фильтр Mann W712">
+
+        <label>Стоимость</label>
+        <input id="f_cost" type="number" placeholder="15000">
+
+        <label>Мастер</label>
+        <input id="f_master" placeholder="Имя мастера">
+
+        <button class="btn-primary btn-full" onclick="submitAdd()">Сохранить запись</button>
+        <div id="addStatus" class="loading"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App, полученный при
+  // Deploy -> Manage deployments -> Web app (заканчивается на /exec).
+  var SCRIPT_URL = 'ВСТАВЬТЕ_ССЫЛКУ_НА_ВАШ_APPS_SCRIPT_ВЕБ_ПРИЛОЖЕНИЕ/exec';
+
+  var currentPlate = '';
+  var PW = sessionStorage.getItem('to_pw') || '';
+
+  // если пароль уже сохранён в этой вкладке — сразу пробуем открыть приложение
+  if (PW) showApp();
+
+  function apiGet(params) {
+    var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
+    return fetch(url).then(function (r) { return r.json(); });
+  }
+
+  // POST с text/plain, чтобы браузер не слал preflight OPTIONS-запрос —
+  // Apps Script Web App его не обрабатывает при обращении с чужого домена.
+  function apiPost(payload) {
+    return fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function tryLogin() {
+    var pw = document.getElementById('pwInput').value.trim();
+    if (!pw) return;
+    document.getElementById('gateError').innerText = '';
+
+    apiGet({ action: 'checkpw', pw: pw })
+      .then(function (res) {
+        if (res.ok) {
+          PW = pw;
+          sessionStorage.setItem('to_pw', pw);
+          showApp();
+        } else {
+          document.getElementById('gateError').innerText = res.error || 'Неверный код доступа';
+        }
+      })
+      .catch(function () {
+        document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
+      });
+  }
+
+  document.getElementById('pwInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') tryLogin();
+  });
+
+  function showApp() {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+  }
+
+  function logout() {
+    sessionStorage.removeItem('to_pw');
+    location.reload();
+  }
+
+  function doSearch() {
+    var plate = document.getElementById('plateInput').value.trim();
+    if (!plate) return;
+    currentPlate = plate;
+    document.getElementById('searchStatus').innerText = 'Ищу...';
+    document.getElementById('resultsCard').style.display = 'none';
+
+    apiGet({ action: 'search', pw: PW, plate: plate })
+      .then(function (res) {
+        if (res.ok) {
+          renderResults(res.rows);
+        } else {
+          handleAuthError({ message: res.error });
+        }
+      })
+      .catch(function () {
+        handleAuthError({ message: 'Ошибка сети' });
+      });
+  }
+
+  function handleAuthError(err) {
+    document.getElementById('searchStatus').innerText = 'Ошибка: ' + err.message;
+    if (('' + err.message).indexOf('доступа') !== -1) {
+      sessionStorage.removeItem('to_pw');
+      setTimeout(function () { location.reload(); }, 1200);
+    }
+  }
+
+  function renderResults(rows) {
+    document.getElementById('searchStatus').innerText = '';
+    document.getElementById('resultsCard').style.display = 'block';
+
+    var oil = rows.find(r => r.type === 'Замена масла');
+    var filter = rows.find(r => r.type === 'Замена фильтра');
+    var repairs = rows.filter(r => (r.type || '').toLowerCase().indexOf('ремонт') !== -1);
+
+    var summaryHtml = '';
+    summaryHtml += '<div class="pill">Масло<b>' + (oil ? oil.date + ' · ' + oil.mileage + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? filter.date + ' · ' + filter.mileage + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Ремонтов<b>' + repairs.length + '</b></div>';
+    document.getElementById('summary').innerHTML = summaryHtml;
+
+    var wrap = document.getElementById('tableWrap');
+    if (rows.length === 0) {
+      wrap.innerHTML = '<div class="empty">Записей по этому номеру пока нет</div>';
+    } else {
+      var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
+      rows.forEach(function(r) {
+        html += '<tr><td>' + r.date + '</td><td>' + r.mileage + '</td><td>' + r.type +
+                (r.description ? '<br><span style="color:var(--muted)">' + r.description + '</span>' : '') +
+                '</td><td>' + (r.cost || '') + '</td></tr>';
+      });
+      html += '</table>';
+      wrap.innerHTML = html;
+    }
+
+    var pdfLink = document.getElementById('pdfLink');
+    pdfLink.href = SCRIPT_URL + '?action=pdf&plate=' + encodeURIComponent(currentPlate) + '&pw=' + encodeURIComponent(PW);
+    pdfLink.style.display = 'inline-block';
+
+    document.getElementById('addForm').style.display = 'none';
+  }
+
+  function toggleAdd() {
+    var f = document.getElementById('addForm');
+    f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
+  }
+
+  function submitAdd() {
+    var data = {
+      plate: currentPlate,
+      mileage: document.getElementById('f_mileage').value,
+      type: document.getElementById('f_type').value,
+      description: document.getElementById('f_description').value,
+      parts: document.getElementById('f_parts').value,
+      cost: document.getElementById('f_cost').value,
+      master: document.getElementById('f_master').value
+    };
+    document.getElementById('addStatus').innerText = 'Сохраняю...';
+
+    apiPost({ action: 'addRecord', pw: PW, data: data })
+      .then(function (res) {
+        if (res.ok) {
+          document.getElementById('addStatus').innerText = '✅ Сохранено';
+          setTimeout(function(){ doSearch(); }, 400);
+        } else {
+          document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error;
+        }
+      })
+      .catch(function () {
+        document.getElementById('addStatus').innerText = 'Ошибка сети';
+      });
+  }
+
+  document.getElementById('plateInput').addEventListener('keydown', function(e){
+    if (e.key === 'Enter') doSearch();
+  });
+</script>
+</body>
+</html>
