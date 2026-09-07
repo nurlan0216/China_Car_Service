@@ -2,6 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -86,6 +87,15 @@
       <div id="summary" class="summary"></div>
       <div id="tableWrap"></div>
       <a id="pdfLink" class="pdf-link" style="display:none;" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
+
+      <div class="date-filter" style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px;">
+        <label>Показывать записи с даты</label>
+        <div class="row">
+          <input type="date" id="fromDate">
+          <button class="btn-primary" onclick="applyDateFilter()">Показать</button>
+        </div>
+        <div class="toggle" onclick="resetDateFilter()">Сбросить фильтр по дате</div>
+      </div>
 
       <div class="toggle" onclick="toggleAdd()">➕ Добавить новую запись по этой машине</div>
       <div id="addForm">
@@ -211,23 +221,47 @@
     }
   }
 
+  var lastRows = [];
+
   function renderResults(rows) {
+    lastRows = rows;
+    document.getElementById('fromDate').value = '';
     document.getElementById('searchStatus').innerText = '';
     document.getElementById('resultsCard').style.display = 'block';
+    renderFilteredRows(rows);
 
+    var pdfLink = document.getElementById('pdfLink');
+    pdfLink.style.display = 'inline-block';
+    document.getElementById('addForm').style.display = 'none';
+  }
+
+  function applyDateFilter() {
+    var from = document.getElementById('fromDate').value; // 'yyyy-mm-dd' или ''
+    var filtered = from ? lastRows.filter(function (r) { return r.dateRaw >= from; }) : lastRows;
+    renderFilteredRows(filtered);
+  }
+
+  function resetDateFilter() {
+    document.getElementById('fromDate').value = '';
+    renderFilteredRows(lastRows);
+  }
+
+  function renderFilteredRows(rows) {
     var oil = rows.find(r => r.type === 'Замена масла');
     var filter = rows.find(r => r.type === 'Замена фильтра');
     var repairs = rows.filter(r => (r.type || '').toLowerCase().indexOf('ремонт') !== -1);
+    var totalCost = rows.reduce(function (sum, r) { return sum + (parseFloat(r.cost) || 0); }, 0);
 
     var summaryHtml = '';
     summaryHtml += '<div class="pill">Масло<b>' + (oil ? oil.date + ' · ' + oil.mileage + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? filter.date + ' · ' + filter.mileage + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Ремонтов<b>' + repairs.length + '</b></div>';
+    summaryHtml += '<div class="pill">Сумма за период<b>' + totalCost.toLocaleString('ru-RU') + '</b></div>';
     document.getElementById('summary').innerHTML = summaryHtml;
 
     var wrap = document.getElementById('tableWrap');
     if (rows.length === 0) {
-      wrap.innerHTML = '<div class="empty">Записей по этому номеру пока нет</div>';
+      wrap.innerHTML = '<div class="empty">Записей за выбранный период нет</div>';
     } else {
       var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
       rows.forEach(function(r) {
@@ -238,11 +272,6 @@
       html += '</table>';
       wrap.innerHTML = html;
     }
-
-    var pdfLink = document.getElementById('pdfLink');
-    pdfLink.style.display = 'inline-block';
-
-    document.getElementById('addForm').style.display = 'none';
   }
 
   function downloadPdf(evt) {
