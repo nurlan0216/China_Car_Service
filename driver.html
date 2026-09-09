@@ -67,9 +67,23 @@
   .scan-row{display:flex; gap:8px;}
   .scan-row input{flex:1;}
   .scan-row button{white-space:nowrap;}
+  .wa-master{
+    position:fixed; left:16px; right:16px; bottom:16px; z-index:100;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:#25D366; color:#08350f; text-decoration:none;
+    font-weight:700; font-size:15px; padding:13px 16px; border-radius:14px;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);
+  }
+  .wa-master svg{width:20px; height:20px; flex-shrink:0;}
+  body{padding-bottom:78px;}
 </style>
 </head>
 <body>
+
+  <a class="wa-master" href="https://wa.me/77026743123" target="_blank" rel="noopener">
+    <svg viewBox="0 0 32 32" fill="currentColor"><path d="M16.02 3C9.4 3 4 8.37 4 15c0 2.36.68 4.56 1.86 6.42L4 29l7.77-2.04A11.9 11.9 0 0 0 16.02 27C22.63 27 28 21.63 28 15S22.63 3 16.02 3zm0 21.8c-2 0-3.87-.55-5.47-1.51l-.39-.23-4.6 1.21 1.23-4.48-.25-.46A9.7 9.7 0 0 1 5.2 15c0-5.96 4.86-10.8 10.82-10.8S26.84 9.04 26.84 15 21.98 24.8 16.02 24.8zm5.94-8.1c-.33-.16-1.92-.95-2.22-1.06-.3-.11-.51-.16-.73.17-.22.33-.84 1.06-1.03 1.27-.19.22-.38.24-.71.08-.33-.17-1.38-.51-2.63-1.63-.97-.87-1.63-1.94-1.82-2.27-.19-.33-.02-.5.14-.67.15-.15.33-.38.5-.57.16-.19.22-.33.33-.55.11-.22.05-.41-.03-.57-.08-.17-.73-1.76-1-2.4-.26-.63-.53-.55-.73-.56h-.62c-.22 0-.57.08-.87.41-.3.33-1.14 1.11-1.14 2.71 0 1.6 1.17 3.15 1.33 3.37.16.22 2.3 3.51 5.58 4.92.78.34 1.39.54 1.87.69.79.25 1.5.22 2.07.13.63-.1 1.92-.79 2.19-1.55.27-.76.27-1.42.19-1.55-.08-.14-.3-.22-.63-.38z"/></svg>
+    Ваш мастер — связаться
+  </a>
 
   <!-- ЭКРАН ВХОДА: только гос. номер, без пароля -->
   <div id="gate">
@@ -111,8 +125,8 @@
       <label>WhatsApp номер</label>
       <input id="r_whatsapp" placeholder="+996...">
 
-      <label>Пароль (для входа в кабинет)</label>
-      <input id="r_password" type="password" placeholder="Придумайте пароль">
+      <label>Модель автомобиля</label>
+      <input id="r_model" placeholder="Например, Chevrolet Cobalt">
 
       <button class="btn-primary btn-full" onclick="submitRegister()">Зарегистрироваться</button>
       <div class="error" id="regError"></div>
@@ -287,12 +301,12 @@
     var taxiOrPrivate = document.getElementById('r_type').value;
     var vin = document.getElementById('r_vin').value.trim();
     var whatsapp = document.getElementById('r_whatsapp').value.trim();
-    var password = document.getElementById('r_password').value;
+    var model = document.getElementById('r_model').value.trim();
     var errEl = document.getElementById('regError');
     errEl.innerText = '';
 
-    if (!fio || !whatsapp || !password) {
-      errEl.innerText = 'Заполните ФИО, WhatsApp и пароль';
+    if (!fio || !whatsapp) {
+      errEl.innerText = 'Заполните ФИО и WhatsApp';
       return;
     }
 
@@ -300,7 +314,7 @@
     apiPost({
       action: 'driverRegister',
       plate: currentPlate,
-      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, password: password }
+      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model }
     }).then(function (res) {
       document.getElementById('regStatus').innerText = '';
       if (!res.ok) {
