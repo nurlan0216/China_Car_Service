@@ -4,200 +4,30 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Объявление — China Car Service</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#0e1318">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta http-equiv="refresh" content="0; url=to.html">
 <style>
-  :root{
-    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
-    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
-  }
-  *{box-sizing:border-box;}
-  body{
-    margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-    background:var(--bg); color:var(--text); padding:16px;
-  }
-  h1{font-size:20px; margin:0 0 4px;}
-  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
-  .card{
-    background:var(--card); border:1px solid var(--border); border-radius:14px;
-    padding:16px; margin-bottom:16px;
-  }
-  input, textarea{
-    width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
-    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
-  }
-  input:focus, textarea:focus{outline:1px solid var(--accent);}
-  button{
-    padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
-    cursor:pointer;
-  }
-  .btn-primary{background:var(--accent); color:#fff;}
-  .btn-secondary{background:#0d141e; color:var(--text); border:1px solid var(--border);}
-  .btn-full{width:100%;}
-  label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
-  .loading{color:var(--muted); font-size:13px;}
-  .error{color:var(--danger); font-size:13px; margin-top:4px;}
-  .ok{color:var(--accent-2); font-size:13px; margin-top:4px;}
-  #gate{max-width:320px; margin:60px auto 0;}
-  #gate input{text-align:center; letter-spacing:4px; font-size:20px;}
-  .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
-  .meta{color:var(--muted); font-size:12px; margin-top:4px;}
+  body{margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif; background:#0f1720; color:#e5e9f0; padding:16px;}
+  a{color:#3b82f6;}
 </style>
 </head>
 <body>
+  <!--
+    ВАЖНО: эта страница больше не используется для редактирования
+    объявления — здесь не было и не могло быть загрузки фото/видео,
+    поэтому прикреплённое тут "фото" никогда не попадало на сервер и
+    не могло появиться у водителей.
 
-  <!-- ЭКРАН ВХОДА: тот же личный логин/пароль, что и в "Учёт ТО" -->
-  <div id="gate">
-    <h1 style="text-align:center">📢 Объявление</h1>
-    <div class="sub" style="text-align:center">Войдите под своим именем и паролем</div>
-    <div class="card">
-      <label>Имя</label>
-      <input id="loginName" placeholder="Например, Асан" autocomplete="username">
-      <label>Пароль</label>
-      <input id="loginPw" type="password" placeholder="••••••" autocomplete="current-password">
-      <button class="btn-primary btn-full" onclick="tryLogin()">Войти</button>
-      <div class="error" id="gateError"></div>
-    </div>
-  </div>
+    Редактирование объявления (текст + фото/видео) теперь находится
+    прямо в to.html — кнопка "Войти" там же, внизу главного экрана
+    появляется карточка "📢 Объявление для водителей" (виден только
+    супер-админам). См. CHANGES_RU.md, пункт 6.
 
-  <!-- ОКНО ДЛЯ НЕ-СУПЕР-АДМИНОВ: вошли, но редактировать нельзя -->
-  <div id="noAccess" style="display:none;">
-    <span class="logout" onclick="logout()">Выйти</span>
-    <h1>📢 Объявление</h1>
-    <div class="card">
-      <div style="color:var(--muted);">
-        Вы вошли как <b id="noAccessName"></b>, но менять общее объявление могут только супер-админы.
-        Попросите супер-админа выставить вам эту роль в листе "Админ" (колонка "СуперАдмин").
-      </div>
-    </div>
-  </div>
-
-  <!-- ФОРМА РЕДАКТИРОВАНИЯ: показывается только супер-админам -->
-  <div id="mainApp" style="display:none;">
-    <span class="logout" onclick="logout()">Выйти</span>
-    <h1>📢 Объявление для водителей</h1>
-    <div class="sub">Показывается всем водителям в кабинете (driver.html). Оставьте поле пустым, чтобы убрать объявление.</div>
-
-    <div class="card">
-      <label>Текст объявления</label>
-      <textarea id="text" rows="6" placeholder="Например: 10 сентября СТО закрыто, обращайтесь по WhatsApp"></textarea>
-      <div class="meta" id="meta"></div>
-      <button class="btn-primary btn-full" onclick="save()">Сохранить</button>
-      <button class="btn-secondary btn-full" style="margin-top:8px;" onclick="clearText()">Очистить (убрать объявление)</button>
-      <div class="error" id="saveError"></div>
-      <div class="ok" id="saveOk"></div>
-      <div class="loading" id="status"></div>
-    </div>
-  </div>
-
-<script>
-  // ЗАМЕНИТЕ на тот же адрес Apps Script Web App, что и в других файлах.
-  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
-
-  var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
-  var PW = sessionStorage.getItem('to_pw') || '';
-  var IS_SUPER = false;
-  if (ADMIN_NAME && PW) tryLogin(true);
-
-  function apiGet(params) {
-    var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
-    return fetch(url).then(function (r) { return r.json(); });
-  }
-
-  function apiPost(payload) {
-    return fetch(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); });
-  }
-
-  // silent=true при автологине из сохранённой сессии — не показываем ошибки заново.
-  function tryLogin(silent) {
-    var name = silent ? ADMIN_NAME : document.getElementById('loginName').value.trim();
-    var pw = silent ? PW : document.getElementById('loginPw').value;
-    if (!name || !pw) return;
-    if (!silent) document.getElementById('gateError').innerText = '';
-
-    apiPost({ action: 'adminLogin', name: name, password: pw }).then(function (res) {
-      if (res.ok) {
-        ADMIN_NAME = name;
-        PW = pw;
-        IS_SUPER = !!res.isSuperAdmin;
-        sessionStorage.setItem('to_name', name);
-        sessionStorage.setItem('to_pw', pw);
-        showApp();
-      } else if (!silent) {
-        document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
-      } else {
-        logout(); // сохранённая сессия больше не валидна
-      }
-    }).catch(function () {
-      if (!silent) document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
-    });
-  }
-
-  function logout() {
-    sessionStorage.removeItem('to_name');
-    sessionStorage.removeItem('to_pw');
-    location.reload();
-  }
-
-  // Если да (супер-админ) — окно редактирования показывается, не скрывается.
-  // Если нет — показывается только сообщение о том, что доступа нет.
-  function showApp() {
-    document.getElementById('gate').style.display = 'none';
-    if (IS_SUPER) {
-      document.getElementById('noAccess').style.display = 'none';
-      document.getElementById('mainApp').style.display = 'block';
-      load();
-    } else {
-      document.getElementById('mainApp').style.display = 'none';
-      document.getElementById('noAccessName').innerText = ADMIN_NAME;
-      document.getElementById('noAccess').style.display = 'block';
-    }
-  }
-
-  function load() {
-    document.getElementById('status').innerText = 'Загружаю...';
-    apiGet({ action: 'announcement' }).then(function (res) {
-      document.getElementById('status').innerText = '';
-      if (!res.ok) return;
-      document.getElementById('text').value = res.text || '';
-      document.getElementById('meta').innerText = res.updatedAt
-        ? 'Обновлено: ' + new Date(res.updatedAt).toLocaleString('ru-RU')
-        : 'Объявление ещё не устанавливали';
-    }).catch(function () {
-      document.getElementById('status').innerText = '';
-    });
-  }
-
-  function save() {
-    var text = document.getElementById('text').value;
-    document.getElementById('saveError').innerText = '';
-    document.getElementById('saveOk').innerText = '';
-    document.getElementById('status').innerText = 'Сохраняю...';
-
-    apiPost({ action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text }).then(function (res) {
-      document.getElementById('status').innerText = '';
-      if (res.ok) {
-        document.getElementById('saveOk').innerText = '✅ Сохранено';
-        load();
-      } else {
-        document.getElementById('saveError').innerText = res.error || 'Не удалось сохранить';
-      }
-    }).catch(function () {
-      document.getElementById('status').innerText = '';
-      document.getElementById('saveError').innerText = 'Ошибка сети';
-    });
-  }
-
-  function clearText() {
-    document.getElementById('text').value = '';
-    save();
-  }
-</script>
+    Эта страница оставлена только как редирект на всякий случай (вдруг
+    у кого-то в закладках старая ссылка) — можно спокойно удалить файл
+    полностью, если он нигде не используется.
+  -->
+  <p>Редактирование объявления переехало в <a href="to.html">to.html</a>.
+     Сейчас вас туда перенаправит автоматически…</p>
+  <script>location.href = 'to.html';</script>
 </body>
 </html>

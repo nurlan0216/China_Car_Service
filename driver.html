@@ -106,6 +106,10 @@
       <div class="error" id="gateError"></div>
       <div class="loading" id="gateStatus"></div>
     </div>
+    <!-- Объявление показывается уже на экране входа, ещё до ввода гос.
+         номера — водитель видит его, даже если пока не собирается
+         заходить в кабинет. Тот же текст/фото/видео, что и в кабинете. -->
+    <div id="gateAnnounceWrap"></div>
     <div style="text-align:center;"><a href="index.html" style="color:var(--muted); font-size:13px;">← Назад к выбору роли</a></div>
   </div>
 
@@ -210,6 +214,10 @@
     document.getElementById('plateInput').value = currentPlate;
     checkVehicle(currentPlate, true);
   }
+
+  // Показываем объявление сразу на экране входа, не дожидаясь логина
+  // (гос. номер ещё не введён — объявление общее для всех).
+  loadAnnouncement('gateAnnounceWrap');
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -405,7 +413,7 @@
 
     renderHistory(rows);
     loadActs();
-    loadAnnouncement();
+    loadAnnouncement('announceWrap');
   }
 
   function escapeHtml(s) {
@@ -463,11 +471,14 @@
   }
 
   // Общее объявление для всех водителей — не зависит от гос. номера,
-  // но грузим его именно при открытии кабинета, чтобы не показывать
-  // его на экране входа. Может содержать фото или видео, которое
-  // прикрепил супер-админ в разделе "Учёт ТО" (см. to.html).
-  function loadAnnouncement() {
-    var wrap = document.getElementById('announceWrap');
+  // поэтому грузим его и на экране входа (gateAnnounceWrap), и в кабинете
+  // (announceWrap) — targetId выбирает, куда именно вставить разметку.
+  // Может содержать фото или видео, которое прикрепил супер-админ в
+  // разделе "Учёт ТО" (см. to.html — там же теперь и загрузка фото/видео,
+  // отдельный announce.html для этого больше не используется).
+  function loadAnnouncement(targetId) {
+    var wrap = document.getElementById(targetId);
+    if (!wrap) return;
     apiGet({ action: 'announcement' }).then(function (res) {
       if (!res.ok || (!res.text && !res.mediaUrl)) {
         wrap.innerHTML = '';
