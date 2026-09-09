@@ -41,9 +41,56 @@
   .choice.act{padding:14px 16px; margin-bottom:0; margin-top:6px;}
   .choice.act .title{color:var(--muted); font-size:14px;}
   .choice.act .emoji{font-size:20px; margin-bottom:4px;}
+
+  /* --- кнопка установки в углу --- */
+  #installCorner{
+    position:fixed; top:12px; right:12px; z-index:50;
+    display:none; align-items:center; gap:6px;
+    background:linear-gradient(90deg,var(--accent),var(--accent-2));
+    color:#0b1220; font-weight:700; font-size:12.5px;
+    border:none; border-radius:999px; padding:9px 14px;
+    cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.35);
+  }
+  #installCorner:active{opacity:.85;}
+  #installCorner .ic{font-size:14px;}
+
+  .install-modal-bg{
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
+    z-index:100; align-items:flex-end; justify-content:center;
+  }
+  .install-modal-bg.show{display:flex;}
+  .install-modal{
+    background:var(--card); border:1px solid var(--border);
+    border-radius:18px 18px 0 0; padding:20px 18px 26px; width:100%;
+    max-width:420px; text-align:left; animation:slideUp .2s ease-out;
+  }
+  @keyframes slideUp{from{transform:translateY(20px); opacity:0;} to{transform:translateY(0); opacity:1;}}
+  .install-modal h2{font-size:17px; margin:0 0 12px;}
+  .install-modal .step{font-size:13.5px; line-height:1.55; margin:6px 0;}
+  .install-modal b{color:var(--accent-2);}
+  .install-modal .close-btn{
+    display:block; width:100%; margin-top:16px; background:var(--border);
+    color:var(--text); border:none; border-radius:12px; padding:12px;
+    font-weight:700; font-size:14px; cursor:pointer;
+  }
 </style>
 </head>
 <body>
+
+  <button id="installCorner">
+    <span class="ic">⬇️</span><span>Установить</span>
+  </button>
+
+  <div class="install-modal-bg" id="installModalBg">
+    <div class="install-modal">
+      <h2>Установка приложения</h2>
+      <div id="installModalBody">
+        <!-- заполняется скриптом в зависимости от платформы -->
+      </div>
+      <button class="close-btn" id="installModalClose">Понятно</button>
+    </div>
+  </div>
+
   <div class="wrap">
     <svg class="logo-badge" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
       <defs>
@@ -92,6 +139,85 @@
       });
     });
   }
+
+  (function () {
+    var cornerBtn = document.getElementById('installCorner');
+    var modalBg = document.getElementById('installModalBg');
+    var modalBody = document.getElementById('installModalBody');
+    var modalClose = document.getElementById('installModalClose');
+
+    function isStandalone() {
+      return window.matchMedia('(display-mode: standalone)').matches ||
+             window.navigator.standalone === true; // iOS Safari
+    }
+
+    // Уже установлено — кнопку вообще не показываем.
+    if (isStandalone()) return;
+
+    var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    var deferredPrompt = null;
+
+    function openModal(html) {
+      modalBody.innerHTML = html;
+      modalBg.classList.add('show');
+    }
+    function closeModal() {
+      modalBg.classList.remove('show');
+    }
+    modalClose.addEventListener('click', closeModal);
+    modalBg.addEventListener('click', function (e) {
+      if (e.target === modalBg) closeModal();
+    });
+
+    var iosSteps =
+      '<div class="step">1. Нажмите кнопку <b>«Поделиться»</b> внизу экрана Safari (значок ⬆️ в квадрате).</div>' +
+      '<div class="step">2. В списке выберите <b>«На экран «Домой»»</b>.</div>' +
+      '<div class="step">3. Нажмите <b>«Добавить»</b>.</div>' +
+      '<div class="step">4. После этого откройте приложение с иконки на рабочем столе.</div>';
+
+    var fallbackSteps =
+      '<div class="step">Этот браузер не поддерживает установку приложения напрямую.</div>' +
+      '<div class="step">Откройте эту ссылку в <b>Chrome</b> (Android) или <b>Safari</b> (iPhone) и установите оттуда — либо через меню браузера выберите <b>«Установить приложение»</b> / <b>«Добавить на главный экран»</b>.</div>';
+
+    // Chrome/Edge/Android: браузер сообщает, что установку можно предложить нативно.
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      cornerBtn.style.display = 'flex';
+    });
+
+    window.addEventListener('appinstalled', function () {
+      cornerBtn.style.display = 'none';
+      closeModal();
+    });
+
+    cornerBtn.addEventListener('click', function () {
+      if (deferredPrompt) {
+        // Прямой вызов системного окна установки Chrome/Edge/Android.
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.finally(function () {
+          deferredPrompt = null;
+        });
+      } else if (isIOS) {
+        openModal(iosSteps);
+      } else {
+        openModal(fallbackSteps);
+      }
+    });
+
+    if (isIOS) {
+      // На iOS нет beforeinstallprompt — просто всегда показываем кнопку с инструкцией.
+      cornerBtn.style.display = 'flex';
+    } else {
+      // На прочих браузерах ждём beforeinstallprompt; если через 1.5с его нет —
+      // это либо неподдерживаемый браузер, либо встроенный браузер соцсети.
+      setTimeout(function () {
+        if (!deferredPrompt) {
+          cornerBtn.style.display = 'flex';
+        }
+      }, 1500);
+    }
+  })();
 </script>
 </body>
 </html>
