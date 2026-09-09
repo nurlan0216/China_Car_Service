@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>China Car Service</title>
+<title>Кабинет водителя — China Car Service</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0e1318">
 <link rel="icon" href="icons/icon-192.png">
@@ -17,121 +17,497 @@
   body{
     margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     background:var(--bg); color:var(--text); padding:16px;
-    min-height:100vh; display:flex; align-items:center; justify-content:center;
   }
-  .wrap{max-width:360px; width:100%; text-align:center;}
-  .logo-badge{margin:0 auto 14px; width:84px; height:84px; display:block;}
-  .logo{
-    font-weight:800; letter-spacing:1px; font-size:15px; color:var(--muted);
-    margin-bottom:6px;
+  h1{font-size:20px; margin:0 0 4px;}
+  h2{font-size:16px; margin:0 0 10px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:16px;
   }
-  h1{font-size:22px; margin:0 0 6px;}
-  .sub{color:var(--muted); font-size:13px; margin-bottom:28px;}
-  .choice{
-    display:block; width:100%; text-align:left; background:var(--card);
-    border:1px solid var(--border); border-radius:14px; padding:18px 16px;
-    margin-bottom:14px; cursor:pointer; text-decoration:none; color:var(--text);
+  .row{display:flex; gap:8px;}
+  input, select, textarea{
+    width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
+    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
   }
-  .choice:active{border-color:var(--accent);}
-  .choice .emoji{font-size:26px; margin-bottom:6px; display:block;}
-  .choice .title{font-size:16px; font-weight:700; margin-bottom:2px;}
-  .choice .desc{font-size:13px; color:var(--muted);}
-  .choice.driver .title{color:var(--accent-2);}
-  .choice.staff .title{color:var(--accent);}
-  .choice.act{padding:14px 16px; margin-bottom:0; margin-top:6px;}
-  .choice.act .title{color:var(--muted); font-size:14px;}
-  .choice.act .emoji{font-size:20px; margin-bottom:4px;}
-
-  /* --- кнопка установки в углу --- */
-  #installCorner{
-    position:fixed; top:12px; right:12px; z-index:50;
-    display:none; align-items:center; gap:6px;
-    background:linear-gradient(90deg,var(--accent),var(--accent-2));
-    color:#0b1220; font-weight:700; font-size:12.5px;
-    border:none; border-radius:999px; padding:9px 14px;
-    cursor:pointer; box-shadow:0 4px 14px rgba(0,0,0,.35);
+  input:focus, select:focus, textarea:focus{outline:1px solid var(--accent);}
+  button{
+    padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
+    cursor:pointer;
   }
-  #installCorner:active{opacity:.85;}
-  #installCorner .ic{font-size:14px;}
-
-  .install-modal-bg{
-    display:none; position:fixed; inset:0; background:rgba(0,0,0,.55);
-    z-index:100; align-items:flex-end; justify-content:center;
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-secondary{background:#0d141e; color:var(--text); border:1px solid var(--border);}
+  .btn-full{width:100%;}
+  label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
+  .summary{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
+  .pill{
+    background:#0d141e; border:1px solid var(--border); border-radius:10px;
+    padding:8px 12px; font-size:13px; flex:1; min-width:120px;
   }
-  .install-modal-bg.show{display:flex;}
-  .install-modal{
-    background:var(--card); border:1px solid var(--border);
-    border-radius:18px 18px 0 0; padding:20px 18px 26px; width:100%;
-    max-width:420px; text-align:left; animation:slideUp .2s ease-out;
+  .pill b{display:block; color:var(--text); font-size:14px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th, td{text-align:left; padding:8px 6px; border-bottom:1px solid var(--border);}
+  th{color:var(--muted); font-weight:600;}
+  .empty{color:var(--muted); text-align:center; padding:20px 0;}
+  .loading{color:var(--muted); font-size:13px;}
+  .error{color:var(--danger); font-size:13px; margin-top:4px;}
+  a.pdf-link{
+    display:inline-block; margin-top:4px; text-decoration:none; color:#fff;
+    background:var(--accent-2); padding:10px 14px; border-radius:10px; font-weight:600; font-size:14px;
   }
-  @keyframes slideUp{from{transform:translateY(20px); opacity:0;} to{transform:translateY(0); opacity:1;}}
-  .install-modal h2{font-size:17px; margin:0 0 12px;}
-  .install-modal .step{font-size:13.5px; line-height:1.55; margin:6px 0;}
-  .install-modal b{color:var(--accent-2);}
-  .install-modal .close-btn{
-    display:block; width:100%; margin-top:16px; background:var(--border);
-    color:var(--text); border:none; border-radius:12px; padding:12px;
-    font-weight:700; font-size:14px; cursor:pointer;
+  a.act-link{color:var(--accent); text-decoration:none; font-weight:600;}
+  #gate{max-width:340px; margin:40px auto 0;}
+  .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
+  .rec{
+    background:#241a0d; border:1px solid #4a3a1f; color:#f0c674; border-radius:10px;
+    padding:10px 12px; font-size:13px; margin-bottom:8px;
   }
+  .veh-title{font-size:18px; font-weight:700; margin-bottom:2px;}
+  .veh-sub{color:var(--muted); font-size:13px; margin-bottom:12px;}
+  .scan-row{display:flex; gap:8px;}
+  .scan-row input{flex:1;}
+  .scan-row button{white-space:nowrap;}
+  .wa-master{
+    position:fixed; left:16px; right:16px; bottom:16px; z-index:100;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:#25D366; color:#08350f; text-decoration:none;
+    font-weight:700; font-size:15px; padding:13px 16px; border-radius:14px;
+    box-shadow:0 6px 18px rgba(0,0,0,.35);
+  }
+  .wa-master svg{width:20px; height:20px; flex-shrink:0;}
+  body{padding-bottom:78px;}
 </style>
 </head>
 <body>
 
-  <button id="installCorner">
-    <span class="ic">⬇️</span><span>Установить</span>
-  </button>
+  <a class="wa-master" href="https://wa.me/77026743123" target="_blank" rel="noopener">
+    <svg viewBox="0 0 32 32" fill="currentColor"><path d="M16.02 3C9.4 3 4 8.37 4 15c0 2.36.68 4.56 1.86 6.42L4 29l7.77-2.04A11.9 11.9 0 0 0 16.02 27C22.63 27 28 21.63 28 15S22.63 3 16.02 3zm0 21.8c-2 0-3.87-.55-5.47-1.51l-.39-.23-4.6 1.21 1.23-4.48-.25-.46A9.7 9.7 0 0 1 5.2 15c0-5.96 4.86-10.8 10.82-10.8S26.84 9.04 26.84 15 21.98 24.8 16.02 24.8zm5.94-8.1c-.33-.16-1.92-.95-2.22-1.06-.3-.11-.51-.16-.73.17-.22.33-.84 1.06-1.03 1.27-.19.22-.38.24-.71.08-.33-.17-1.38-.51-2.63-1.63-.97-.87-1.63-1.94-1.82-2.27-.19-.33-.02-.5.14-.67.15-.15.33-.38.5-.57.16-.19.22-.33.33-.55.11-.22.05-.41-.03-.57-.08-.17-.73-1.76-1-2.4-.26-.63-.53-.55-.73-.56h-.62c-.22 0-.57.08-.87.41-.3.33-1.14 1.11-1.14 2.71 0 1.6 1.17 3.15 1.33 3.37.16.22 2.3 3.51 5.58 4.92.78.34 1.39.54 1.87.69.79.25 1.5.22 2.07.13.63-.1 1.92-.79 2.19-1.55.27-.76.27-1.42.19-1.55-.08-.14-.3-.22-.63-.38z"/></svg>
+    Ваш мастер — связаться
+  </a>
 
-  <div class="install-modal-bg" id="installModalBg">
-    <div class="install-modal">
-      <h2>Установка приложения</h2>
-      <div id="installModalBody">
-        <!-- заполняется скриптом в зависимости от платформы -->
+  <!-- ЭКРАН ВХОДА: только гос. номер, без пароля -->
+  <div id="gate">
+    <div style="text-align:center; color:var(--muted); font-weight:800; letter-spacing:1px; font-size:13px; margin-bottom:6px;">CHINA CAR SERVICE</div>
+    <h1 style="text-align:center">🚕 Кабинет водителя</h1>
+    <div class="sub" style="text-align:center">Введите гос. номер вашей машины</div>
+    <div class="card">
+      <input id="plateInput" placeholder="Например, 123ABC02" autocapitalize="characters">
+      <button class="btn-primary btn-full" onclick="doLogin()">Войти</button>
+      <div class="error" id="gateError"></div>
+      <div class="loading" id="gateStatus"></div>
+    </div>
+    <div style="text-align:center;"><a href="index.html" style="color:var(--muted); font-size:13px;">← Назад к выбору роли</a></div>
+  </div>
+
+  <!-- ФОРМА РЕГИСТРАЦИИ (первый вход, машина не найдена) -->
+  <div id="regScreen" style="display:none;">
+    <span class="logout" onclick="logout()">Сменить номер</span>
+    <h1>🆕 Регистрация</h1>
+    <div class="sub">Машина <b id="regPlate"></b> ещё не в базе — заполните данные один раз</div>
+    <div class="card">
+      <label>ФИО водителя</label>
+      <input id="r_fio" placeholder="Иванов Иван Иванович">
+
+      <label>Тип авто</label>
+      <select id="r_type">
+        <option value="Такси">Такси</option>
+        <option value="Частная">Частная</option>
+      </select>
+
+      <label>VIN</label>
+      <div class="scan-row">
+        <input id="r_vin" placeholder="Введите VIN вручную">
+        <button class="btn-secondary" onclick="scanVin()">📷 Скан</button>
       </div>
-      <button class="close-btn" id="installModalClose">Понятно</button>
+      <input id="r_vinPhoto" type="file" accept="image/*" capture="environment" style="display:none;">
+      <div class="loading" id="scanStatus"></div>
+
+      <label>WhatsApp номер</label>
+      <input id="r_whatsapp" placeholder="+996...">
+
+      <label>Модель автомобиля</label>
+      <input id="r_model" placeholder="Например, Chevrolet Cobalt">
+
+      <button class="btn-primary btn-full" onclick="submitRegister()">Зарегистрироваться</button>
+      <div class="error" id="regError"></div>
+      <div class="loading" id="regStatus"></div>
     </div>
   </div>
 
-  <div class="wrap">
-    <svg class="logo-badge" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="badgeGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="#3b82f6"/>
-          <stop offset="100%" stop-color="#22c55e"/>
-        </linearGradient>
-      </defs>
-      <circle cx="50" cy="50" r="47" fill="#182130" stroke="url(#badgeGrad)" stroke-width="3"/>
-      <path d="M28 60 L33 46 C34.5 42 37 40 41.5 40 L58.5 40 C63 40 65.5 42 67 46 L72 60"
-            fill="none" stroke="url(#badgeGrad)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-      <rect x="24" y="58" width="52" height="14" rx="7" fill="none" stroke="url(#badgeGrad)" stroke-width="3.2"/>
-      <circle cx="36" cy="73" r="5.5" fill="#0f1720" stroke="url(#badgeGrad)" stroke-width="3"/>
-      <circle cx="64" cy="73" r="5.5" fill="#0f1720" stroke="url(#badgeGrad)" stroke-width="3"/>
-      <rect x="40" y="47" width="8" height="6" rx="1.5" fill="#0f1720"/>
-      <rect x="52" y="47" width="8" height="6" rx="1.5" fill="#0f1720"/>
-    </svg>
-    <div class="logo">CHINA CAR SERVICE</div>
-    <h1>Учёт автопарка</h1>
-    <div class="sub">Выберите, кто вы</div>
+  <!-- КАБИНЕТ ВОДИТЕЛЯ -->
+  <div id="cabinet" style="display:none;">
+    <span class="logout" onclick="logout()">Сменить номер</span>
+    <h1>🚕 Мой автомобиль</h1>
+    <div class="sub" id="cabPlateSub"></div>
 
-    <a class="choice driver" href="driver.html">
-      <span class="emoji">🚕</span>
-      <div class="title">Я водитель</div>
-      <div class="desc">История ТО моей машины, акты, PDF-выгрузка — по гос. номеру</div>
-    </a>
+    <div class="card">
+      <div class="veh-title" id="vehModel">—</div>
+      <div class="veh-sub" id="vehVin">VIN: —</div>
+      <div class="veh-sub" id="vehDriver">—</div>
 
-    <a class="choice staff" href="to.html">
-      <span class="emoji">🔧</span>
-      <div class="title">Я сотрудник СТО</div>
-      <div class="desc">Учёт ТО автопарка — вход по коду доступа</div>
-    </a>
+      <div id="recsWrap"></div>
 
-    <a class="choice act" href="act.html">
-      <span class="emoji">📝</span>
-      <div class="title">Акт приёма-передачи ТС</div>
-      <div class="desc">Оформить акт приёма-передачи автомобиля</div>
-    </a>
+      <div class="summary" id="costSummary"></div>
+
+      <a id="pdfLink" class="pdf-link" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
+      <a id="pdfShareLink" class="pdf-link" href="#" onclick="sharePdf(event)">🔗 Поделиться PDF-историей</a>
+    </div>
+
+    <div class="card">
+      <h2>История обслуживания</h2>
+      <div id="historyWrap"></div>
+    </div>
+
+    <div class="card">
+      <h2>Акты приёма-передачи</h2>
+      <div class="row">
+        <div style="flex:1;">
+          <label>С даты</label>
+          <input type="date" id="actsFrom">
+        </div>
+        <div style="flex:1;">
+          <label>По дату</label>
+          <input type="date" id="actsTo">
+        </div>
+      </div>
+      <button class="btn-secondary btn-full" onclick="loadActs()">Показать акты</button>
+      <div id="actsWrap" style="margin-top:12px;"></div>
+    </div>
   </div>
 
 <script>
+  // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App (тот же, что в to.html/act.html).
+  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
+
+  var currentPlate = localStorage.getItem('driver_plate') || '';
+
+  if (currentPlate) {
+    document.getElementById('plateInput').value = currentPlate;
+    checkVehicle(currentPlate, true);
+  }
+
+  function apiGet(params) {
+    var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
+    return fetch(url).then(function (r) { return r.json(); });
+  }
+
+  // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
+  function apiPost(payload) {
+    return fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function doLogin() {
+    var plate = document.getElementById('plateInput').value.trim();
+    if (!plate) return;
+    document.getElementById('gateError').innerText = '';
+    checkVehicle(plate, false);
+  }
+
+  document.getElementById('plateInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') doLogin();
+  });
+
+  function checkVehicle(plate, silent) {
+    if (!silent) document.getElementById('gateStatus').innerText = 'Ищу машину...';
+    apiGet({ action: 'drivervehicle', plate: plate })
+      .then(function (res) {
+        document.getElementById('gateStatus').innerText = '';
+        if (!res.ok) {
+          document.getElementById('gateError').innerText = res.error || 'Ошибка запроса';
+          return;
+        }
+        currentPlate = plate;
+        localStorage.setItem('driver_plate', plate);
+        if (res.exists) {
+          showCabinet(res);
+        } else {
+          showRegister(plate);
+        }
+      })
+      .catch(function () {
+        document.getElementById('gateStatus').innerText = '';
+        document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL и подключение.';
+      });
+  }
+
+  function logout() {
+    localStorage.removeItem('driver_plate');
+    location.reload();
+  }
+
+  // ---- РЕГИСТРАЦИЯ ----
+
+  function showRegister(plate) {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('cabinet').style.display = 'none';
+    document.getElementById('regScreen').style.display = 'block';
+    document.getElementById('regPlate').innerText = plate;
+  }
+
+  function scanVin() {
+    document.getElementById('r_vinPhoto').click();
+  }
+
+  document.getElementById('r_vinPhoto').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    var statusEl = document.getElementById('scanStatus');
+    statusEl.innerText = 'Загружаю распознавание...';
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      var imageDataUrl = reader.result;
+      loadTesseract().then(function (Tesseract) {
+        statusEl.innerText = 'Распознаю VIN...';
+        return Tesseract.recognize(imageDataUrl, 'eng');
+      }).then(function (result) {
+        var raw = (result.data.text || '').toUpperCase();
+        var cleaned = raw.replace(/[^A-HJ-NPR-Z0-9]/g, ''); // VIN не содержит I,O,Q
+        if (cleaned.length >= 11) {
+          // берём наиболее правдоподобный отрезок длиной 17, если он есть
+          var match = cleaned.match(/[A-HJ-NPR-Z0-9]{17}/);
+          document.getElementById('r_vin').value = match ? match[0] : cleaned.slice(0, 17);
+          statusEl.innerText = '✅ Распознано — проверьте и поправьте при необходимости';
+        } else {
+          statusEl.innerText = '⚠️ Не удалось распознать чётко — введите VIN вручную';
+        }
+      }).catch(function () {
+        statusEl.innerText = '⚠️ Распознавание недоступно — введите VIN вручную';
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+
+  var tesseractPromise = null;
+  function loadTesseract() {
+    if (tesseractPromise) return tesseractPromise;
+    tesseractPromise = new Promise(function (resolve, reject) {
+      if (window.Tesseract) { resolve(window.Tesseract); return; }
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      script.onload = function () { resolve(window.Tesseract); };
+      script.onerror = function () { reject(new Error('load failed')); };
+      document.head.appendChild(script);
+    });
+    return tesseractPromise;
+  }
+
+  /**
+   * Приводит номер телефона к формату +7XXXXXXXXXX (8 -> +7), чтобы
+   * с ним потом можно было без ошибки открыть WhatsApp.
+   */
+  function normalizePhone(raw) {
+    var digits = (raw || '').replace(/[^0-9]/g, '');
+    if (digits.length === 11 && digits[0] === '8') { digits = '7' + digits.slice(1); }
+    else if (digits.length === 10) { digits = '7' + digits; }
+    return digits ? '+' + digits : '';
+  }
+
+  function submitRegister() {
+    var fio = document.getElementById('r_fio').value.trim();
+    var taxiOrPrivate = document.getElementById('r_type').value;
+    var vin = document.getElementById('r_vin').value.trim();
+    var whatsapp = normalizePhone(document.getElementById('r_whatsapp').value.trim());
+    var model = document.getElementById('r_model').value.trim();
+    var errEl = document.getElementById('regError');
+    errEl.innerText = '';
+
+    if (!fio || !whatsapp) {
+      errEl.innerText = 'Заполните ФИО и WhatsApp';
+      return;
+    }
+
+    document.getElementById('regStatus').innerText = 'Регистрирую...';
+    apiPost({
+      action: 'driverRegister',
+      plate: currentPlate,
+      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model }
+    }).then(function (res) {
+      document.getElementById('regStatus').innerText = '';
+      if (!res.ok) {
+        errEl.innerText = res.error || 'Не удалось зарегистрироваться';
+        return;
+      }
+      // после успешной регистрации сразу открываем кабинет
+      apiGet({ action: 'drivervehicle', plate: currentPlate }).then(function (res2) {
+        if (res2.ok && res2.exists) showCabinet(res2);
+      });
+    }).catch(function () {
+      document.getElementById('regStatus').innerText = '';
+      errEl.innerText = 'Ошибка сети';
+    });
+  }
+
+  // ---- КАБИНЕТ ----
+
+  function showCabinet(data) {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('regScreen').style.display = 'none';
+    document.getElementById('cabinet').style.display = 'block';
+
+    document.getElementById('cabPlateSub').innerText = 'Гос. номер: ' + currentPlate;
+    document.getElementById('vehModel').innerText = data.model || 'Модель не указана';
+    document.getElementById('vehVin').innerText = 'VIN: ' + (data.vin || '—');
+    document.getElementById('vehDriver').innerText =
+      (data.driverFio || '—') + (data.taxiOrPrivate ? ' · ' + data.taxiOrPrivate : '') +
+      (data.whatsapp ? ' · WhatsApp: ' + data.whatsapp : '');
+
+    var recsWrap = document.getElementById('recsWrap');
+    recsWrap.innerHTML = '';
+    (data.recommendations || []).forEach(function (r) {
+      var div = document.createElement('div');
+      div.className = 'rec';
+      div.innerText = '🔔 ' + r;
+      recsWrap.appendChild(div);
+    });
+
+    var cs = data.costSummary || { d30: 0, d90: 0, d365: 0, all: 0 };
+    var summaryHtml = '';
+    summaryHtml += '<div class="pill">30 дней<b>' + Number(cs.d30 || 0).toLocaleString('ru-RU') + '</b></div>';
+    summaryHtml += '<div class="pill">90 дней<b>' + Number(cs.d90 || 0).toLocaleString('ru-RU') + '</b></div>';
+    summaryHtml += '<div class="pill">365 дней<b>' + Number(cs.d365 || 0).toLocaleString('ru-RU') + '</b></div>';
+    summaryHtml += '<div class="pill">Всего<b>' + Number(cs.all || 0).toLocaleString('ru-RU') + '</b></div>';
+    document.getElementById('costSummary').innerHTML = summaryHtml;
+
+    renderHistory(data.rows || []);
+    loadActs();
+  }
+
+  function renderHistory(rows) {
+    var wrap = document.getElementById('historyWrap');
+    if (rows.length === 0) {
+      wrap.innerHTML = '<div class="empty">Записей пока нет</div>';
+      return;
+    }
+    var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
+    rows.forEach(function (r) {
+      html += '<tr><td>' + r.date + '</td><td>' + r.mileage + '</td><td>' + r.type +
+              (r.description ? '<br><span style="color:var(--muted)">' + r.description + '</span>' : '') +
+              '</td><td>' + (r.cost || '') + '</td></tr>';
+    });
+    html += '</table>';
+    wrap.innerHTML = html;
+  }
+
+  function loadActs() {
+    var from = document.getElementById('actsFrom').value;
+    var to = document.getElementById('actsTo').value;
+    var params = { action: 'acts', plate: currentPlate };
+    if (from) params.dateFrom = from;
+    if (to) params.dateTo = to;
+
+    var wrap = document.getElementById('actsWrap');
+    wrap.innerHTML = '<div class="loading">Загружаю акты...</div>';
+
+    apiGet(params).then(function (res) {
+      if (!res.ok) {
+        wrap.innerHTML = '<div class="error">' + (res.error || 'Ошибка загрузки актов') + '</div>';
+        return;
+      }
+      renderActs(res.acts || []);
+    }).catch(function () {
+      wrap.innerHTML = '<div class="error">Ошибка сети</div>';
+    });
+  }
+
+  function renderActs(acts) {
+    var wrap = document.getElementById('actsWrap');
+    if (acts.length === 0) {
+      wrap.innerHTML = '<div class="empty">Актов за выбранный период нет</div>';
+      return;
+    }
+    var html = '<table><tr><th>Дата</th><th>Тип</th><th>Пробег</th><th>Дефектов</th><th>PDF</th></tr>';
+    acts.forEach(function (a) {
+      var d = a.createdAt ? new Date(a.createdAt) : null;
+      var dateStr = d ? d.toLocaleDateString('ru-RU') : '';
+      html += '<tr><td>' + dateStr + '</td><td>' + (a.actType || '') + '</td><td>' +
+              (a.mileage || '') + '</td><td>' + (a.defectsCount || 0) + '</td><td>' +
+              (a.fileUrl ? '<a class="act-link" href="' + a.fileUrl + '" target="_blank">Открыть</a>' : '—') +
+              '</td></tr>';
+    });
+    html += '</table>';
+    wrap.innerHTML = html;
+  }
+
+  function downloadPdf(evt) {
+    evt.preventDefault();
+    var link = document.getElementById('pdfLink');
+    var oldText = link.textContent;
+    link.textContent = '⏳ Готовим файл...';
+
+    fetch(SCRIPT_URL + '?action=driverpdf&plate=' + encodeURIComponent(currentPlate))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        link.textContent = oldText;
+        if (!data.ok) {
+          alert(data.error || 'Не удалось сформировать PDF');
+          return;
+        }
+        var byteChars = atob(data.base64);
+        var byteNumbers = new Array(byteChars.length);
+        for (var i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        var byteArray = new Uint8Array(byteNumbers);
+        var blob = new Blob([byteArray], { type: 'application/pdf' });
+        var blobUrl = URL.createObjectURL(blob);
+
+        var a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = data.fileName || ('История_ТО_' + currentPlate + '.pdf');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 10000);
+      })
+      .catch(function (err) {
+        link.textContent = oldText;
+        alert('Ошибка соединения: ' + err);
+      });
+  }
+
+  /* Тот же файл, что и "Скачать PDF-историю", но вместо скачивания
+     открывает системное меню "Поделиться" — можно сразу отправить себе
+     или кому-то в WhatsApp, Telegram и т.д. Без сервера и без ключей. */
+  function sharePdf(evt) {
+    evt.preventDefault();
+    var link = document.getElementById('pdfShareLink');
+    var oldText = link.textContent;
+    link.textContent = '⏳ Готовим файл...';
+
+    fetch(SCRIPT_URL + '?action=driverpdf&plate=' + encodeURIComponent(currentPlate))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        link.textContent = oldText;
+        if (!data.ok) {
+          alert(data.error || 'Не удалось сформировать PDF');
+          return;
+        }
+        var byteChars = atob(data.base64);
+        var byteNumbers = new Array(byteChars.length);
+        for (var i = 0; i < byteChars.length; i++) {
+          byteNumbers[i] = byteChars.charCodeAt(i);
+        }
+        var byteArray = new Uint8Array(byteNumbers);
+        var fileName = data.fileName || ('История_ТО_' + currentPlate + '.pdf');
+        var file = new File([byteArray], fileName, { type: 'application/pdf' });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          navigator.share({ files: [file], title: fileName }).catch(function () {});
+        } else {
+          alert('Ваш браузер не поддерживает "Поделиться". Используйте кнопку "Скачать PDF-историю".');
+        }
+      })
+      .catch(function (err) {
+        link.textContent = oldText;
+        alert('Ошибка соединения: ' + err);
+      });
+  }
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('service-worker.js').catch(function (err) {
@@ -139,85 +515,6 @@
       });
     });
   }
-
-  (function () {
-    var cornerBtn = document.getElementById('installCorner');
-    var modalBg = document.getElementById('installModalBg');
-    var modalBody = document.getElementById('installModalBody');
-    var modalClose = document.getElementById('installModalClose');
-
-    function isStandalone() {
-      return window.matchMedia('(display-mode: standalone)').matches ||
-             window.navigator.standalone === true; // iOS Safari
-    }
-
-    // Уже установлено — кнопку вообще не показываем.
-    if (isStandalone()) return;
-
-    var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    var deferredPrompt = null;
-
-    function openModal(html) {
-      modalBody.innerHTML = html;
-      modalBg.classList.add('show');
-    }
-    function closeModal() {
-      modalBg.classList.remove('show');
-    }
-    modalClose.addEventListener('click', closeModal);
-    modalBg.addEventListener('click', function (e) {
-      if (e.target === modalBg) closeModal();
-    });
-
-    var iosSteps =
-      '<div class="step">1. Нажмите кнопку <b>«Поделиться»</b> внизу экрана Safari (значок ⬆️ в квадрате).</div>' +
-      '<div class="step">2. В списке выберите <b>«На экран «Домой»»</b>.</div>' +
-      '<div class="step">3. Нажмите <b>«Добавить»</b>.</div>' +
-      '<div class="step">4. После этого откройте приложение с иконки на рабочем столе.</div>';
-
-    var fallbackSteps =
-      '<div class="step">Этот браузер не поддерживает установку приложения напрямую.</div>' +
-      '<div class="step">Откройте эту ссылку в <b>Chrome</b> (Android) или <b>Safari</b> (iPhone) и установите оттуда — либо через меню браузера выберите <b>«Установить приложение»</b> / <b>«Добавить на главный экран»</b>.</div>';
-
-    // Chrome/Edge/Android: браузер сообщает, что установку можно предложить нативно.
-    window.addEventListener('beforeinstallprompt', function (e) {
-      e.preventDefault();
-      deferredPrompt = e;
-      cornerBtn.style.display = 'flex';
-    });
-
-    window.addEventListener('appinstalled', function () {
-      cornerBtn.style.display = 'none';
-      closeModal();
-    });
-
-    cornerBtn.addEventListener('click', function () {
-      if (deferredPrompt) {
-        // Прямой вызов системного окна установки Chrome/Edge/Android.
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.finally(function () {
-          deferredPrompt = null;
-        });
-      } else if (isIOS) {
-        openModal(iosSteps);
-      } else {
-        openModal(fallbackSteps);
-      }
-    });
-
-    if (isIOS) {
-      // На iOS нет beforeinstallprompt — просто всегда показываем кнопку с инструкцией.
-      cornerBtn.style.display = 'flex';
-    } else {
-      // На прочих браузерах ждём beforeinstallprompt; если через 1.5с его нет —
-      // это либо неподдерживаемый браузер, либо встроенный браузер соцсети.
-      setTimeout(function () {
-        if (!deferredPrompt) {
-          cornerBtn.style.display = 'flex';
-        }
-      }, 1500);
-    }
-  })();
 </script>
 </body>
 </html>
