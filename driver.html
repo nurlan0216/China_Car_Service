@@ -56,6 +56,9 @@
     background:var(--accent-2); padding:10px 14px; border-radius:10px; font-weight:600; font-size:14px;
   }
   a.act-link{color:var(--accent); text-decoration:none; font-weight:600;}
+  .toggle{color:var(--accent); font-size:14px; cursor:pointer; user-select:none; margin-top:8px;}
+  .announce-media{max-width:100%; border-radius:10px; margin-top:8px; display:block;}
+  a.announce-video-link{color:var(--accent); font-weight:600; text-decoration:none; display:inline-block; margin-top:8px;}
   #gate{max-width:340px; margin:40px auto 0;}
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
   .rec{
@@ -155,10 +158,24 @@
 
       <div id="recsWrap"></div>
 
+      <!-- Рекомендации выше знают только пробег НА МОМЕНТ последней записи
+           в истории — приложение само не знает, сколько машина проехала с
+           тех пор. Эта кнопка даёт водителю самому один раз указать
+           текущий пробег, и сервер сразу пересчитывает совет. -->
+      <div class="toggle" onclick="toggleMileageCheck()" id="mileageToggle">🔍 Проверить следующее ТО по текущему пробегу</div>
+      <div id="mileageCheckForm" style="display:none; margin-top:8px;">
+        <label>Текущий пробег, км</label>
+        <div class="row">
+          <input id="currentMileageInput" type="number" placeholder="Например, 48000">
+          <button class="btn-primary" onclick="checkMileage()">Проверить</button>
+        </div>
+        <div class="loading" id="mileageCheckStatus"></div>
+        <div id="mileageCheckResult"></div>
+      </div>
+
       <div class="summary" id="costSummary"></div>
 
       <a id="pdfLink" class="pdf-link" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
-      <a id="pdfShareLink" class="pdf-link" href="#" onclick="sharePdf(event)">🔗 Поделиться PDF-историей</a>
     </div>
 
     <div class="card">
@@ -366,16 +383,12 @@
 
     // Рекомендации теперь приходят всегда (по маслу и фильтру, если по ним
     // есть хоть одна запись), с полем status: 'ok' | 'soon' | 'due' | 'unknown'.
-    var recsWrap = document.getElementById('recsWrap');
-    recsWrap.innerHTML = '';
-    var icons = { ok: '✅', soon: '🔔', due: '⚠️', unknown: 'ℹ️' };
-    (data.recommendations || []).forEach(function (r) {
-      var div = document.createElement('div');
-      var status = r.status || 'unknown';
-      div.className = 'rec rec-' + status;
-      div.innerText = (icons[status] || 'ℹ️') + ' ' + (r.text || r);
-      recsWrap.appendChild(div);
-    });
+    renderRecommendations(data.recommendations, document.getElementById('recsWrap'));
+    // Новая проверка "по текущему пробегу" сбрасывается при каждом новом
+    // открытии кабинета — предыдущий введённый пробег мог устареть.
+    document.getElementById('mileageCheckForm').style.display = 'none';
+    document.getElementById('currentMileageInput').value = '';
+    document.getElementById('mileageCheckResult').innerHTML = '';
 
     var rows = data.rows || [];
     // rows приходят от сервера новыми сверху (см. apiDriverGetVehicle),
@@ -401,17 +414,74 @@
     });
   }
 
+  var REC_ICONS = { ok: '✅', soon: '🔔', due: '⚠️', unknown: 'ℹ️' };
+  function renderRecommendations(list, targetEl) {
+    targetEl.innerHTML = '';
+    (list || []).forEach(function (r) {
+      var div = document.createElement('div');
+      var status = r.status || 'unknown';
+      div.className = 'rec rec-' + status;
+      div.innerText = (REC_ICONS[status] || 'ℹ️') + ' ' + (r.text || r);
+      targetEl.appendChild(div);
+    });
+  }
+
+  // ---- ПРОВЕРКА "СКОЛЬКО ДО СЛЕДУЮЩЕГО ТО" ПО ТЕКУЩЕМУ ПРОБЕГУ ----
+  // Рекомендации выше знают только пробег на момент последней записи в
+  // истории — если машина давно не была на СТО, оттуда не видно, сколько
+  // она проехала с тех пор ("0 км", даже если реально накатано много).
+  // Само приложение не умеет определять реальное перемещение машины, поэтому
+  // водитель один раз вводит текущий пробег вручную, а сервер сравнивает
+  // его с последней заменой и сразу даёт совет.
+  function toggleMileageCheck() {
+    var f = document.getElementById('mileageCheckForm');
+    f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
+  }
+
+  function checkMileage() {
+    var mileage = document.getElementById('currentMileageInput').value;
+    var statusEl = document.getElementById('mileageCheckStatus');
+    var resultEl = document.getElementById('mileageCheckResult');
+    resultEl.innerHTML = '';
+    if (!mileage || Number(mileage) <= 0) {
+      statusEl.innerText = '⚠️ Укажите текущий пробег';
+      return;
+    }
+    statusEl.innerText = 'Проверяю...';
+    apiGet({ action: 'checkmileage', plate: currentPlate, mileage: mileage })
+      .then(function (res) {
+        statusEl.innerText = '';
+        if (!res.ok) {
+          statusEl.innerText = res.error || 'Не удалось проверить';
+          return;
+        }
+        renderRecommendations(res.recommendations, resultEl);
+      })
+      .catch(function () {
+        statusEl.innerText = 'Ошибка сети';
+      });
+  }
+
   // Общее объявление для всех водителей — не зависит от гос. номера,
   // но грузим его именно при открытии кабинета, чтобы не показывать
-  // его на экране входа.
+  // его на экране входа. Может содержать фото или видео, которое
+  // прикрепил супер-админ в разделе "Учёт ТО" (см. to.html).
   function loadAnnouncement() {
     var wrap = document.getElementById('announceWrap');
     apiGet({ action: 'announcement' }).then(function (res) {
-      if (res.ok && res.text) {
-        wrap.innerHTML = '<div class="announce">📢 ' + escapeHtml(res.text).replace(/\n/g, '<br>') + '</div>';
-      } else {
+      if (!res.ok || (!res.text && !res.mediaUrl)) {
         wrap.innerHTML = '';
+        return;
       }
+      var html = '<div class="announce">';
+      if (res.text) html += '📢 ' + escapeHtml(res.text).replace(/\n/g, '<br>');
+      if (res.mediaUrl && res.mediaType === 'image') {
+        html += '<img class="announce-media" src="' + res.mediaUrl + '" alt="Объявление">';
+      } else if (res.mediaUrl && res.mediaType === 'video') {
+        html += '<a class="announce-video-link" href="' + res.mediaUrl + '" target="_blank" rel="noopener">🎥 Смотреть видео</a>';
+      }
+      html += '</div>';
+      wrap.innerHTML = html;
     }).catch(function () {
       wrap.innerHTML = '';
     });
@@ -503,44 +573,6 @@
         a.click();
         document.body.removeChild(a);
         setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 10000);
-      })
-      .catch(function (err) {
-        link.textContent = oldText;
-        alert('Ошибка соединения: ' + err);
-      });
-  }
-
-  /* Тот же файл, что и "Скачать PDF-историю", но вместо скачивания
-     открывает системное меню "Поделиться" — можно сразу отправить себе
-     или кому-то в WhatsApp, Telegram и т.д. Без сервера и без ключей. */
-  function sharePdf(evt) {
-    evt.preventDefault();
-    var link = document.getElementById('pdfShareLink');
-    var oldText = link.textContent;
-    link.textContent = '⏳ Готовим файл...';
-
-    fetch(SCRIPT_URL + '?action=driverpdf&plate=' + encodeURIComponent(currentPlate))
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        link.textContent = oldText;
-        if (!data.ok) {
-          alert(data.error || 'Не удалось сформировать PDF');
-          return;
-        }
-        var byteChars = atob(data.base64);
-        var byteNumbers = new Array(byteChars.length);
-        for (var i = 0; i < byteChars.length; i++) {
-          byteNumbers[i] = byteChars.charCodeAt(i);
-        }
-        var byteArray = new Uint8Array(byteNumbers);
-        var fileName = data.fileName || ('История_ТО_' + currentPlate + '.pdf');
-        var file = new File([byteArray], fileName, { type: 'application/pdf' });
-
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          navigator.share({ files: [file], title: fileName }).catch(function () {});
-        } else {
-          alert('Ваш браузер не поддерживает "Поделиться". Используйте кнопку "Скачать PDF-историю".');
-        }
       })
       .catch(function (err) {
         link.textContent = oldText;

@@ -300,7 +300,8 @@ const state = {
   createdAt:null,
   pdfBlob:null,
   pdfName:'',
-  waLink:null
+  waLink:null,
+  driveUrl:'' // ссылка на PDF на Google Диске, приходит от сервера в sendSheet()
 };
 
 const STEPS_TOTAL = 7;
@@ -843,6 +844,14 @@ async function blobToBase64(blob){
   return btoa(binary);
 }
 
+/* ЭТАП 3: раньше здесь отдельно вызывался сторонний сервис tmpfiles.org,
+   чтобы получить ссылку на PDF для WhatsApp (см. buildWhatsappLink ниже).
+   Он больше не нужен: PDF и так сохраняется на Google Диск (см.
+   saveActPdfFromBase64_ в PdfGenerator.gs), и сервер теперь возвращает
+   готовую ссылку на Диск прямо в ответе на sendSheet() — используем её.
+   Для этого POST отправляется уже без mode:'no-cors' (он не даёт читать
+   ответ сервера); Content-Type остаётся text/plain, поэтому браузер
+   по-прежнему не шлёт preflight OPTIONS. */
 async function sendSheet(pdfBlob){
   if(!CFG.sheetUrl){ setStatus('st_sheet','fail','Google Таблица не настроена'); return; }
   setStatus('st_sheet','busy','Запись в таблицу и загрузка PDF…');
@@ -857,39 +866,28 @@ async function sendSheet(pdfBlob){
       pdfName: state.pdfName,
       pdfBase64: pdfBlob ? await blobToBase64(pdfBlob) : null
     };
-    await fetch(CFG.sheetUrl, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
+    const r = await fetch(CFG.sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
+    const res = await r.json();
+    state.driveUrl = (res && res.driveUrl) || '';
     setStatus('st_sheet','done','Записано в Google Таблицу, PDF сохранён на Диск');
   }catch(e){ setStatus('st_sheet','fail','Ошибка записи в таблицу'); }
 }
 
-async function uploadForLink(blob, filename){
-  const fd = new FormData();
-  fd.append('file', blob, filename);
-  const r = await fetch('https://tmpfiles.org/api/v1/upload', {method:'POST', body:fd});
-  const j = await r.json();
-  let url = j?.data?.url;
-  if(url) url = url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
-  return url;
-}
-
-/* ЭТАП: вместо стороннего CallMeBot (с открытым API-ключом на фронтенде)
-   готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и
-   готовый текст со ссылкой на PDF. Открыть её может сотрудник СТО одним
-   тапом на экране "Готово" (кнопка btnSendWhatsapp) — WhatsApp сам не даёт
-   отправлять сообщения без участия человека без сервера с открытой сессией,
-   но весь текст и получатель уже подставлены автоматически. */
-async function buildWhatsappLink(blob){
+/* Готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и
+   готовый текст со ссылкой на PDF (ссылка на Google Диск, полученная в
+   sendSheet выше). Открыть её может сотрудник СТО одним тапом на экране
+   "Готово" (кнопка btnSendWhatsapp) — WhatsApp сам не даёт отправлять
+   сообщения без участия человека без сервера с открытой сессией, но
+   весь текст и получатель уже подставлены автоматически. */
+function buildWhatsappLink(){
   if(!state.client.phone){ setStatus('st_wa','fail','Не указан WhatsApp клиента — ссылка не создана'); return; }
   setStatus('st_wa','busy','Готовим ссылку для WhatsApp…');
-  try{
-    let link = '';
-    try{ link = await uploadForLink(blob, state.pdfName); }catch(e){}
-    const msg = `China Car Service: Акт ${state.actId} (${state.actType==='intake'?'получение':'выдача'} авто ${state.vehicle.plate}) готов.` +
-      (link ? ` Скачать PDF: ${link}` : ' PDF направлен в офис, копию пришлём дополнительно.');
-    const phone = state.client.phone.replace(/[^0-9]/g,'');
-    state.waLink = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-    setStatus('st_wa','done','Ссылка для WhatsApp готова');
-  }catch(e){ setStatus('st_wa','fail','Не удалось подготовить ссылку WhatsApp'); }
+  const link = state.driveUrl || '';
+  const msg = `China Car Service: Акт ${state.actId} (${state.actType==='intake'?'получение':'выдача'} авто ${state.vehicle.plate}) готов.` +
+    (link ? ` Скачать PDF: ${link}` : ' PDF направлен в офис, копию пришлём дополнительно.');
+  const phone = state.client.phone.replace(/[^0-9]/g,'');
+  state.waLink = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+  setStatus('st_wa','done','Ссылка для WhatsApp готова');
 }
 
 async function runSendPipeline(){
@@ -904,7 +902,7 @@ async function runSendPipeline(){
 
   await sendSheet(blob);
   setStatus('st_tg','done','Отправлено сервером в Telegram');
-  await buildWhatsappLink(blob);
+  buildWhatsappLink();
 
   document.getElementById('sendingView').style.display='none';
   const done = document.getElementById('doneView');

@@ -165,6 +165,27 @@
         <div id="addStatus" class="loading"></div>
       </div>
     </div>
+
+    <!-- ОБЪЯВЛЕНИЕ ДЛЯ ВОДИТЕЛЕЙ: показывается только супер-админам —
+         статус определяется сразу при входе (см. tryLogin -> IS_SUPER),
+         никакого отдельного экрана/пароля для этого не нужно. -->
+    <div class="card" id="announceCard" style="display:none;">
+      <h1 style="font-size:16px; margin:0 0 4px;">📢 Объявление для водителей</h1>
+      <div class="sub" style="margin-bottom:12px;">Показывается всем водителям в кабинете. Оставьте текст пустым, чтобы убрать объявление.</div>
+
+      <label>Текст объявления</label>
+      <textarea id="announceText" rows="4" placeholder="Например: 10 сентября СТО закрыто, обращайтесь по WhatsApp"></textarea>
+
+      <label>Фото или видео (необязательно)</label>
+      <input id="announceMediaInput" type="file" accept="image/*,video/*">
+      <div id="announceMediaPreview" style="margin-bottom:10px;"></div>
+
+      <div id="announceMeta" class="sub" style="margin:0 0 8px;"></div>
+      <button class="btn-primary btn-full" onclick="saveAnnouncement()">Сохранить объявление</button>
+      <button class="btn-primary btn-full" style="background:#0d141e; border:1px solid var(--border); margin-top:8px;" onclick="clearAnnouncement()">Очистить (убрать объявление)</button>
+      <div class="gate-error" id="announceError"></div>
+      <div class="loading" id="announceStatus"></div>
+    </div>
   </div>
 
 <script>
@@ -175,9 +196,13 @@
   var currentPlate = '';
   var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
   var PW = sessionStorage.getItem('to_pw') || '';
+  var IS_SUPER = false;
 
-  // если сессия уже сохранена в этой вкладке — сразу пробуем открыть приложение
-  if (ADMIN_NAME && PW) showApp();
+  // Если сессия уже сохранена в этой вкладке — не открываем приложение
+  // вслепую, а сразу заново проверяем логин/пароль на сервере. Это же
+  // сразу говорит нам, супер-админ этот сотрудник или нет (IS_SUPER),
+  // от чего зависит, показывать ли ниже окно редактирования объявления.
+  if (ADMIN_NAME && PW) tryLogin(true);
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -199,26 +224,32 @@
     c.style.display = (c.style.display === 'none' || !c.style.display) ? 'block' : 'none';
   }
 
-  function tryLogin() {
-    var name = document.getElementById('loginName').value.trim();
-    var pw = document.getElementById('loginPw').value;
+  // silent=true — при автовходе из сохранённой в этой вкладке сессии
+  // (см. вызов выше); тогда не показываем ошибки заново, а просто
+  // сбрасываем сессию, если она вдруг стала невалидной.
+  function tryLogin(silent) {
+    var name = silent ? ADMIN_NAME : document.getElementById('loginName').value.trim();
+    var pw = silent ? PW : document.getElementById('loginPw').value;
     if (!name || !pw) return;
-    document.getElementById('gateError').innerText = '';
+    if (!silent) document.getElementById('gateError').innerText = '';
 
     apiPost({ action: 'adminLogin', name: name, password: pw })
       .then(function (res) {
         if (res.ok) {
           ADMIN_NAME = name;
           PW = pw;
+          IS_SUPER = !!res.isSuperAdmin;
           sessionStorage.setItem('to_name', name);
           sessionStorage.setItem('to_pw', pw);
           showApp();
-        } else {
+        } else if (!silent) {
           document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
+        } else {
+          logout(); // сохранённая сессия больше не валидна
         }
       })
       .catch(function () {
-        document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
+        if (!silent) document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
       });
   }
 
@@ -255,6 +286,10 @@
   function showApp() {
     document.getElementById('gate').style.display = 'none';
     document.getElementById('mainApp').style.display = 'block';
+    // Окно редактирования объявления показываем только супер-админам —
+    // это известно сразу при входе (IS_SUPER выше), без отдельного экрана.
+    document.getElementById('announceCard').style.display = IS_SUPER ? 'block' : 'none';
+    if (IS_SUPER) loadAnnouncement();
   }
 
   function logout() {
@@ -443,6 +478,100 @@
   document.getElementById('plateInput').addEventListener('keydown', function(e){
     if (e.key === 'Enter') doSearch();
   });
+
+  /* ===================== ОБЪЯВЛЕНИЕ ДЛЯ ВОДИТЕЛЕЙ (только супер-админ) =====================
+     Раньше это был отдельный файл announce.html с ещё одним экраном
+     входа. Теперь статус супер-админа известен сразу при входе в
+     "Учёт ТО" (см. IS_SUPER выше), поэтому окно редактирования просто
+     показывается или скрывается прямо здесь, без отдельной страницы.
+     Добавлена возможность приложить фото или видео. */
+  var pendingMedia = null;   // {base64, mimeType, fileName} выбранного, но ещё не сохранённого файла
+  var removeMediaFlag = false;
+
+  function loadAnnouncement() {
+    document.getElementById('announceStatus').innerText = 'Загружаю...';
+    apiGet({ action: 'announcement' }).then(function (res) {
+      document.getElementById('announceStatus').innerText = '';
+      if (!res.ok) return;
+      document.getElementById('announceText').value = res.text || '';
+      document.getElementById('announceMeta').innerText = res.updatedAt
+        ? 'Обновлено: ' + new Date(res.updatedAt).toLocaleString('ru-RU')
+        : 'Объявление ещё не устанавливали';
+      renderAnnounceMediaPreview(res.mediaUrl, res.mediaType);
+    }).catch(function () {
+      document.getElementById('announceStatus').innerText = '';
+    });
+  }
+
+  function renderAnnounceMediaPreview(mediaUrl, mediaType) {
+    var wrap = document.getElementById('announceMediaPreview');
+    pendingMedia = null;
+    removeMediaFlag = false;
+    document.getElementById('announceMediaInput').value = '';
+    if (!mediaUrl) { wrap.innerHTML = ''; return; }
+    if (mediaType === 'image') {
+      wrap.innerHTML = '<img src="' + mediaUrl + '" style="max-width:100%; border-radius:10px; margin-top:6px;">' +
+        '<div class="toggle" onclick="removeAnnounceMedia()">✕ Убрать текущее фото</div>';
+    } else if (mediaType === 'video') {
+      wrap.innerHTML = '<a href="' + mediaUrl + '" target="_blank" style="color:var(--accent); font-weight:600;">🎥 Текущее видео</a>' +
+        '<div class="toggle" onclick="removeAnnounceMedia()">✕ Убрать текущее видео</div>';
+    } else {
+      wrap.innerHTML = '';
+    }
+  }
+
+  function removeAnnounceMedia() {
+    removeMediaFlag = true;
+    pendingMedia = null;
+    document.getElementById('announceMediaPreview').innerHTML = '<div class="sub">Текущий файл будет удалён при сохранении</div>';
+  }
+
+  document.getElementById('announceMediaInput').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    removeMediaFlag = false;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var base64 = reader.result.split(',')[1];
+      pendingMedia = { base64: base64, mimeType: file.type, fileName: file.name };
+      var wrap = document.getElementById('announceMediaPreview');
+      if (file.type.indexOf('video') === 0) {
+        wrap.innerHTML = '<div class="sub">Выбрано видео: ' + file.name + '</div>';
+      } else {
+        wrap.innerHTML = '<img src="' + reader.result + '" style="max-width:100%; border-radius:10px; margin-top:6px;">';
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function saveAnnouncement() {
+    var text = document.getElementById('announceText').value;
+    document.getElementById('announceError').innerText = '';
+    document.getElementById('announceStatus').innerText = 'Сохраняю...';
+
+    apiPost({
+      action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text,
+      media: pendingMedia, removeMedia: removeMediaFlag
+    }).then(function (res) {
+      document.getElementById('announceStatus').innerText = '';
+      if (res.ok) {
+        document.getElementById('announceStatus').innerText = '✅ Сохранено';
+        loadAnnouncement();
+      } else {
+        document.getElementById('announceError').innerText = res.error || 'Не удалось сохранить';
+      }
+    }).catch(function () {
+      document.getElementById('announceStatus').innerText = '';
+      document.getElementById('announceError').innerText = 'Ошибка сети';
+    });
+  }
+
+  function clearAnnouncement() {
+    document.getElementById('announceText').value = '';
+    removeMediaFlag = true;
+    pendingMedia = null;
+    saveAnnouncement();
+  }
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
