@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Объявление — China Car Service</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root{
+    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
+    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:16px;
+  }
+  h1{font-size:20px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:16px;
+  }
+  input, textarea{
+    width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
+    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
+  }
+  input:focus, textarea:focus{outline:1px solid var(--accent);}
+  button{
+    padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
+    cursor:pointer;
+  }
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-secondary{background:#0d141e; color:var(--text); border:1px solid var(--border);}
+  .btn-full{width:100%;}
+  label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
+  .loading{color:var(--muted); font-size:13px;}
+  .error{color:var(--danger); font-size:13px; margin-top:4px;}
+  .ok{color:var(--accent-2); font-size:13px; margin-top:4px;}
+  #gate{max-width:320px; margin:60px auto 0;}
+  #gate input{text-align:center; letter-spacing:4px; font-size:20px;}
+  .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
+  .meta{color:var(--muted); font-size:12px; margin-top:4px;}
+</style>
+</head>
+<body>
+
+  <!-- ЭКРАН ВХОДА (тот же код доступа, что и в "Учёт ТО") -->
+  <div id="gate">
+    <h1 style="text-align:center">📢 Объявление</h1>
+    <div class="sub" style="text-align:center">Введите код доступа</div>
+    <div class="card">
+      <input id="pwInput" type="password" inputmode="numeric" placeholder="••••••" maxlength="12">
+      <button class="btn-primary btn-full" onclick="tryLogin()">Войти</button>
+      <div class="error" id="gateError"></div>
+    </div>
+  </div>
+
+  <!-- ФОРМА РЕДАКТИРОВАНИЯ -->
+  <div id="mainApp" style="display:none;">
+    <span class="logout" onclick="logout()">Выйти</span>
+    <h1>📢 Объявление для водителей</h1>
+    <div class="sub">Показывается всем водителям в кабинете (driver.html). Оставьте поле пустым, чтобы убрать объявление.</div>
+
+    <div class="card">
+      <label>Текст объявления</label>
+      <textarea id="text" rows="6" placeholder="Например: 10 сентября СТО закрыто, обращайтесь по WhatsApp"></textarea>
+      <div class="meta" id="meta"></div>
+      <button class="btn-primary btn-full" onclick="save()">Сохранить</button>
+      <button class="btn-secondary btn-full" style="margin-top:8px;" onclick="clearText()">Очистить (убрать объявление)</button>
+      <div class="error" id="saveError"></div>
+      <div class="ok" id="saveOk"></div>
+      <div class="loading" id="status"></div>
+    </div>
+  </div>
+
+<script>
+  // ЗАМЕНИТЕ на тот же адрес Apps Script Web App, что и в других файлах.
+  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
+
+  var PW = sessionStorage.getItem('to_pw') || '';
+  if (PW) showApp();
+
+  function apiGet(params) {
+    var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
+    return fetch(url).then(function (r) { return r.json(); });
+  }
+
+  function apiPost(payload) {
+    return fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function tryLogin() {
+    var pw = document.getElementById('pwInput').value.trim();
+    if (!pw) return;
+    document.getElementById('gateError').innerText = '';
+
+    apiGet({ action: 'checkpw', pw: pw }).then(function (res) {
+      if (res.ok) {
+        PW = pw;
+        sessionStorage.setItem('to_pw', pw);
+        showApp();
+      } else {
+        document.getElementById('gateError').innerText = res.error || 'Неверный код доступа';
+      }
+    }).catch(function () {
+      document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
+    });
+  }
+
+  function logout() {
+    sessionStorage.removeItem('to_pw');
+    location.reload();
+  }
+
+  function showApp() {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'block';
+    load();
+  }
+
+  function load() {
+    document.getElementById('status').innerText = 'Загружаю...';
+    apiGet({ action: 'announcement' }).then(function (res) {
+      document.getElementById('status').innerText = '';
+      if (!res.ok) return;
+      document.getElementById('text').value = res.text || '';
+      document.getElementById('meta').innerText = res.updatedAt
+        ? 'Обновлено: ' + new Date(res.updatedAt).toLocaleString('ru-RU')
+        : 'Объявление ещё не устанавливали';
+    }).catch(function () {
+      document.getElementById('status').innerText = '';
+    });
+  }
+
+  function save() {
+    var text = document.getElementById('text').value;
+    document.getElementById('saveError').innerText = '';
+    document.getElementById('saveOk').innerText = '';
+    document.getElementById('status').innerText = 'Сохраняю...';
+
+    apiPost({ action: 'setAnnouncement', pw: PW, text: text }).then(function (res) {
+      document.getElementById('status').innerText = '';
+      if (res.ok) {
+        document.getElementById('saveOk').innerText = '✅ Сохранено';
+        load();
+      } else {
+        document.getElementById('saveError').innerText = res.error || 'Не удалось сохранить';
+      }
+    }).catch(function () {
+      document.getElementById('status').innerText = '';
+      document.getElementById('saveError').innerText = 'Ошибка сети';
+    });
+  }
+
+  function clearText() {
+    document.getElementById('text').value = '';
+    save();
+  }
+</script>
+</body>
+</html>

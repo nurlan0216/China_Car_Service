@@ -62,6 +62,10 @@
     background:#241a0d; border:1px solid #4a3a1f; color:#f0c674; border-radius:10px;
     padding:10px 12px; font-size:13px; margin-bottom:8px;
   }
+  .announce{
+    background:#0d1f33; border:1px solid #1f3a5c; color:#8ec8f0; border-radius:12px;
+    padding:12px 14px; font-size:14px; margin-bottom:16px; line-height:1.4;
+  }
   .veh-title{font-size:18px; font-weight:700; margin-bottom:2px;}
   .veh-sub{color:var(--muted); font-size:13px; margin-bottom:12px;}
   .scan-row{display:flex; gap:8px;}
@@ -137,6 +141,7 @@
   <!-- КАБИНЕТ ВОДИТЕЛЯ -->
   <div id="cabinet" style="display:none;">
     <span class="logout" onclick="logout()">Сменить номер</span>
+    <div id="announceWrap"></div>
     <h1>🚕 Мой автомобиль</h1>
     <div class="sub" id="cabPlateSub"></div>
 
@@ -365,13 +370,44 @@
       recsWrap.appendChild(div);
     });
 
+    var rows = data.rows || [];
+    // rows приходят от сервера новыми сверху (см. apiDriverGetVehicle),
+    // поэтому find() отдаёт именно последнюю по дате запись этого типа.
+    var oil = rows.find(function (r) { return r.type === 'Замена масла'; });
+    var filter = rows.find(function (r) { return r.type === 'Замена фильтра'; });
+
     var cs = data.costSummary || { all: 0 };
     var summaryHtml = '';
+    summaryHtml += '<div class="pill">Масло<b>' + (oil ? oil.date + ' · ' + oil.mileage + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? filter.date + ' · ' + filter.mileage + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Всего за всё время<b>' + Number(cs.all || 0).toLocaleString('ru-RU') + '</b></div>';
     document.getElementById('costSummary').innerHTML = summaryHtml;
 
-    renderHistory(data.rows || []);
+    renderHistory(rows);
     loadActs();
+    loadAnnouncement();
+  }
+
+  function escapeHtml(s) {
+    return (s || '').replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // Общее объявление для всех водителей — не зависит от гос. номера,
+  // но грузим его именно при открытии кабинета, чтобы не показывать
+  // его на экране входа.
+  function loadAnnouncement() {
+    var wrap = document.getElementById('announceWrap');
+    apiGet({ action: 'announcement' }).then(function (res) {
+      if (res.ok && res.text) {
+        wrap.innerHTML = '<div class="announce">📢 ' + escapeHtml(res.text).replace(/\n/g, '<br>') + '</div>';
+      } else {
+        wrap.innerHTML = '';
+      }
+    }).catch(function () {
+      wrap.innerHTML = '';
+    });
   }
 
   function renderHistory(rows) {
