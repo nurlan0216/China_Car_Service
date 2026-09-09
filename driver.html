@@ -110,7 +110,7 @@
 
       <label>Тип авто</label>
       <select id="r_type">
-        <option value="Такси">Таксопарк</option>
+        <option value="Такси">Такси</option>
         <option value="Частная">Частная</option>
       </select>
 
@@ -123,10 +123,10 @@
       <div class="loading" id="scanStatus"></div>
 
       <label>WhatsApp номер</label>
-      <input id="r_whatsapp" placeholder="+7 777 777 77 77">
+      <input id="r_whatsapp" placeholder="+996...">
 
       <label>Модель автомобиля</label>
-      <input id="r_model" placeholder="Например, Hongqi E-QM5">
+      <input id="r_model" placeholder="Например, Chevrolet Cobalt">
 
       <button class="btn-primary btn-full" onclick="submitRegister()">Зарегистрироваться</button>
       <div class="error" id="regError"></div>
@@ -296,11 +296,22 @@
     return tesseractPromise;
   }
 
+  /**
+   * Приводит номер телефона к формату +7XXXXXXXXXX (8 -> +7), чтобы
+   * с ним потом можно было без ошибки открыть WhatsApp.
+   */
+  function normalizePhone(raw) {
+    var digits = (raw || '').replace(/[^0-9]/g, '');
+    if (digits.length === 11 && digits[0] === '8') { digits = '7' + digits.slice(1); }
+    else if (digits.length === 10) { digits = '7' + digits; }
+    return digits ? '+' + digits : '';
+  }
+
   function submitRegister() {
     var fio = document.getElementById('r_fio').value.trim();
     var taxiOrPrivate = document.getElementById('r_type').value;
     var vin = document.getElementById('r_vin').value.trim();
-    var whatsapp = document.getElementById('r_whatsapp').value.trim();
+    var whatsapp = normalizePhone(document.getElementById('r_whatsapp').value.trim());
     var model = document.getElementById('r_model').value.trim();
     var errEl = document.getElementById('regError');
     errEl.innerText = '';

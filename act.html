@@ -426,6 +426,19 @@ function renderStep(){
   if(state.step===5) prepSignatureStep();
 }
 
+/**
+ * Приводит номер телефона к формату +7XXXXXXXXXX, чтобы ссылка wa.me
+ * всегда открывалась без ошибки. Если написали с 8 (например,
+ * 87071234567) — заменяем на +7. Если ввели 10 цифр без кода страны
+ * (7071234567) — тоже добавляем +7. Если уже с +7 — оставляем как есть.
+ */
+function normalizePhone(raw){
+  let digits = (raw || '').replace(/[^0-9]/g, '');
+  if(digits.length === 11 && digits[0] === '8'){ digits = '7' + digits.slice(1); }
+  else if(digits.length === 10){ digits = '7' + digits; }
+  return digits ? '+' + digits : '';
+}
+
 function validateStep(step){
   if(step===0){
     if(!state.actType){ toast('Выберите тип акта'); return false; }
@@ -441,7 +454,7 @@ function validateStep(step){
     if(vin.length<11){ toast('Укажите корректный VIN'); return false; }
     state.client.fio=fio; state.client.iin=iin;
     state.client.vu=document.getElementById('f_vu').value.trim();
-    state.client.phone=document.getElementById('f_phone').value.trim();
+    state.client.phone=normalizePhone(document.getElementById('f_phone').value.trim());
     state.vehicle.plate=plate; state.vehicle.vin=vin.toUpperCase();
     state.vehicle.mileage=document.getElementById('f_mileage').value.trim();
     state.vehicle.contract=document.getElementById('f_contract').value.trim();
@@ -873,8 +886,8 @@ async function buildWhatsappLink(blob){
     try{ link = await uploadForLink(blob, state.pdfName); }catch(e){}
     const msg = `China Car Service: Акт ${state.actId} (${state.actType==='intake'?'получение':'выдача'} авто ${state.vehicle.plate}) готов.` +
       (link ? ` Скачать PDF: ${link}` : ' PDF направлен в офис, копию пришлём дополнительно.');
-    const phone = state.client.phone.replace(/[^0-9+]/g,'');
-    state.waLink = `https://wa.me/${encodeURIComponent(phone)}?text=${encodeURIComponent(msg)}`;
+    const phone = state.client.phone.replace(/[^0-9]/g,'');
+    state.waLink = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
     setStatus('st_wa','done','Ссылка для WhatsApp готова');
   }catch(e){ setStatus('st_wa','fail','Не удалось подготовить ссылку WhatsApp'); }
 }
