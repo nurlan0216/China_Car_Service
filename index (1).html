@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>China Car Service</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root{
+    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
+    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:16px;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+  }
+  .wrap{max-width:360px; width:100%; text-align:center;}
+  .logo-badge{margin:0 auto 14px; width:84px; height:84px; display:block;}
+  .logo{
+    font-weight:800; letter-spacing:1px; font-size:15px; color:var(--muted);
+    margin-bottom:6px;
+  }
+  h1{font-size:22px; margin:0 0 6px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:28px;}
+  .choice{
+    display:block; width:100%; text-align:left; background:var(--card);
+    border:1px solid var(--border); border-radius:14px; padding:18px 16px;
+    margin-bottom:14px; cursor:pointer; text-decoration:none; color:var(--text);
+  }
+  .choice:active{border-color:var(--accent);}
+  .choice .emoji{font-size:26px; margin-bottom:6px; display:block;}
+  .choice .title{font-size:16px; font-weight:700; margin-bottom:2px;}
+  .choice .desc{font-size:13px; color:var(--muted);}
+  .choice.driver .title{color:var(--accent-2);}
+  .choice.staff .title{color:var(--accent);}
+  .choice.act{padding:14px 16px; margin-bottom:0; margin-top:6px;}
+  .choice.act .title{color:var(--muted); font-size:14px;}
+  .choice.act .emoji{font-size:20px; margin-bottom:4px;}
+
+  .install-banner{
+    display:none; background:linear-gradient(135deg,#1b2a44,#152238);
+    border:1px solid var(--accent); border-radius:14px; padding:16px;
+    margin-bottom:18px; text-align:left;
+  }
+  .install-banner.show{display:block;}
+  .install-banner .title{font-weight:700; font-size:15px; margin-bottom:4px;}
+  .install-banner .desc{font-size:13px; color:var(--muted); margin-bottom:12px;}
+  .install-btn{
+    display:block; width:100%; background:var(--accent); color:#fff; border:none;
+    border-radius:10px; padding:12px; font-size:15px; font-weight:700;
+    cursor:pointer;
+  }
+  .install-btn:active{opacity:0.85;}
+
+  .ios-steps{
+    display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);
+    font-size:13px; color:var(--text); text-align:left;
+  }
+  .ios-steps.show{display:block;}
+  .ios-steps ol{margin:0; padding-left:18px;}
+  .ios-steps li{margin-bottom:6px;}
+  .ios-steps b{color:var(--accent-2);}
+  .installed-note{
+    display:none; font-size:13px; color:var(--accent-2); margin-bottom:18px;
+  }
+  .installed-note.show{display:block;}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="logo-badge" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="badgeGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#3b82f6"/>
+          <stop offset="100%" stop-color="#22c55e"/>
+        </linearGradient>
+      </defs>
+      <circle cx="50" cy="50" r="47" fill="#182130" stroke="url(#badgeGrad)" stroke-width="3"/>
+      <path d="M28 60 L33 46 C34.5 42 37 40 41.5 40 L58.5 40 C63 40 65.5 42 67 46 L72 60"
+            fill="none" stroke="url(#badgeGrad)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="24" y="58" width="52" height="14" rx="7" fill="none" stroke="url(#badgeGrad)" stroke-width="3.2"/>
+      <circle cx="36" cy="73" r="5.5" fill="#0f1720" stroke="url(#badgeGrad)" stroke-width="3"/>
+      <circle cx="64" cy="73" r="5.5" fill="#0f1720" stroke="url(#badgeGrad)" stroke-width="3"/>
+      <rect x="40" y="47" width="8" height="6" rx="1.5" fill="#0f1720"/>
+      <rect x="52" y="47" width="8" height="6" rx="1.5" fill="#0f1720"/>
+    </svg>
+    <div class="logo">CHINA CAR SERVICE</div>
+    <h1>Учёт автопарка</h1>
+    <div class="sub">Выберите, кто вы</div>
+
+    <div class="installed-note" id="installedNote">✅ Приложение уже установлено на этом устройстве</div>
+
+    <div class="install-banner" id="installBanner">
+      <div class="title">📲 Установите приложение</div>
+      <div class="desc">Работает офлайн, открывается с экрана как обычное приложение — без адресной строки браузера.</div>
+      <button class="install-btn" id="installBtn">Установить</button>
+      <div class="ios-steps" id="iosSteps">
+        <div style="margin-bottom:6px;">На iPhone установка через Safari — вручную, за 3 шага:</div>
+        <ol>
+          <li>Нажмите кнопку <b>«Поделиться»</b> (квадрат со стрелкой вверх) внизу экрана в Safari</li>
+          <li>В списке выберите <b>«На экран Домой»</b> (Add to Home Screen)</li>
+          <li>Нажмите <b>«Добавить»</b> в правом верхнем углу</li>
+        </ol>
+      </div>
+    </div>
+
+    <a class="choice driver" href="driver.html">
+      <span class="emoji">🚕</span>
+      <div class="title">Я водитель</div>
+      <div class="desc">История ТО моей машины, акты, PDF-выгрузка — по гос. номеру</div>
+    </a>
+
+    <a class="choice staff" href="to.html">
+      <span class="emoji">🔧</span>
+      <div class="title">Я сотрудник СТО</div>
+      <div class="desc">Учёт ТО автопарка — вход по коду доступа</div>
+    </a>
+
+    <a class="choice act" href="act.html">
+      <span class="emoji">📝</span>
+      <div class="title">Акт приёма-передачи ТС</div>
+      <div class="desc">Оформить акт приёма-передачи автомобиля</div>
+    </a>
+  </div>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+        console.log('SW registration failed:', err);
+      });
+    });
+  }
+
+  var installBanner = document.getElementById('installBanner');
+  var installBtn = document.getElementById('installBtn');
+  var iosSteps = document.getElementById('iosSteps');
+  var installedNote = document.getElementById('installedNote');
+  var deferredPrompt = null;
+
+  function isStandalone(){
+    return window.matchMedia('(display-mode: standalone)').matches ||
+           window.navigator.standalone === true;
+  }
+
+  var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  if (isStandalone()) {
+    // Уже установлено и открыто как приложение — баннер не нужен
+    installedNote.classList.add('show');
+  } else if (isIOS) {
+    // На iOS браузер не даёт программной кнопки — сразу показываем инструкцию
+    installBanner.classList.add('show');
+    installBtn.style.display = 'none';
+    iosSteps.classList.add('show');
+  } else {
+    // Android/десктоп Chrome и т.п. — ждём системное событие с реальной кнопкой установки
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBanner.classList.add('show');
+    });
+
+    installBtn.addEventListener('click', function () {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function () {
+        deferredPrompt = null;
+        installBanner.classList.remove('show');
+      });
+    });
+
+    window.addEventListener('appinstalled', function () {
+      installBanner.classList.remove('show');
+    });
+  }
+</script>
+</body>
+</html>
