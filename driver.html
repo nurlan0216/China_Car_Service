@@ -86,7 +86,7 @@
   </div>
 
   <!-- ФОРМА РЕГИСТРАЦИИ (первый вход, машина не найдена) -->
-  <div id="regScreen" style="display:none;">
+   <div id="regScreen" style="display:none;">
     <span class="logout" onclick="logout()">Сменить номер</span>
     <h1>🆕 Регистрация</h1>
     <div class="sub">Машина <b id="regPlate"></b> ещё не в базе — заполните данные один раз</div>
@@ -94,9 +94,12 @@
       <label>ФИО водителя</label>
       <input id="r_fio" placeholder="Иванов Иван Иванович">
 
+      <label>Модель автомобиля</label>
+      <input id="r_model" placeholder="Например, HONGHI E-QM5">
+
       <label>Тип авто</label>
       <select id="r_type">
-        <option value="Такси">Такси</option>
+        <option value="Такси">Таксопарк</option>
         <option value="Частная">Частная</option>
       </select>
 
@@ -109,16 +112,14 @@
       <div class="loading" id="scanStatus"></div>
 
       <label>WhatsApp номер</label>
-      <input id="r_whatsapp" placeholder="+996...">
-
-      <label>Пароль (для входа в кабинет)</label>
-      <input id="r_password" type="password" placeholder="Придумайте пароль">
+      <input id="r_whatsapp" placeholder="+7 (777) 777-77-77">
 
       <button class="btn-primary btn-full" onclick="submitRegister()">Зарегистрироваться</button>
       <div class="error" id="regError"></div>
       <div class="loading" id="regStatus"></div>
     </div>
   </div>
+
 
   <!-- КАБИНЕТ ВОДИТЕЛЯ -->
   <div id="cabinet" style="display:none;">
