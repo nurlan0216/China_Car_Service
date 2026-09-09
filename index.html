@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>China Car Service</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root{
+    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
+    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:16px;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+  }
+  .wrap{max-width:360px; width:100%; text-align:center;}
+  .logo{
+    font-weight:800; letter-spacing:1px; font-size:15px; color:var(--muted);
+    margin-bottom:6px;
+  }
+  h1{font-size:22px; margin:0 0 6px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:28px;}
+  .choice{
+    display:block; width:100%; text-align:left; background:var(--card);
+    border:1px solid var(--border); border-radius:14px; padding:18px 16px;
+    margin-bottom:14px; cursor:pointer; text-decoration:none; color:var(--text);
+  }
+  .choice:active{border-color:var(--accent);}
+  .choice .emoji{font-size:26px; margin-bottom:6px; display:block;}
+  .choice .title{font-size:16px; font-weight:700; margin-bottom:2px;}
+  .choice .desc{font-size:13px; color:var(--muted);}
+  .choice.driver .title{color:var(--accent-2);}
+  .choice.staff .title{color:var(--accent);}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">CHINA CAR SERVICE</div>
+    <h1>Учёт автопарка</h1>
+    <div class="sub">Выберите, кто вы</div>
+
+    <a class="choice driver" href="driver.html">
+      <span class="emoji">🚕</span>
+      <div class="title">Я водитель</div>
+      <div class="desc">История ТО моей машины, акты, PDF-выгрузка — по гос. номеру</div>
+    </a>
+
+    <a class="choice staff" href="to.html">
+      <span class="emoji">🔧</span>
+      <div class="title">Я сотрудник СТО</div>
+      <div class="desc">Учёт ТО автопарка — вход по коду доступа</div>
+    </a>
+  </div>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+        console.log('SW registration failed:', err);
+      });
+    });
+  }
+</script>
+</body>
+</html>

@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Акт приёма-передачи ТС — China Car Service</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -200,16 +204,6 @@
         <div class="pill" id="stoSignPill">СТО «China Car Service» — подпись и печать проставлены автоматически</div>
         <div class="small" id="ipGeoLine" style="margin-bottom:10px"></div>
 
-        <div style="border-top:1px solid var(--line);margin:4px 0 14px"></div>
-        <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer;margin-bottom:12px;font-weight:400;">
-          <input type="checkbox" id="f_photoConsent" style="width:auto;margin:3px 0 0;flex-shrink:0;">
-          <span style="font-size:13px;color:var(--text);line-height:1.4;">Настоящим соглашаюсь на фото/видеофиксацию процесса подписания в целях подтверждения подлинности акта</span>
-        </label>
-        <button class="btn secondary" id="btnSignerPhoto" type="button" style="margin-bottom:10px">📷 Сфотографировать подписанта</button>
-        <div id="signerPhotoPreview"></div>
-        <input type="file" id="signerPhotoInput" accept="image/*" capture="user">
-        <div style="border-top:1px solid var(--line);margin:4px 0 14px"></div>
-
         <div class="sig-label">
           <label style="margin:0">Подпись Заказчика / Водителя</label>
           <button class="sig-clear" id="btnSigClear" type="button">Очистить</button>
@@ -227,7 +221,7 @@
           <div class="status-line" id="st_pdf"><div class="dot"></div><div>Формирование PDF</div></div>
           <div class="status-line" id="st_tg"><div class="dot"></div><div>Отправка в Telegram</div></div>
           <div class="status-line" id="st_sheet"><div class="dot"></div><div>Запись в Google Таблицу</div></div>
-          <div class="status-line" id="st_wa"><div class="dot"></div><div>Отправка копии в WhatsApp</div></div>
+          <div class="status-line" id="st_wa"><div class="dot"></div><div>Подготовка ссылки WhatsApp</div></div>
         </div>
       </div>
       <div id="doneView" style="display:none">
@@ -236,6 +230,8 @@
         <p class="hint" style="text-align:center">Готовый PDF-документ можно скачать ниже.</p>
         <div class="card" id="doneSummary"></div>
         <button class="btn" id="btnDownloadPdf" type="button">⬇ Скачать PDF</button>
+        <button class="btn" id="btnSendWhatsapp" type="button">📲 Отправить клиенту в WhatsApp</button>
+        <button class="btn secondary" id="btnShare" type="button">🔗 Поделиться PDF</button>
         <div class="btn-row">
           <button class="btn secondary" id="btnNewAct" type="button">Новый акт</button>
         </div>
@@ -267,11 +263,14 @@ const ASSET = {
    и пересохраните файл. Настроечная кнопка/окно в интерфейсе удалены —
    сотрудники СТО их не видят и изменить не могут. */
 const CFG = {
-  tgToken:  "8599305940:AAFY8ViH5R0lGabewl9sEkNy17JAPayycsU",      // напр. "123456789:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  tgChat:   "-1004488350205",         // напр. "-1001234567890"
+  // ЭТАП 0: токен и chat_id Telegram-бота убраны отсюда — они были видны
+  // всем в открытом исходнике на GitHub Pages. Отправка в Telegram теперь
+  // выполняется только на сервере (Apps Script, см. telegram.gs), сразу
+  // после того как акт приходит на sheetUrl ниже.
   sheetUrl: "https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec",   // напр. "https://script.google.com/macros/s/AKfycb.../exec"
-  cmbPhone: "ВСТАВЬТЕ_НОМЕР_WHATSAPP_АДМИНА",    // напр. "+77071234567" (номер, с которого зарегистрирован CallMeBot)
-  cmbKey:   "ВСТАВЬТЕ_CALLMEBOT_API_KEY",        // напр. "123456"
+  // CallMeBot (cmbPhone/cmbKey) больше не используется: вместо стороннего API
+  // с открытым ключом теперь используется прямая ссылка-чат wa.me, которая
+  // строится автоматически из номера клиента (см. buildWhatsappLink ниже).
   stoName:'ИП «China Car Service» Балова Майра Макаровна',
   stoAddr:'г. Алматы, Медеуский район, ул. Халиуллина, 160/1',
   stoIin:'ИИН 831010401480'
@@ -296,13 +295,12 @@ const state = {
   photos:{},
   defects:[],
   signatureDataUrl:null,
-  signerConsent:false,
-  signerPhoto:null,
   ip:'',
   actId:'',
   createdAt:null,
   pdfBlob:null,
-  pdfName:''
+  pdfName:'',
+  waLink:null
 };
 
 const STEPS_TOTAL = 7;
@@ -455,10 +453,6 @@ function validateStep(step){
     state.vehicle.kit = document.getElementById('f_kit').value.trim();
   }
   if(step===5){
-    const consentBox = document.getElementById('f_photoConsent');
-    if(!consentBox.checked){ toast('Отметьте согласие на фото/видеофиксацию подписания'); return false; }
-    if(!state.signerPhoto){ toast('Сфотографируйте подписанта (после согласия)'); return false; }
-    state.signerConsent = true;
     if(sigIsEmpty()){ toast('Требуется подпись Заказчика/Водителя'); return false; }
     state.signatureDataUrl = sigCanvas.toDataURL('image/png');
   }
@@ -502,32 +496,6 @@ document.getElementById('vinPhotoInput').addEventListener('change', async (e)=>{
   document.getElementById('vinPhotoPreview').innerHTML =
     `<img src="${url}" style="width:100%;border-radius:8px;margin:-4px 0 12px;max-height:160px;object-fit:cover">`;
   toast('Фото VIN сохранено');
-});
-
-/* Signer identity photo — only after explicit consent checkbox */
-document.getElementById('btnSignerPhoto').addEventListener('click', ()=>{
-  if(!document.getElementById('f_photoConsent').checked){
-    toast('Сначала отметьте согласие на фото/видеофиксацию');
-    return;
-  }
-  document.getElementById('signerPhotoInput').click();
-});
-document.getElementById('signerPhotoInput').addEventListener('change', async (e)=>{
-  const file = e.target.files[0];
-  if(!file) return;
-  toast('Обработка фото…');
-  const stamped = await stampPhoto(file); // stamps date/time + geo, same as vehicle photos
-  state.signerPhoto = stamped;
-  document.getElementById('signerPhotoPreview').innerHTML =
-    `<img src="${stamped.dataUrl}" style="width:100%;border-radius:8px;margin:0 0 12px;max-height:200px;object-fit:cover">`;
-  toast('Фото подписанта сохранено');
-});
-document.getElementById('f_photoConsent').addEventListener('change', (e)=>{
-  if(!e.target.checked){
-    state.signerPhoto = null;
-    state.signerConsent = false;
-    document.getElementById('signerPhotoPreview').innerHTML = '';
-  }
 });
 
 /* ===================== PHOTO GRID (step 2) ===================== */
@@ -735,7 +703,6 @@ async function buildPDF(){
     : 'Настоящий Акт составлен в подтверждение фактического завершения работ по Договору подряда и передачи СТО «China Car Service» отремонтированного/обслуженного транспортного средства Заказчику/Водителю. Заказчик/Водитель подтверждает, что произвёл визуальный осмотр автомобиля, ознакомлен с зафиксированным на фото/видео состоянием кузова, лакокрасочного покрытия и комплектностью, и не имеет претензий к качеству и объёму выполненных работ, кроме дефектов, отдельно указанных в разделе 4 настоящего Акта. С момента подписания настоящего Акта ответственность за сохранность транспортного средства переходит к Заказчику/Водителю. Гарантийные обязательства СТО сохраняют силу в соответствии с условиями Договора подряда.';
   text(legalText, M, 9.7);
   text('Все фотографические и видеоматериалы, приложенные к настоящему Акту, содержат метки даты, времени и координат съёмки и признаются Сторонами достаточным доказательством зафиксированного состояния транспортного средства.', M, 9.7);
-  text('Заказчик/Водитель даёт согласие на фото/видеофиксацию процесса подписания настоящего Акта в целях подтверждения его подлинности; соответствующая фотография прилагается на странице подписей.', M, 9.7);
   hr();
 
   text('4. ДЕФЕКТЫ / ЗАМЕЧАНИЯ', M, 11.5, true);
@@ -821,19 +788,11 @@ async function buildPDF(){
   }
   y+=42;
   hr();
-  if(state.signerPhoto){
-    doc.setFont('DejaVu','bold'); doc.setFontSize(9); doc.setTextColor(30,30,30);
-    doc.text('Фотофиксация подписанта (согласие получено, см. п.3):', M, y);
-    doc.addImage(state.signerPhoto.dataUrl, 'JPEG', M, y+3, 42, 42*0.75);
-    y += 3 + 42*0.75 + 6;
-    hr();
-  }
   text(`Дата и время подписания: ${fmtDT(new Date())}`, M, 9);
   const pos = state._signPos;
   text(`Геолокация подписания: ${pos ? pos.lat.toFixed(5)+', '+pos.lon.toFixed(5) : 'недоступна'}`, M, 9);
   text(`IP-адрес устройства при подписании: ${state.ip}`, M, 9);
   text(`Идентификатор документа: ${state.actId}`, M, 9);
-  text(`Согласие на фото/видеофиксацию подписания: ${state.signerConsent ? 'получено' : 'не получено'}`, M, 9);
 
   return doc.output('blob');
 }
@@ -846,39 +805,34 @@ function setStatus(id, mode, label){
   if(label) el.querySelector('div:last-child').textContent = label;
 }
 
-async function sendTelegram(blob){
-  if(!CFG.tgToken || !CFG.tgChat){ setStatus('st_tg', 'fail', 'Telegram не настроен (см. ⚙ Настройки)'); return; }
-  setStatus('st_tg','busy','Отправка в Telegram…');
-  try{
-    const fd = new FormData();
-    fd.append('chat_id', CFG.tgChat);
-    fd.append('caption', `Акт ${state.actId}\n${state.actType==='intake'?'Получение':'Выдача'} · ${state.vehicle.plate} · ${state.client.fio}`);
-    fd.append('document', blob, state.pdfName);
-    const r = await fetch(`https://api.telegram.org/bot${CFG.tgToken}/sendDocument`, {method:'POST', body:fd});
-    const j = await r.json();
-    if(j.ok) setStatus('st_tg','done','Отправлено в Telegram');
-    else setStatus('st_tg','fail','Ошибка Telegram: '+(j.description||'неизвестно'));
-  }catch(e){ setStatus('st_tg','fail','Ошибка сети (Telegram)'); }
-}
+/* ЭТАП 0: прямая отправка в Telegram из браузера (sendTelegram/sendDefectVideos)
+   удалена — токен бота нельзя хранить в клиентском коде. Уведомление в
+   Telegram теперь отправляет сервер (Apps Script, telegram.gs) сам, как
+   только акт приходит в sendSheet() ниже — см. doPost -> notifyActTelegram_.
+   ЭТАП 2: теперь вместе с данными акта на сервер уходит и сам PDF (см.
+   blobToBase64/sendSheet ниже) — сервер сохраняет именно его на Диск и
+   шлёт его же в Telegram, вместо генерации своей отдельной копии. */
 
-async function sendDefectVideos(){
-  if(!CFG.tgToken || !CFG.tgChat) return;
-  const videos = state.defects.filter(d=>d.type==='video');
-  for(let i=0;i<videos.length;i++){
-    try{
-      const blob = dataUrlToBlob(videos[i].dataUrl);
-      const fd = new FormData();
-      fd.append('chat_id', CFG.tgChat);
-      fd.append('caption', `Видео дефекта №${i+1} к акту ${state.actId}: ${videos[i].comment||'без описания'}`);
-      fd.append('video', blob, `defect_${i+1}_${state.actId}.mp4`);
-      await fetch(`https://api.telegram.org/bot${CFG.tgToken}/sendVideo`, {method:'POST', body:fd});
-    }catch(e){ /* best effort */ }
+/* ЭТАП 2: переводим Blob в base64, чтобы отправить готовый PDF (с фото и
+   подписью, тот же файл, что видел клиент) вместе с данными акта — сервер
+   сохранит его на Диск и пропишет ссылку в лист "Акты" (см. doPost ->
+   saveActPdfFromBase64_ в PdfGenerator.gs). Раньше сервер отдельно
+   генерировал свою, более простую копию через Google Docs — теперь это
+   не нужно, PDF ровно один. */
+async function blobToBase64(blob){
+  const buf = await blob.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  const chunk = 0x8000;
+  for(let i=0;i<bytes.length;i+=chunk){
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
   }
+  return btoa(binary);
 }
 
-async function sendSheet(){
+async function sendSheet(pdfBlob){
   if(!CFG.sheetUrl){ setStatus('st_sheet','fail','Google Таблица не настроена'); return; }
-  setStatus('st_sheet','busy','Запись в таблицу…');
+  setStatus('st_sheet','busy','Запись в таблицу и загрузка PDF…');
   try{
     const pos = state._signPos;
     const payload = {
@@ -886,10 +840,12 @@ async function sendSheet(){
       fio: state.client.fio, iin: state.client.iin, vu: state.client.vu, phone: state.client.phone,
       plate: state.vehicle.plate, vin: state.vehicle.vin, mileage: state.vehicle.mileage,
       contract: state.vehicle.contract, defectsCount: state.defects.length, ip: state.ip,
-      geo: pos ? `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}` : ''
+      geo: pos ? `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}` : '',
+      pdfName: state.pdfName,
+      pdfBase64: pdfBlob ? await blobToBase64(pdfBlob) : null
     };
     await fetch(CFG.sheetUrl, {method:'POST', mode:'no-cors', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
-    setStatus('st_sheet','done','Записано в Google Таблицу');
+    setStatus('st_sheet','done','Записано в Google Таблицу, PDF сохранён на Диск');
   }catch(e){ setStatus('st_sheet','fail','Ошибка записи в таблицу'); }
 }
 
@@ -903,19 +859,24 @@ async function uploadForLink(blob, filename){
   return url;
 }
 
-async function sendWhatsapp(blob){
-  if(!CFG.cmbKey || !state.client.phone){ setStatus('st_wa','fail','WhatsApp не настроен или не указан телефон клиента'); return; }
-  setStatus('st_wa','busy','Отправка в WhatsApp…');
+/* ЭТАП: вместо стороннего CallMeBot (с открытым API-ключом на фронтенде)
+   готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и
+   готовый текст со ссылкой на PDF. Открыть её может сотрудник СТО одним
+   тапом на экране "Готово" (кнопка btnSendWhatsapp) — WhatsApp сам не даёт
+   отправлять сообщения без участия человека без сервера с открытой сессией,
+   но весь текст и получатель уже подставлены автоматически. */
+async function buildWhatsappLink(blob){
+  if(!state.client.phone){ setStatus('st_wa','fail','Не указан WhatsApp клиента — ссылка не создана'); return; }
+  setStatus('st_wa','busy','Готовим ссылку для WhatsApp…');
   try{
     let link = '';
     try{ link = await uploadForLink(blob, state.pdfName); }catch(e){}
     const msg = `China Car Service: Акт ${state.actId} (${state.actType==='intake'?'получение':'выдача'} авто ${state.vehicle.plate}) готов.` +
       (link ? ` Скачать PDF: ${link}` : ' PDF направлен в офис, копию пришлём дополнительно.');
     const phone = state.client.phone.replace(/[^0-9+]/g,'');
-    const url = `https://api.callmebot.com/whatsapp.php?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(msg)}&apikey=${encodeURIComponent(CFG.cmbKey)}`;
-    await fetch(url, {mode:'no-cors'});
-    setStatus('st_wa','done','Сообщение отправлено в WhatsApp');
-  }catch(e){ setStatus('st_wa','fail','Ошибка отправки в WhatsApp'); }
+    state.waLink = `https://wa.me/${encodeURIComponent(phone)}?text=${encodeURIComponent(msg)}`;
+    setStatus('st_wa','done','Ссылка для WhatsApp готова');
+  }catch(e){ setStatus('st_wa','fail','Не удалось подготовить ссылку WhatsApp'); }
 }
 
 async function runSendPipeline(){
@@ -928,9 +889,9 @@ async function runSendPipeline(){
   state.pdfBlob = blob;
   setStatus('st_pdf','done','PDF сформирован');
 
-  await sendTelegram(blob);
-  await sendSheet();
-  await sendWhatsapp(blob);
+  await sendSheet(blob);
+  setStatus('st_tg','done','Отправлено сервером в Telegram');
+  await buildWhatsappLink(blob);
 
   document.getElementById('sendingView').style.display='none';
   const done = document.getElementById('doneView');
@@ -947,12 +908,46 @@ document.getElementById('btnDownloadPdf').addEventListener('click', ()=>{
   const a = document.createElement('a');
   a.href=url; a.download=state.pdfName; a.click();
 });
+
+/* Ссылка на WhatsApp-чат с клиентом уже готова (текст + номер подставлены
+   автоматически в buildWhatsappLink) — по кнопке просто открываем её. */
+document.getElementById('btnSendWhatsapp').addEventListener('click', ()=>{
+  if(state.waLink){ window.open(state.waLink, '_blank'); }
+  else{ alert('Ссылка для WhatsApp не готова: проверьте, что у клиента указан номер WhatsApp.'); }
+});
+
+/* Системное меню "Поделиться" — позволяет отправить готовый PDF-файл в
+   любое приложение (WhatsApp, Telegram, почту и т.д.), выбор получателя —
+   на стороне телефона. Работает без сервера и без сторонних API. */
+document.getElementById('btnShare').addEventListener('click', async ()=>{
+  if(!state.pdfBlob){ alert('PDF ещё не готов.'); return; }
+  const file = new File([state.pdfBlob], state.pdfName, {type:'application/pdf'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({
+        files:[file],
+        title:`Акт ${state.actId}`,
+        text:`China Car Service: акт ${state.actId} по авто ${state.vehicle.plate}`
+      });
+    }catch(e){ /* пользователь отменил — ничего не делаем */ }
+  } else {
+    alert('Ваш браузер не поддерживает системное меню "Поделиться". Используйте кнопку "Скачать PDF" и отправьте файл вручную.');
+  }
+});
+
 document.getElementById('btnNewAct').addEventListener('click', ()=>location.reload());
 
 /* ===================== INIT ===================== */
 fetchIP();
 renderStep();
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+      console.log('SW registration failed:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>

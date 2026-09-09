@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Учёт ТО — China Car Service</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -385,6 +390,14 @@
   document.getElementById('plateInput').addEventListener('keydown', function(e){
     if (e.key === 'Enter') doSearch();
   });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+        console.log('SW registration failed:', err);
+      });
+    });
+  }
 </script>
 </body>
 </html>
