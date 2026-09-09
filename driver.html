@@ -59,9 +59,12 @@
   #gate{max-width:340px; margin:40px auto 0;}
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
   .rec{
-    background:#241a0d; border:1px solid #4a3a1f; color:#f0c674; border-radius:10px;
-    padding:10px 12px; font-size:13px; margin-bottom:8px;
+    border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:8px;
   }
+  .rec-ok{ background:#12251a; border:1px solid #1f4a30; color:#7fd99a; }
+  .rec-soon{ background:#241a0d; border:1px solid #4a3a1f; color:#f0c674; }
+  .rec-due{ background:#2a1414; border:1px solid #4a1f1f; color:#f08a8a; }
+  .rec-unknown{ background:#0d141e; border:1px solid var(--border); color:var(--muted); }
   .announce{
     background:#0d1f33; border:1px solid #1f3a5c; color:#8ec8f0; border-radius:12px;
     padding:12px 14px; font-size:14px; margin-bottom:16px; line-height:1.4;
@@ -361,12 +364,16 @@
       (data.driverFio || '—') + (data.taxiOrPrivate ? ' · ' + data.taxiOrPrivate : '') +
       (data.whatsapp ? ' · WhatsApp: ' + data.whatsapp : '');
 
+    // Рекомендации теперь приходят всегда (по маслу и фильтру, если по ним
+    // есть хоть одна запись), с полем status: 'ok' | 'soon' | 'due' | 'unknown'.
     var recsWrap = document.getElementById('recsWrap');
     recsWrap.innerHTML = '';
+    var icons = { ok: '✅', soon: '🔔', due: '⚠️', unknown: 'ℹ️' };
     (data.recommendations || []).forEach(function (r) {
       var div = document.createElement('div');
-      div.className = 'rec';
-      div.innerText = '🔔 ' + r;
+      var status = r.status || 'unknown';
+      div.className = 'rec rec-' + status;
+      div.innerText = (icons[status] || 'ℹ️') + ' ' + (r.text || r);
       recsWrap.appendChild(div);
     });
 

@@ -62,14 +62,28 @@
 </head>
 <body>
 
-  <!-- ЭКРАН ВХОДА -->
+  <!-- ЭКРАН ВХОДА: личный логин/пароль сотрудника -->
   <div id="gate">
     <h1 style="text-align:center">🔒 Учёт ТО</h1>
-    <div class="sub" style="text-align:center">Введите код доступа</div>
+    <div class="sub" style="text-align:center">Войдите под своим именем и паролем</div>
     <div class="card">
-      <input id="pwInput" type="password" inputmode="numeric" placeholder="••••••" maxlength="12">
+      <label>Имя</label>
+      <input id="loginName" placeholder="Например, Асан" autocomplete="username">
+      <label>Пароль</label>
+      <input id="loginPw" type="password" placeholder="••••••" autocomplete="current-password">
       <button class="btn-primary btn-full" onclick="tryLogin()">Войти</button>
       <div class="gate-error" id="gateError"></div>
+    </div>
+    <div class="toggle" style="text-align:center; margin-bottom:8px;" onclick="toggleRegister()">Нет аккаунта? Регистрация</div>
+    <div class="card" id="registerCard" style="display:none;">
+      <label>Имя (логин)</label>
+      <input id="regName" placeholder="Например, Асан">
+      <label>Пароль</label>
+      <input id="regPw" type="password" placeholder="Минимум 4 символа">
+      <label>Повторите пароль</label>
+      <input id="regPw2" type="password" placeholder="Ещё раз">
+      <button class="btn-primary btn-full" onclick="tryRegister()">Зарегистрироваться</button>
+      <div class="gate-error" id="registerError"></div>
     </div>
   </div>
 
@@ -159,10 +173,11 @@
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
 
   var currentPlate = '';
+  var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
   var PW = sessionStorage.getItem('to_pw') || '';
 
-  // если пароль уже сохранён в этой вкладке — сразу пробуем открыть приложение
-  if (PW) showApp();
+  // если сессия уже сохранена в этой вкладке — сразу пробуем открыть приложение
+  if (ADMIN_NAME && PW) showApp();
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -179,19 +194,27 @@
     }).then(function (r) { return r.json(); });
   }
 
+  function toggleRegister() {
+    var c = document.getElementById('registerCard');
+    c.style.display = (c.style.display === 'none' || !c.style.display) ? 'block' : 'none';
+  }
+
   function tryLogin() {
-    var pw = document.getElementById('pwInput').value.trim();
-    if (!pw) return;
+    var name = document.getElementById('loginName').value.trim();
+    var pw = document.getElementById('loginPw').value;
+    if (!name || !pw) return;
     document.getElementById('gateError').innerText = '';
 
-    apiGet({ action: 'checkpw', pw: pw })
+    apiPost({ action: 'adminLogin', name: name, password: pw })
       .then(function (res) {
         if (res.ok) {
+          ADMIN_NAME = name;
           PW = pw;
+          sessionStorage.setItem('to_name', name);
           sessionStorage.setItem('to_pw', pw);
           showApp();
         } else {
-          document.getElementById('gateError').innerText = res.error || 'Неверный код доступа';
+          document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
         }
       })
       .catch(function () {
@@ -199,7 +222,33 @@
       });
   }
 
-  document.getElementById('pwInput').addEventListener('keydown', function (e) {
+  function tryRegister() {
+    var name = document.getElementById('regName').value.trim();
+    var pw = document.getElementById('regPw').value;
+    var pw2 = document.getElementById('regPw2').value;
+    var errEl = document.getElementById('registerError');
+    errEl.innerText = '';
+
+    if (!name || !pw) { errEl.innerText = 'Заполните имя и пароль'; return; }
+    if (pw !== pw2) { errEl.innerText = 'Пароли не совпадают'; return; }
+
+    apiPost({ action: 'adminRegister', name: name, password: pw })
+      .then(function (res) {
+        if (res.ok) {
+          document.getElementById('loginName').value = name;
+          document.getElementById('loginPw').value = pw;
+          document.getElementById('registerCard').style.display = 'none';
+          tryLogin();
+        } else {
+          errEl.innerText = res.error || 'Не удалось зарегистрироваться';
+        }
+      })
+      .catch(function () {
+        errEl.innerText = 'Ошибка сети';
+      });
+  }
+
+  document.getElementById('loginPw').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') tryLogin();
   });
 
@@ -209,6 +258,7 @@
   }
 
   function logout() {
+    sessionStorage.removeItem('to_name');
     sessionStorage.removeItem('to_pw');
     location.reload();
   }
@@ -224,8 +274,8 @@
     document.getElementById('resultsCard').style.display = 'none';
 
     Promise.all([
-      apiGet({ action: 'search', pw: PW, plate: plate }),
-      apiGet({ action: 'vehicleinfo', pw: PW, plate: plate })
+      apiGet({ action: 'search', name: ADMIN_NAME, pw: PW, plate: plate }),
+      apiGet({ action: 'vehicleinfo', name: ADMIN_NAME, pw: PW, plate: plate })
     ]).then(function (results) {
       var searchRes = results[0];
       var vehRes = results[1];
@@ -247,7 +297,9 @@
 
   function handleAuthError(err) {
     document.getElementById('searchStatus').innerText = 'Ошибка: ' + err.message;
-    if (('' + err.message).indexOf('доступа') !== -1) {
+    var msg = ('' + err.message);
+    if (msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1) {
+      sessionStorage.removeItem('to_name');
       sessionStorage.removeItem('to_pw');
       setTimeout(function () { location.reload(); }, 1200);
     }
@@ -310,7 +362,8 @@
     var oldText = link.textContent;
     link.textContent = '⏳ Готовим файл...';
 
-    fetch(SCRIPT_URL + '?action=pdf&plate=' + encodeURIComponent(currentPlate) + '&pw=' + encodeURIComponent(PW))
+    fetch(SCRIPT_URL + '?action=pdf&plate=' + encodeURIComponent(currentPlate) +
+          '&name=' + encodeURIComponent(ADMIN_NAME) + '&pw=' + encodeURIComponent(PW))
       .then(function (r) { return r.json(); })
       .then(function (data) {
         link.textContent = oldText;
@@ -373,7 +426,7 @@
     };
     document.getElementById('addStatus').innerText = 'Сохраняю...';
 
-    apiPost({ action: 'addRecord', pw: PW, data: data })
+    apiPost({ action: 'addRecord', name: ADMIN_NAME, pw: PW, data: data })
       .then(function (res) {
         if (res.ok) {
           document.getElementById('addStatus').innerText = '✅ Сохранено';

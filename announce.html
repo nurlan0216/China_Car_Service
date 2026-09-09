@@ -48,18 +48,33 @@
 </head>
 <body>
 
-  <!-- ЭКРАН ВХОДА (тот же код доступа, что и в "Учёт ТО") -->
+  <!-- ЭКРАН ВХОДА: тот же личный логин/пароль, что и в "Учёт ТО" -->
   <div id="gate">
     <h1 style="text-align:center">📢 Объявление</h1>
-    <div class="sub" style="text-align:center">Введите код доступа</div>
+    <div class="sub" style="text-align:center">Войдите под своим именем и паролем</div>
     <div class="card">
-      <input id="pwInput" type="password" inputmode="numeric" placeholder="••••••" maxlength="12">
+      <label>Имя</label>
+      <input id="loginName" placeholder="Например, Асан" autocomplete="username">
+      <label>Пароль</label>
+      <input id="loginPw" type="password" placeholder="••••••" autocomplete="current-password">
       <button class="btn-primary btn-full" onclick="tryLogin()">Войти</button>
       <div class="error" id="gateError"></div>
     </div>
   </div>
 
-  <!-- ФОРМА РЕДАКТИРОВАНИЯ -->
+  <!-- ОКНО ДЛЯ НЕ-СУПЕР-АДМИНОВ: вошли, но редактировать нельзя -->
+  <div id="noAccess" style="display:none;">
+    <span class="logout" onclick="logout()">Выйти</span>
+    <h1>📢 Объявление</h1>
+    <div class="card">
+      <div style="color:var(--muted);">
+        Вы вошли как <b id="noAccessName"></b>, но менять общее объявление могут только супер-админы.
+        Попросите супер-админа выставить вам эту роль в листе "Админ" (колонка "СуперАдмин").
+      </div>
+    </div>
+  </div>
+
+  <!-- ФОРМА РЕДАКТИРОВАНИЯ: показывается только супер-админам -->
   <div id="mainApp" style="display:none;">
     <span class="logout" onclick="logout()">Выйти</span>
     <h1>📢 Объявление для водителей</h1>
@@ -81,8 +96,10 @@
   // ЗАМЕНИТЕ на тот же адрес Apps Script Web App, что и в других файлах.
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
 
+  var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
   var PW = sessionStorage.getItem('to_pw') || '';
-  if (PW) showApp();
+  var IS_SUPER = false;
+  if (ADMIN_NAME && PW) tryLogin(true);
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -97,33 +114,50 @@
     }).then(function (r) { return r.json(); });
   }
 
-  function tryLogin() {
-    var pw = document.getElementById('pwInput').value.trim();
-    if (!pw) return;
-    document.getElementById('gateError').innerText = '';
+  // silent=true при автологине из сохранённой сессии — не показываем ошибки заново.
+  function tryLogin(silent) {
+    var name = silent ? ADMIN_NAME : document.getElementById('loginName').value.trim();
+    var pw = silent ? PW : document.getElementById('loginPw').value;
+    if (!name || !pw) return;
+    if (!silent) document.getElementById('gateError').innerText = '';
 
-    apiGet({ action: 'checkpw', pw: pw }).then(function (res) {
+    apiPost({ action: 'adminLogin', name: name, password: pw }).then(function (res) {
       if (res.ok) {
+        ADMIN_NAME = name;
         PW = pw;
+        IS_SUPER = !!res.isSuperAdmin;
+        sessionStorage.setItem('to_name', name);
         sessionStorage.setItem('to_pw', pw);
         showApp();
+      } else if (!silent) {
+        document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
       } else {
-        document.getElementById('gateError').innerText = res.error || 'Неверный код доступа';
+        logout(); // сохранённая сессия больше не валидна
       }
     }).catch(function () {
-      document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
+      if (!silent) document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
     });
   }
 
   function logout() {
+    sessionStorage.removeItem('to_name');
     sessionStorage.removeItem('to_pw');
     location.reload();
   }
 
+  // Если да (супер-админ) — окно редактирования показывается, не скрывается.
+  // Если нет — показывается только сообщение о том, что доступа нет.
   function showApp() {
     document.getElementById('gate').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
-    load();
+    if (IS_SUPER) {
+      document.getElementById('noAccess').style.display = 'none';
+      document.getElementById('mainApp').style.display = 'block';
+      load();
+    } else {
+      document.getElementById('mainApp').style.display = 'none';
+      document.getElementById('noAccessName').innerText = ADMIN_NAME;
+      document.getElementById('noAccess').style.display = 'block';
+    }
   }
 
   function load() {
@@ -146,7 +180,7 @@
     document.getElementById('saveOk').innerText = '';
     document.getElementById('status').innerText = 'Сохраняю...';
 
-    apiPost({ action: 'setAnnouncement', pw: PW, text: text }).then(function (res) {
+    apiPost({ action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text }).then(function (res) {
       document.getElementById('status').innerText = '';
       if (res.ok) {
         document.getElementById('saveOk').innerText = '✅ Сохранено';
