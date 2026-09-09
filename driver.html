@@ -288,12 +288,13 @@
     var taxiOrPrivate = document.getElementById('r_type').value;
     var vin = document.getElementById('r_vin').value.trim();
     var whatsapp = document.getElementById('r_whatsapp').value.trim();
-    var model = document.getElementById('r_model').value;
+    var model = document.getElementById('r_model').value.trim(); // Считываем модель автомобиля
     var errEl = document.getElementById('regError');
     errEl.innerText = '';
 
-    if (!fio || !whatsapp || !password) {
-      errEl.innerText = 'Заполните ФИО, WhatsApp и пароль';
+    // Заменили проверку пароля на проверку модели машины
+    if (!fio || !whatsapp || !model) {
+      errEl.innerText = 'Заполните ФИО, модель автомобиля и WhatsApp';
       return;
     }
 
@@ -301,7 +302,8 @@
     apiPost({
       action: 'driverRegister',
       plate: currentPlate,
-      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, password: password }
+      // Убрали password из data и добавили туда model
+      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model }
     }).then(function (res) {
       document.getElementById('regStatus').innerText = '';
       if (!res.ok) {
@@ -317,6 +319,7 @@
       errEl.innerText = 'Ошибка сети';
     });
   }
+
 
   // ---- КАБИНЕТ ----
 
