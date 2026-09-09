@@ -365,12 +365,9 @@
       recsWrap.appendChild(div);
     });
 
-    var cs = data.costSummary || { d30: 0, d90: 0, d365: 0, all: 0 };
+    var cs = data.costSummary || { all: 0 };
     var summaryHtml = '';
-    summaryHtml += '<div class="pill">30 дней<b>' + Number(cs.d30 || 0).toLocaleString('ru-RU') + '</b></div>';
-    summaryHtml += '<div class="pill">90 дней<b>' + Number(cs.d90 || 0).toLocaleString('ru-RU') + '</b></div>';
-    summaryHtml += '<div class="pill">365 дней<b>' + Number(cs.d365 || 0).toLocaleString('ru-RU') + '</b></div>';
-    summaryHtml += '<div class="pill">Всего<b>' + Number(cs.all || 0).toLocaleString('ru-RU') + '</b></div>';
+    summaryHtml += '<div class="pill">Всего за всё время<b>' + Number(cs.all || 0).toLocaleString('ru-RU') + '</b></div>';
     document.getElementById('costSummary').innerHTML = summaryHtml;
 
     renderHistory(data.rows || []);
