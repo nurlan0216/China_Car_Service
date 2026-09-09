@@ -86,7 +86,7 @@
   </div>
 
   <!-- ФОРМА РЕГИСТРАЦИИ (первый вход, машина не найдена) -->
-   <div id="regScreen" style="display:none;">
+  <div id="regScreen" style="display:none;">
     <span class="logout" onclick="logout()">Сменить номер</span>
     <h1>🆕 Регистрация</h1>
     <div class="sub">Машина <b id="regPlate"></b> ещё не в базе — заполните данные один раз</div>
@@ -94,12 +94,9 @@
       <label>ФИО водителя</label>
       <input id="r_fio" placeholder="Иванов Иван Иванович">
 
-      <label>Модель автомобиля</label>
-      <input id="r_model" placeholder="Например, HONGHI E-QM5">
-
       <label>Тип авто</label>
       <select id="r_type">
-        <option value="Такси">Таксопарк</option>
+        <option value="Такси">Такси</option>
         <option value="Частная">Частная</option>
       </select>
 
@@ -112,14 +109,16 @@
       <div class="loading" id="scanStatus"></div>
 
       <label>WhatsApp номер</label>
-      <input id="r_whatsapp" placeholder="+7 (777) 777-77-77">
+      <input id="r_whatsapp" placeholder="+996...">
+
+      <label>Пароль (для входа в кабинет)</label>
+      <input id="r_password" type="password" placeholder="Придумайте пароль">
 
       <button class="btn-primary btn-full" onclick="submitRegister()">Зарегистрироваться</button>
       <div class="error" id="regError"></div>
       <div class="loading" id="regStatus"></div>
     </div>
   </div>
-
 
   <!-- КАБИНЕТ ВОДИТЕЛЯ -->
   <div id="cabinet" style="display:none;">
@@ -288,13 +287,12 @@
     var taxiOrPrivate = document.getElementById('r_type').value;
     var vin = document.getElementById('r_vin').value.trim();
     var whatsapp = document.getElementById('r_whatsapp').value.trim();
-    var model = document.getElementById('r_model').value.trim(); // Считываем модель автомобиля
+    var password = document.getElementById('r_password').value;
     var errEl = document.getElementById('regError');
     errEl.innerText = '';
 
-    // Заменили проверку пароля на проверку модели машины
-    if (!fio || !whatsapp || !model) {
-      errEl.innerText = 'Заполните ФИО, модель автомобиля и WhatsApp';
+    if (!fio || !whatsapp || !password) {
+      errEl.innerText = 'Заполните ФИО, WhatsApp и пароль';
       return;
     }
 
@@ -302,8 +300,7 @@
     apiPost({
       action: 'driverRegister',
       plate: currentPlate,
-      // Убрали password из data и добавили туда model
-      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model }
+      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, password: password }
     }).then(function (res) {
       document.getElementById('regStatus').innerText = '';
       if (!res.ok) {
@@ -319,7 +316,6 @@
       errEl.innerText = 'Ошибка сети';
     });
   }
-
 
   // ---- КАБИНЕТ ----
 
