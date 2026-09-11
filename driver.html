@@ -4,10 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Кабинет водителя — China Car Service</title>
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest-driver.json">
 <meta name="theme-color" content="#0e1318">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192-driver.png">
+<!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
+     дублируем через meta-теги (Этап 8) -->
+<link rel="apple-touch-icon" href="icons/icon-192-driver.png">
+<meta name="apple-mobile-web-app-title" content="CCS Водитель">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -102,7 +107,7 @@
     <div class="sub" style="text-align:center">Введите гос. номер вашей машины</div>
     <div class="card">
       <input id="plateInput" placeholder="Например, 123ABC02" autocapitalize="characters">
-      <button class="btn-primary btn-full" onclick="doLogin()">Войти</button>
+      <button class="btn-primary btn-full" onclick="doLogin(this)">Войти</button>
       <div class="error" id="gateError"></div>
       <div class="loading" id="gateStatus"></div>
     </div>
@@ -142,15 +147,51 @@
       <label>Модель автомобиля</label>
       <input id="r_model" placeholder="Например, Chevrolet Cobalt">
 
-      <button class="btn-primary btn-full" onclick="submitRegister()">Зарегистрироваться</button>
+      <label>Придумайте пароль</label>
+      <input id="r_password" type="password" placeholder="Минимум 6 символов" autocomplete="new-password">
+
+      <label>Повторите пароль</label>
+      <input id="r_password2" type="password" placeholder="Ещё раз тот же пароль" autocomplete="new-password">
+
+      <button class="btn-primary btn-full" onclick="submitRegister(this)">Зарегистрироваться</button>
       <div class="error" id="regError"></div>
       <div class="loading" id="regStatus"></div>
     </div>
   </div>
 
+  <!-- ЭКРАН ВВОДА ПАРОЛЯ (гос. номер уже зарегистрирован) -->
+  <div id="passwordScreen" style="display:none; max-width:340px; margin:40px auto 0;">
+    <span class="logout" onclick="logout()">Сменить номер</span>
+    <h1 style="text-align:center">🔒 Вход</h1>
+    <div class="sub" style="text-align:center">Гос. номер <b id="pwPlate"></b> — введите пароль</div>
+    <div class="card">
+      <input id="pwInput" type="password" placeholder="Пароль" autocomplete="current-password">
+      <button class="btn-primary btn-full" onclick="submitPasswordLogin(this)">Войти</button>
+      <div class="error" id="pwError"></div>
+      <div class="loading" id="pwStatus"></div>
+    </div>
+  </div>
+
+  <!-- ЭКРАН ПЕРВИЧНОЙ УСТАНОВКИ ПАРОЛЯ (старая запись без пароля) -->
+  <div id="setPasswordScreen" style="display:none; max-width:340px; margin:40px auto 0;">
+    <span class="logout" onclick="logout()">Сменить номер</span>
+    <h1 style="text-align:center">🆕 Придумайте пароль</h1>
+    <div class="sub" style="text-align:center">
+      Гос. номер <b id="spPlate"></b> уже в базе, но пароля для входа ещё
+      нет — задайте его один раз, дальше он понадобится при каждом входе.
+    </div>
+    <div class="card">
+      <input id="spPassword" type="password" placeholder="Минимум 6 символов" autocomplete="new-password">
+      <input id="spPassword2" type="password" placeholder="Повторите пароль" autocomplete="new-password">
+      <button class="btn-primary btn-full" onclick="submitSetPassword(this)">Сохранить и войти</button>
+      <div class="error" id="spError"></div>
+      <div class="loading" id="spStatus"></div>
+    </div>
+  </div>
+
   <!-- КАБИНЕТ ВОДИТЕЛЯ -->
   <div id="cabinet" style="display:none;">
-    <span class="logout" onclick="logout()">Сменить номер</span>
+    <span class="logout" onclick="logoutDevice()">Это не моё устройство / Выйти</span>
     <div id="announceWrap"></div>
     <h1>🚕 Мой автомобиль</h1>
     <div class="sub" id="cabPlateSub"></div>
@@ -171,7 +212,7 @@
         <label>Текущий пробег, км</label>
         <div class="row">
           <input id="currentMileageInput" type="number" placeholder="Например, 48000">
-          <button class="btn-primary" onclick="checkMileage()">Проверить</button>
+          <button class="btn-primary" onclick="checkMileage(this)">Проверить</button>
         </div>
         <div class="loading" id="mileageCheckStatus"></div>
         <div id="mileageCheckResult"></div>
@@ -209,44 +250,117 @@
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
 
   var currentPlate = localStorage.getItem('driver_plate') || '';
+  var deviceToken = localStorage.getItem('driver_device_token') || '';
 
   if (currentPlate) {
+    // Гос. номер помним для удобства (не нужно вводить заново). Если на
+    // этом устройстве ранее уже входили и оно "запомнено" (Этап 4) —
+    // пробуем войти по токену без пароля; если токена нет или сервер его
+    // не подтвердил, показываем обычный экран (пароль/регистрация).
     document.getElementById('plateInput').value = currentPlate;
-    checkVehicle(currentPlate, true);
+    if (deviceToken) {
+      tryDeviceLogin(currentPlate, deviceToken);
+    } else {
+      checkVehicle(currentPlate, true);
+    }
+  }
+
+  // ---- "ЗАПОМНИТЬ УСТРОЙСТВО" (Этап 4) ----
+
+  function tryDeviceLogin(plate, token) {
+    apiPost({ action: 'deviceLogin', plate: plate, token: token })
+      .then(function (res) {
+        if (res.ok && res.valid) {
+          currentPlate = plate;
+          showCabinet(res);
+        } else {
+          // Токен не подтверждён (устройство новое/токен отозван) —
+          // убираем его и показываем обычный вход по паролю.
+          localStorage.removeItem('driver_device_token');
+          checkVehicle(plate, true);
+        }
+      })
+      .catch(function () {
+        // Сетевая ошибка — не удаляем токен (может быть временный сбой),
+        // просто идём обычным путём через ввод пароля.
+        checkVehicle(plate, true);
+      });
+  }
+
+  // Кнопка "Это не моё устройство" / "Выйти" в кабинете — забывает
+  // устройство: удаляет токен на сервере (best-effort) и локально.
+  function logoutDevice() {
+    var token = localStorage.getItem('driver_device_token');
+    if (token && currentPlate) {
+      apiPost({ action: 'deviceLogout', plate: currentPlate, token: token }).catch(function () {});
+    }
+    localStorage.removeItem('driver_device_token');
+    localStorage.removeItem('driver_plate');
+    location.reload();
   }
 
   // Показываем объявление сразу на экране входа, не дожидаясь логина
   // (гос. номер ещё не введён — объявление общее для всех).
   loadAnnouncement('gateAnnounceWrap');
 
+  // ЭТАП 7: один автоматический повтор при сетевой ошибке перед тем, как
+  // показать пользователю "Ошибка сети" (см. такой же helper в to.html).
+  function fetchWithRetry_(url, options) {
+    return fetch(url, options).catch(function () {
+      return new Promise(function (resolve) { setTimeout(resolve, 1500); })
+        .then(function () { return fetch(url, options); });
+    });
+  }
+
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
-    return fetch(url).then(function (r) { return r.json(); });
+    return fetchWithRetry_(url).then(function (r) { return r.json(); });
   }
 
   // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
   function apiPost(payload) {
-    return fetch(SCRIPT_URL, {
+    return fetchWithRetry_(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); });
   }
 
-  function doLogin() {
+  // ЭТАП 7: блокирует кнопку (disabled + временный текст) на время
+  // промиса fn(), чтобы двойной клик/тап не отправил запрос дважды.
+  // Используется во всех местах, где кнопка вызывает apiPost/apiGet.
+  function withButtonBusy_(btn, busyText, fn) {
+    if (!btn) return fn();
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = busyText;
+    var restore = function () { btn.disabled = false; btn.textContent = origText; };
+    var result = fn();
+    if (result && typeof result.finally === 'function') {
+      return result.finally(restore);
+    }
+    restore();
+    return result;
+  }
+
+  function doLogin(btn) {
     var plate = document.getElementById('plateInput').value.trim();
     if (!plate) return;
     document.getElementById('gateError').innerText = '';
-    checkVehicle(plate, false);
+    withButtonBusy_(btn, 'Ищу...', function () { return checkVehicle(plate, false); });
   }
 
   document.getElementById('plateInput').addEventListener('keydown', function (e) {
     if (e.key === 'Enter') doLogin();
   });
 
+  // Лёгкая проверка "есть ли такой гос. номер" — НЕ отдаёт личные данные,
+  // только exists/hasPassword. По ответу решаем, какой экран показать:
+  // регистрация (номера нет), ввод пароля (есть и пароль задан) или
+  // установка пароля (старая запись без пароля).
   function checkVehicle(plate, silent) {
     if (!silent) document.getElementById('gateStatus').innerText = 'Ищу машину...';
-    apiGet({ action: 'drivervehicle', plate: plate })
+    return apiGet({ action: 'drivervehicle', plate: plate })
       .then(function (res) {
         document.getElementById('gateStatus').innerText = '';
         if (!res.ok) {
@@ -255,10 +369,12 @@
         }
         currentPlate = plate;
         localStorage.setItem('driver_plate', plate);
-        if (res.exists) {
-          showCabinet(res);
-        } else {
+        if (!res.exists) {
           showRegister(plate);
+        } else if (res.hasPassword) {
+          showPasswordScreen(plate);
+        } else {
+          showSetPasswordScreen(plate);
         }
       })
       .catch(function () {
@@ -267,16 +383,105 @@
       });
   }
 
+  function hideAllScreens() {
+    ['gate', 'regScreen', 'passwordScreen', 'setPasswordScreen', 'cabinet'].forEach(function (id) {
+      document.getElementById(id).style.display = 'none';
+    });
+  }
+
   function logout() {
     localStorage.removeItem('driver_plate');
+    localStorage.removeItem('driver_device_token');
     location.reload();
+  }
+
+  // ---- ВХОД ПО ПАРОЛЮ (гос. номер уже зарегистрирован) ----
+
+  function showPasswordScreen(plate) {
+    hideAllScreens();
+    document.getElementById('passwordScreen').style.display = 'block';
+    document.getElementById('pwPlate').innerText = plate;
+    document.getElementById('pwInput').value = '';
+    document.getElementById('pwError').innerText = '';
+    document.getElementById('pwInput').focus();
+  }
+
+  function submitPasswordLogin(btn) {
+    var password = document.getElementById('pwInput').value;
+    var errEl = document.getElementById('pwError');
+    errEl.innerText = '';
+    if (!password) {
+      errEl.innerText = 'Введите пароль';
+      return;
+    }
+    document.getElementById('pwStatus').innerText = 'Проверяю...';
+    withButtonBusy_(btn, 'Проверяю...', function () {
+      return apiPost({ action: 'driverLogin', plate: currentPlate, password: password })
+        .then(function (res) {
+          document.getElementById('pwStatus').innerText = '';
+          if (!res.ok) {
+            errEl.innerText = res.error || 'Неверный номер или пароль';
+            return;
+          }
+          showCabinet(res);
+        })
+        .catch(function () {
+          document.getElementById('pwStatus').innerText = '';
+          errEl.innerText = 'Ошибка сети';
+        });
+    });
+  }
+
+  document.getElementById('pwInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') submitPasswordLogin();
+  });
+
+  // ---- ПЕРВИЧНАЯ УСТАНОВКА ПАРОЛЯ (старая запись без пароля) ----
+
+  function showSetPasswordScreen(plate) {
+    hideAllScreens();
+    document.getElementById('setPasswordScreen').style.display = 'block';
+    document.getElementById('spPlate').innerText = plate;
+    document.getElementById('spPassword').value = '';
+    document.getElementById('spPassword2').value = '';
+    document.getElementById('spError').innerText = '';
+  }
+
+  function submitSetPassword(btn) {
+    var p1 = document.getElementById('spPassword').value;
+    var p2 = document.getElementById('spPassword2').value;
+    var errEl = document.getElementById('spError');
+    errEl.innerText = '';
+    if (!p1 || p1.length < 6) {
+      errEl.innerText = 'Пароль должен быть не короче 6 символов';
+      return;
+    }
+    if (p1 !== p2) {
+      errEl.innerText = 'Пароли не совпадают';
+      return;
+    }
+    document.getElementById('spStatus').innerText = 'Сохраняю...';
+    withButtonBusy_(btn, 'Сохраняю...', function () {
+      return apiPost({ action: 'driverSetPassword', plate: currentPlate, password: p1 })
+        .then(function (res) {
+          document.getElementById('spStatus').innerText = '';
+          if (!res.ok) {
+            errEl.innerText = res.error || 'Не удалось сохранить пароль';
+            return;
+          }
+          showCabinet(res);
+        })
+        .catch(function () {
+          document.getElementById('spStatus').innerText = '';
+          errEl.innerText = 'Ошибка сети';
+        });
+    });
   }
 
   // ---- РЕГИСТРАЦИЯ ----
 
   function showRegister(plate) {
-    document.getElementById('gate').style.display = 'none';
-    document.getElementById('cabinet').style.display = 'none';
+    hideAllScreens();
     document.getElementById('regScreen').style.display = 'block';
     document.getElementById('regPlate').innerText = plate;
   }
@@ -340,12 +545,14 @@
     return digits ? '+' + digits : '';
   }
 
-  function submitRegister() {
+  function submitRegister(btn) {
     var fio = document.getElementById('r_fio').value.trim();
     var taxiOrPrivate = document.getElementById('r_type').value;
     var vin = document.getElementById('r_vin').value.trim();
     var whatsapp = normalizePhone(document.getElementById('r_whatsapp').value.trim());
     var model = document.getElementById('r_model').value.trim();
+    var password = document.getElementById('r_password').value;
+    var password2 = document.getElementById('r_password2').value;
     var errEl = document.getElementById('regError');
     errEl.innerText = '';
 
@@ -353,34 +560,50 @@
       errEl.innerText = 'Заполните ФИО и WhatsApp';
       return;
     }
+    if (!password || password.length < 6) {
+      errEl.innerText = 'Пароль должен быть не короче 6 символов';
+      return;
+    }
+    if (password !== password2) {
+      errEl.innerText = 'Пароли не совпадают';
+      return;
+    }
 
     document.getElementById('regStatus').innerText = 'Регистрирую...';
-    apiPost({
-      action: 'driverRegister',
-      plate: currentPlate,
-      data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model }
-    }).then(function (res) {
-      document.getElementById('regStatus').innerText = '';
-      if (!res.ok) {
-        errEl.innerText = res.error || 'Не удалось зарегистрироваться';
-        return;
-      }
-      // после успешной регистрации сразу открываем кабинет
-      apiGet({ action: 'drivervehicle', plate: currentPlate }).then(function (res2) {
-        if (res2.ok && res2.exists) showCabinet(res2);
+    withButtonBusy_(btn, 'Регистрирую...', function () {
+      return apiPost({
+        action: 'driverRegister',
+        plate: currentPlate,
+        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model, password: password }
+      }).then(function (res) {
+        document.getElementById('regStatus').innerText = '';
+        if (!res.ok) {
+          errEl.innerText = res.error || 'Не удалось зарегистрироваться';
+          return;
+        }
+        // Сервер сразу возвращает полные данные кабинета — открываем без
+        // лишнего повторного запроса.
+        showCabinet(res);
+      }).catch(function () {
+        document.getElementById('regStatus').innerText = '';
+        errEl.innerText = 'Ошибка сети';
       });
-    }).catch(function () {
-      document.getElementById('regStatus').innerText = '';
-      errEl.innerText = 'Ошибка сети';
     });
   }
 
   // ---- КАБИНЕТ ----
 
   function showCabinet(data) {
-    document.getElementById('gate').style.display = 'none';
-    document.getElementById('regScreen').style.display = 'none';
+    hideAllScreens();
     document.getElementById('cabinet').style.display = 'block';
+
+    // Сервер присылает deviceToken только сразу после входа по паролю /
+    // регистрации / установки пароля (см. apiDriverLogin и т.д.) — при
+    // входе по уже сохранённому токену (deviceLogin) поле отсутствует,
+    // потому что токен и так уже лежит в localStorage.
+    if (data.deviceToken) {
+      localStorage.setItem('driver_device_token', data.deviceToken);
+    }
 
     document.getElementById('cabPlateSub').innerText = 'Гос. номер: ' + currentPlate;
     document.getElementById('vehModel').innerText = data.model || 'Модель не указана';
@@ -417,7 +640,10 @@
   }
 
   function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, function (c) {
+    // ЭТАП 6: (s || '') превращал число 0 (например, пробег "0 км") в
+    // пустую строку — заменено на явную проверку null/undefined, чтобы
+    // такие значения по-прежнему показывались.
+    return (s === null || s === undefined ? '' : String(s)).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
   }
@@ -446,7 +672,7 @@
     f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
   }
 
-  function checkMileage() {
+  function checkMileage(btn) {
     var mileage = document.getElementById('currentMileageInput').value;
     var statusEl = document.getElementById('mileageCheckStatus');
     var resultEl = document.getElementById('mileageCheckResult');
@@ -456,18 +682,20 @@
       return;
     }
     statusEl.innerText = 'Проверяю...';
-    apiGet({ action: 'checkmileage', plate: currentPlate, mileage: mileage })
-      .then(function (res) {
-        statusEl.innerText = '';
-        if (!res.ok) {
-          statusEl.innerText = res.error || 'Не удалось проверить';
-          return;
-        }
-        renderRecommendations(res.recommendations, resultEl);
-      })
-      .catch(function () {
-        statusEl.innerText = 'Ошибка сети';
-      });
+    withButtonBusy_(btn, 'Проверяю...', function () {
+      return apiGet({ action: 'checkmileage', plate: currentPlate, mileage: mileage })
+        .then(function (res) {
+          statusEl.innerText = '';
+          if (!res.ok) {
+            statusEl.innerText = res.error || 'Не удалось проверить';
+            return;
+          }
+          renderRecommendations(res.recommendations, resultEl);
+        })
+        .catch(function () {
+          statusEl.innerText = 'Ошибка сети';
+        });
+    });
   }
 
   // Общее объявление для всех водителей — не зависит от гос. номера,
@@ -504,11 +732,16 @@
       wrap.innerHTML = '<div class="empty">Записей пока нет</div>';
       return;
     }
+    // ЭТАП 6 (б): escapeHtml() уже была определена в этом файле (для
+    // текста объявления), но история ТО вставлялась через innerHTML без
+    // неё — данные из истории (описание, тип работы и т.д.) когда-то мог
+    // ввести сотрудник СТО через apiAddRecord, поэтому без экранирования
+    // это хранимый XSS. Экранируем все поля перед вставкой.
     var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
     rows.forEach(function (r) {
-      html += '<tr><td>' + r.date + '</td><td>' + r.mileage + '</td><td>' + r.type +
-              (r.description ? '<br><span style="color:var(--muted)">' + r.description + '</span>' : '') +
-              '</td><td>' + (r.cost || '') + '</td></tr>';
+      html += '<tr><td>' + escapeHtml(r.date) + '</td><td>' + escapeHtml(r.mileage) + '</td><td>' + escapeHtml(r.type) +
+              (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml(r.description) + '</span>' : '') +
+              '</td><td>' + escapeHtml(r.cost) + '</td></tr>';
     });
     html += '</table>';
     wrap.innerHTML = html;

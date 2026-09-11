@@ -1,0 +1,26 @@
+{
+  "id": "staff",
+  "name": "China Car Service — СТО",
+  "short_name": "CCS СТО",
+  "description": "Панель сотрудника СТО — учёт ТО автопарка и акты приёма-передачи",
+  "start_url": "to.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1318",
+  "theme_color": "#0e1318",
+  "icons": [
+    {
+      "src": "icons/icon-192-staff.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512-staff.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

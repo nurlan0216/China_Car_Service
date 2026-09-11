@@ -1,0 +1,26 @@
+{
+  "id": "driver",
+  "name": "China Car Service — Водитель",
+  "short_name": "CCS Водитель",
+  "description": "Кабинет водителя — история ТО, акты, PDF-выгрузка по гос. номеру",
+  "start_url": "driver.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1318",
+  "theme_color": "#0e1318",
+  "icons": [
+    {
+      "src": "icons/icon-192-driver.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512-driver.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -4,10 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Акт приёма-передачи ТС — China Car Service</title>
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest-staff.json">
 <meta name="theme-color" content="#0e1318">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192-staff.png">
+<!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
+     дублируем через meta-теги (Этап 8). Акт составляет только вошедший
+     сотрудник (см. Этап 2), поэтому иконка/манифест — как у to.html -->
+<link rel="apple-touch-icon" href="icons/icon-192-staff.png">
+<meta name="apple-mobile-web-app-title" content="CCS СТО">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -34,7 +40,7 @@
   @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:14px;}
   label{display:block;font-size:12.5px;color:var(--text-dim);margin:0 0 6px;font-weight:500;}
-  input[type=text],input[type=tel],input[type=number],textarea,select{
+  input[type=text],input[type=tel],input[type=number],input[type=password],textarea,select{
     width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
     border-radius:8px;padding:11px 12px;font-size:15px;margin-bottom:14px;font-family:inherit;
   }
@@ -97,10 +103,30 @@
   a.link{color:var(--amber);}
   .final-icon{font-size:52px;text-align:center;margin:10px 0 6px;}
   .small{font-size:11.5px;color:var(--text-dim);}
+  #gate{max-width:340px;margin:70px auto 0;padding:0 18px;}
+  #gate h2{text-align:center;font-family:'Oswald',sans-serif;color:var(--amber);}
+  #gate .sub{text-align:center;color:var(--text-dim);font-size:13px;margin-bottom:16px;}
+  #gate .gate-error{color:var(--danger);font-size:13px;min-height:18px;text-align:center;margin-top:4px;}
 </style>
 </head>
 <body>
-<div id="app">
+
+<!-- ЭКРАН ВХОДА: акт составляет только вошедший сотрудник СТО, та же
+     учётка, что и в to.html (проверяется через action 'adminLogin'). -->
+<div id="gate">
+  <h2>🔒 Вход сотрудника СТО</h2>
+  <div class="sub">Войдите под своим именем и паролем, чтобы оформить акт</div>
+  <div class="card">
+    <label>Имя</label>
+    <input type="text" id="gateName" placeholder="Например, Асан" autocomplete="username">
+    <label>Пароль</label>
+    <input type="password" id="gatePw" placeholder="••••••" autocomplete="current-password">
+    <button class="btn" id="gateLoginBtn" onclick="tryGateLogin()">Войти</button>
+    <div class="gate-error" id="gateError"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
 
   <header class="top">
     <div class="brand">
@@ -866,7 +892,10 @@ async function sendSheet(pdfBlob){
       pdfName: state.pdfName,
       pdfBase64: pdfBlob ? await blobToBase64(pdfBlob) : null
     };
-    const r = await fetch(CFG.sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
+    // ЭТАП 7: один автоматический повтор при сетевой ошибке — отправка
+    // акта самая "дорогая" операция (несёт PDF в base64), обидно, если
+    // именно она сорвётся из-за одного случайного обрыва сети.
+    const r = await fetchWithRetry_(CFG.sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
     const res = await r.json();
     state.driveUrl = (res && res.driveUrl) || '';
     setStatus('st_sheet','done','Записано в Google Таблицу, PDF сохранён на Диск');
@@ -948,9 +977,100 @@ document.getElementById('btnShare').addEventListener('click', async ()=>{
 
 document.getElementById('btnNewAct').addEventListener('click', ()=>location.reload());
 
+/* ===================== ВХОД СОТРУДНИКА (та же учётка, что в to.html) =====================
+ * Акт приёма-передачи теперь оформляет только вошедший сотрудник СТО.
+ * Проверка идёт той же серверной функцией adminLogin (action: 'adminLogin'),
+ * что используется в to.html. Сессия хранится в sessionStorage под теми же
+ * ключами (to_name/to_pw), поэтому если сотрудник уже вошёл в to.html в этой
+ * вкладке/сессии браузера, повторный вход здесь не потребуется.
+ */
+var GATE_NAME = sessionStorage.getItem('to_name') || '';
+var GATE_PW = sessionStorage.getItem('to_pw') || '';
+
+// ЭТАП 7: один автоматический повтор при сетевой ошибке (см. такой же
+// helper в to.html/driver.html) — если fetch() отклонился (обрыв связи),
+// пробуем ещё раз через короткую паузу перед тем, как показать ошибку.
+function fetchWithRetry_(url, options) {
+  return fetch(url, options).catch(function () {
+    return new Promise(function (resolve) { setTimeout(resolve, 1500); })
+      .then(function () { return fetch(url, options); });
+  });
+}
+
+function gateApiPost(payload) {
+  return fetchWithRetry_(CFG.sheetUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify(payload)
+  }).then(function (r) { return r.json(); });
+}
+
+function showActApp() {
+  document.getElementById('gate').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  fetchIP();
+  renderStep();
+}
+
+function gateLoginFailed() {
+  sessionStorage.removeItem('to_name');
+  sessionStorage.removeItem('to_pw');
+  document.getElementById('gate').style.display = 'block';
+}
+
+function tryGateLogin(silent) {
+  var name = silent ? GATE_NAME : document.getElementById('gateName').value.trim();
+  var pw = silent ? GATE_PW : document.getElementById('gatePw').value;
+  var errEl = document.getElementById('gateError');
+  if (errEl) errEl.innerText = '';
+  if (!name || !pw) {
+    if (!silent) errEl.innerText = 'Введите имя и пароль';
+    return;
+  }
+  // ЭТАП 7: блокируем кнопку "Войти" на время запроса, чтобы двойной
+  // клик/тап не отправил вход дважды подряд.
+  var btn = document.getElementById('gateLoginBtn');
+  if (!silent && btn) { btn.disabled = true; btn.dataset.origText = btn.textContent; btn.textContent = 'Вхожу...'; }
+
+  gateApiPost({ action: 'adminLogin', name: name, password: pw })
+    .then(function (res) {
+      if (res.ok) {
+        GATE_NAME = name;
+        GATE_PW = pw;
+        sessionStorage.setItem('to_name', name);
+        sessionStorage.setItem('to_pw', pw);
+        showActApp();
+      } else {
+        if (silent) {
+          gateLoginFailed();
+        } else if (errEl) {
+          errEl.innerText = res.error || 'Неверный логин или пароль';
+        }
+      }
+    })
+    .catch(function () {
+      if (!silent && errEl) errEl.innerText = 'Ошибка сети';
+    })
+    .finally(function () {
+      if (!silent && btn) { btn.disabled = false; btn.textContent = btn.dataset.origText || 'Войти'; }
+    });
+}
+
+var gatePwInput = document.getElementById('gatePw');
+if (gatePwInput) {
+  gatePwInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') tryGateLogin();
+  });
+}
+
 /* ===================== INIT ===================== */
-fetchIP();
-renderStep();
+// Экран составления акта скрыт (см. #app{display:none} в разметке) до тех
+// пор, пока не подтверждён вход сотрудника. Если в этой вкладке уже есть
+// сохранённая сессия (например, только что вошли в to.html) — проверяем её
+// молча; иначе показываем экран входа и ждём.
+if (GATE_NAME && GATE_PW) {
+  tryGateLogin(true);
+}
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {

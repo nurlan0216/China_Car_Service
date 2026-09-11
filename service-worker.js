@@ -3,7 +3,11 @@
 // Запросы к Apps Script (.../exec — данные, PDF, акты) НЕ кэшируются и НЕ
 // перехватываются: они всегда идут напрямую в сеть, чтобы данные были свежими.
 
-var CACHE_NAME = 'ccs-shell-v1';
+// v2 — Этап 8: добавлены отдельные манифесты/иконки для PWA водителя и
+// сотрудника СТО. Версия кэша обязательно бампнута, иначе у уже
+// установленных приложений service worker продолжит отдавать старый список
+// файлов и новые манифесты/иконки не подхватятся офлайн.
+var CACHE_NAME = 'ccs-shell-v2';
 
 var PRECACHE_URLS = [
   'index.html',
@@ -11,8 +15,14 @@ var PRECACHE_URLS = [
   'to.html',
   'act.html',
   'manifest.json',
+  'manifest-driver.json',
+  'manifest-staff.json',
   'icons/icon-192.png',
-  'icons/icon-512.png'
+  'icons/icon-512.png',
+  'icons/icon-192-driver.png',
+  'icons/icon-512-driver.png',
+  'icons/icon-192-staff.png',
+  'icons/icon-512-staff.png'
 ];
 
 self.addEventListener('install', function (event) {

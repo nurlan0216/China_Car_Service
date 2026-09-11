@@ -4,10 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Учёт ТО — China Car Service</title>
-<link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest-staff.json">
 <meta name="theme-color" content="#0e1318">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192-staff.png">
+<!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
+     дублируем через meta-теги (Этап 8) -->
+<link rel="apple-touch-icon" href="icons/icon-192-staff.png">
+<meta name="apple-mobile-web-app-title" content="CCS СТО">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -71,7 +76,7 @@
       <input id="loginName" placeholder="Например, Асан" autocomplete="username">
       <label>Пароль</label>
       <input id="loginPw" type="password" placeholder="••••••" autocomplete="current-password">
-      <button class="btn-primary btn-full" onclick="tryLogin()">Войти</button>
+      <button class="btn-primary btn-full" onclick="tryLogin(false, this)">Войти</button>
       <div class="gate-error" id="gateError"></div>
     </div>
     <div class="toggle" style="text-align:center; margin-bottom:8px;" onclick="toggleRegister()">Нет аккаунта? Регистрация</div>
@@ -82,7 +87,9 @@
       <input id="regPw" type="password" placeholder="Минимум 4 символа">
       <label>Повторите пароль</label>
       <input id="regPw2" type="password" placeholder="Ещё раз">
-      <button class="btn-primary btn-full" onclick="tryRegister()">Зарегистрироваться</button>
+      <label>Код приглашения</label>
+      <input id="regInvite" placeholder="Выдаётся руководителем СТО">
+      <button class="btn-primary btn-full" onclick="tryRegister(this)">Зарегистрироваться</button>
       <div class="gate-error" id="registerError"></div>
     </div>
   </div>
@@ -91,6 +98,7 @@
   <div id="mainApp" style="display:none;">
     <span class="logout" onclick="logout()">Выйти</span>
     <h1>🚗 Учёт обслуживания автопарка</h1>
+    <div class="sub"><a href="act.html" style="color:var(--accent);">📝 Оформить акт приёма-передачи ТС</a></div>
     <div class="sub">Поиск истории ТО по гос. номеру, PDF-выгрузка, добавление новых работ</div>
 
     <div class="card">
@@ -124,13 +132,13 @@
           <input id="f_owner" placeholder="Иванов Иван">
 
           <label>Телефон владельца</label>
-          <input id="f_phone" placeholder="+7 777 777 77 77">
+          <input id="f_phone" placeholder="+996...">
 
           <label>VIN (необязательно)</label>
           <input id="f_vin" placeholder="VIN номер">
 
           <label>Марка и модель (необязательно)</label>
-          <input id="f_model" placeholder="Например, Honghi E-QM5">
+          <input id="f_model" placeholder="Например, Chery Tiggo 4">
         </div>
 
         <label>Пробег, км</label>
@@ -161,7 +169,7 @@
         <label>Мастер</label>
         <input id="f_master" placeholder="Имя мастера">
 
-        <button class="btn-primary btn-full" onclick="submitAdd()">Сохранить запись</button>
+        <button class="btn-primary btn-full" onclick="submitAdd(this)">Сохранить запись</button>
         <div id="addStatus" class="loading"></div>
       </div>
     </div>
@@ -181,7 +189,7 @@
       <div id="announceMediaPreview" style="margin-bottom:10px;"></div>
 
       <div id="announceMeta" class="sub" style="margin:0 0 8px;"></div>
-      <button class="btn-primary btn-full" onclick="saveAnnouncement()">Сохранить объявление</button>
+      <button class="btn-primary btn-full" onclick="saveAnnouncement(this)">Сохранить объявление</button>
       <button class="btn-primary btn-full" style="background:#0d141e; border:1px solid var(--border); margin-top:8px;" onclick="clearAnnouncement()">Очистить (убрать объявление)</button>
       <div class="gate-error" id="announceError"></div>
       <div class="loading" id="announceStatus"></div>
@@ -204,19 +212,48 @@
   // от чего зависит, показывать ли ниже окно редактирования объявления.
   if (ADMIN_NAME && PW) tryLogin(true);
 
+  // ЭТАП 7: один автоматический повтор при сетевой ошибке (обрыв связи,
+  // fetch reject) перед тем, как показать пользователю "Ошибка сети" —
+  // мобильная сеть иногда роняет один запрос из многих, и повтор через
+  // короткую паузу решает это без участия человека. HTTP-ответы с
+  // ошибкой (res.ok:false в JSON) сюда не относятся — это не сетевая
+  // ошибка, а обычный ответ сервера, повторять его не нужно.
+  function fetchWithRetry_(url, options) {
+    return fetch(url, options).catch(function () {
+      return new Promise(function (resolve) { setTimeout(resolve, 1500); })
+        .then(function () { return fetch(url, options); });
+    });
+  }
+
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
-    return fetch(url).then(function (r) { return r.json(); });
+    return fetchWithRetry_(url).then(function (r) { return r.json(); });
   }
 
   // POST с text/plain, чтобы браузер не слал preflight OPTIONS-запрос —
   // Apps Script Web App его не обрабатывает при обращении с чужого домена.
   function apiPost(payload) {
-    return fetch(SCRIPT_URL, {
+    return fetchWithRetry_(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); });
+  }
+
+  // ЭТАП 7: блокирует кнопку (disabled + временный текст) на время
+  // промиса fn(), чтобы двойной клик/тап не отправил запрос дважды.
+  function withButtonBusy_(btn, busyText, fn) {
+    if (!btn) return fn();
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = busyText;
+    var restore = function () { btn.disabled = false; btn.textContent = origText; };
+    var result = fn();
+    if (result && typeof result.finally === 'function') {
+      return result.finally(restore);
+    }
+    restore();
+    return result;
   }
 
   function toggleRegister() {
@@ -227,56 +264,62 @@
   // silent=true — при автовходе из сохранённой в этой вкладке сессии
   // (см. вызов выше); тогда не показываем ошибки заново, а просто
   // сбрасываем сессию, если она вдруг стала невалидной.
-  function tryLogin(silent) {
+  function tryLogin(silent, btn) {
     var name = silent ? ADMIN_NAME : document.getElementById('loginName').value.trim();
     var pw = silent ? PW : document.getElementById('loginPw').value;
     if (!name || !pw) return;
     if (!silent) document.getElementById('gateError').innerText = '';
 
-    apiPost({ action: 'adminLogin', name: name, password: pw })
-      .then(function (res) {
-        if (res.ok) {
-          ADMIN_NAME = name;
-          PW = pw;
-          IS_SUPER = !!res.isSuperAdmin;
-          sessionStorage.setItem('to_name', name);
-          sessionStorage.setItem('to_pw', pw);
-          showApp();
-        } else if (!silent) {
-          document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
-        } else {
-          logout(); // сохранённая сессия больше не валидна
-        }
-      })
-      .catch(function () {
-        if (!silent) document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
-      });
+    withButtonBusy_(silent ? null : btn, 'Вхожу...', function () {
+      return apiPost({ action: 'adminLogin', name: name, password: pw })
+        .then(function (res) {
+          if (res.ok) {
+            ADMIN_NAME = name;
+            PW = pw;
+            IS_SUPER = !!res.isSuperAdmin;
+            sessionStorage.setItem('to_name', name);
+            sessionStorage.setItem('to_pw', pw);
+            showApp();
+          } else if (!silent) {
+            document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
+          } else {
+            logout(); // сохранённая сессия больше не валидна
+          }
+        })
+        .catch(function () {
+          if (!silent) document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
+        });
+    });
   }
 
-  function tryRegister() {
+  function tryRegister(btn) {
     var name = document.getElementById('regName').value.trim();
     var pw = document.getElementById('regPw').value;
     var pw2 = document.getElementById('regPw2').value;
+    var invite = document.getElementById('regInvite').value.trim();
     var errEl = document.getElementById('registerError');
     errEl.innerText = '';
 
     if (!name || !pw) { errEl.innerText = 'Заполните имя и пароль'; return; }
     if (pw !== pw2) { errEl.innerText = 'Пароли не совпадают'; return; }
+    if (!invite) { errEl.innerText = 'Укажите код приглашения'; return; }
 
-    apiPost({ action: 'adminRegister', name: name, password: pw })
-      .then(function (res) {
-        if (res.ok) {
-          document.getElementById('loginName').value = name;
-          document.getElementById('loginPw').value = pw;
-          document.getElementById('registerCard').style.display = 'none';
-          tryLogin();
-        } else {
-          errEl.innerText = res.error || 'Не удалось зарегистрироваться';
-        }
-      })
-      .catch(function () {
-        errEl.innerText = 'Ошибка сети';
-      });
+    withButtonBusy_(btn, 'Регистрирую...', function () {
+      return apiPost({ action: 'adminRegister', name: name, password: pw, inviteCode: invite })
+        .then(function (res) {
+          if (res.ok) {
+            document.getElementById('loginName').value = name;
+            document.getElementById('loginPw').value = pw;
+            document.getElementById('registerCard').style.display = 'none';
+            tryLogin();
+          } else {
+            errEl.innerText = res.error || 'Не удалось зарегистрироваться';
+          }
+        })
+        .catch(function () {
+          errEl.innerText = 'Ошибка сети';
+        });
+    });
   }
 
   document.getElementById('loginPw').addEventListener('keydown', function (e) {
@@ -308,9 +351,11 @@
     document.getElementById('searchStatus').innerText = 'Ищу...';
     document.getElementById('resultsCard').style.display = 'none';
 
+    // ЭТАП 6: раньше пароль уходил в query-строке через apiGet(...&pw=...),
+    // теперь — только в теле POST, чтобы он не оседал в истории браузера.
     Promise.all([
-      apiGet({ action: 'search', name: ADMIN_NAME, pw: PW, plate: plate }),
-      apiGet({ action: 'vehicleinfo', name: ADMIN_NAME, pw: PW, plate: plate })
+      apiPost({ action: 'search', name: ADMIN_NAME, pw: PW, plate: plate }),
+      apiPost({ action: 'vehicleinfo', name: ADMIN_NAME, pw: PW, plate: plate })
     ]).then(function (results) {
       var searchRes = results[0];
       var vehRes = results[1];
@@ -363,6 +408,16 @@
     renderFilteredRows(lastRows);
   }
 
+  // ЭТАП 6 (б): та же функция, что уже используется в driver.html —
+  // экранирует спецсимволы HTML, чтобы значения из истории ТО (которые
+  // мог когда-то ввести кто угодно через apiAddRecord) нельзя было
+  // использовать для хранимого XSS при вставке через innerHTML.
+  function escapeHtml(s) {
+    return (s === null || s === undefined ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
   function renderFilteredRows(rows) {
     var oil = rows.find(r => r.type === 'Замена масла');
     var filter = rows.find(r => r.type === 'Замена фильтра');
@@ -370,8 +425,8 @@
     var totalCost = rows.reduce(function (sum, r) { return sum + (parseFloat(r.cost) || 0); }, 0);
 
     var summaryHtml = '';
-    summaryHtml += '<div class="pill">Масло<b>' + (oil ? oil.date + ' · ' + oil.mileage + ' км' : '—') + '</b></div>';
-    summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? filter.date + ' · ' + filter.mileage + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Масло<b>' + (oil ? escapeHtml(oil.date) + ' · ' + escapeHtml(oil.mileage) + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? escapeHtml(filter.date) + ' · ' + escapeHtml(filter.mileage) + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Ремонтов<b>' + repairs.length + '</b></div>';
     summaryHtml += '<div class="pill">Сумма за период<b>' + totalCost.toLocaleString('ru-RU') + '</b></div>';
     document.getElementById('summary').innerHTML = summaryHtml;
@@ -382,9 +437,9 @@
     } else {
       var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
       rows.forEach(function(r) {
-        html += '<tr><td>' + r.date + '</td><td>' + r.mileage + '</td><td>' + r.type +
-                (r.description ? '<br><span style="color:var(--muted)">' + r.description + '</span>' : '') +
-                '</td><td>' + (r.cost || '') + '</td></tr>';
+        html += '<tr><td>' + escapeHtml(r.date) + '</td><td>' + escapeHtml(r.mileage) + '</td><td>' + escapeHtml(r.type) +
+                (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml(r.description) + '</span>' : '') +
+                '</td><td>' + escapeHtml(r.cost) + '</td></tr>';
       });
       html += '</table>';
       wrap.innerHTML = html;
@@ -397,9 +452,9 @@
     var oldText = link.textContent;
     link.textContent = '⏳ Готовим файл...';
 
-    fetch(SCRIPT_URL + '?action=pdf&plate=' + encodeURIComponent(currentPlate) +
-          '&name=' + encodeURIComponent(ADMIN_NAME) + '&pw=' + encodeURIComponent(PW))
-      .then(function (r) { return r.json(); })
+    // ЭТАП 6: пароль раньше шёл в GET-строке (?...&pw=...) — переведено
+    // на apiPost, пароль теперь только в теле запроса.
+    apiPost({ action: 'pdf', plate: currentPlate, name: ADMIN_NAME, pw: PW })
       .then(function (data) {
         link.textContent = oldText;
         if (!data.ok) {
@@ -436,7 +491,7 @@
     f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
   }
 
-  function submitAdd() {
+  function submitAdd(btn) {
     if (!isKnownVehicle) {
       var owner = document.getElementById('f_owner').value.trim();
       var phone = document.getElementById('f_phone').value.trim();
@@ -461,18 +516,20 @@
     };
     document.getElementById('addStatus').innerText = 'Сохраняю...';
 
-    apiPost({ action: 'addRecord', name: ADMIN_NAME, pw: PW, data: data })
-      .then(function (res) {
-        if (res.ok) {
-          document.getElementById('addStatus').innerText = '✅ Сохранено';
-          setTimeout(function(){ doSearch(); }, 400);
-        } else {
-          document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error;
-        }
-      })
-      .catch(function () {
-        document.getElementById('addStatus').innerText = 'Ошибка сети';
-      });
+    withButtonBusy_(btn, 'Сохраняю...', function () {
+      return apiPost({ action: 'addRecord', name: ADMIN_NAME, pw: PW, data: data })
+        .then(function (res) {
+          if (res.ok) {
+            document.getElementById('addStatus').innerText = '✅ Сохранено';
+            setTimeout(function(){ doSearch(); }, 400);
+          } else {
+            document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error;
+          }
+        })
+        .catch(function () {
+          document.getElementById('addStatus').innerText = 'Ошибка сети';
+        });
+    });
   }
 
   document.getElementById('plateInput').addEventListener('keydown', function(e){
@@ -544,25 +601,27 @@
     reader.readAsDataURL(file);
   });
 
-  function saveAnnouncement() {
+  function saveAnnouncement(btn) {
     var text = document.getElementById('announceText').value;
     document.getElementById('announceError').innerText = '';
     document.getElementById('announceStatus').innerText = 'Сохраняю...';
 
-    apiPost({
-      action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text,
-      media: pendingMedia, removeMedia: removeMediaFlag
-    }).then(function (res) {
-      document.getElementById('announceStatus').innerText = '';
-      if (res.ok) {
-        document.getElementById('announceStatus').innerText = '✅ Сохранено';
-        loadAnnouncement();
-      } else {
-        document.getElementById('announceError').innerText = res.error || 'Не удалось сохранить';
-      }
-    }).catch(function () {
-      document.getElementById('announceStatus').innerText = '';
-      document.getElementById('announceError').innerText = 'Ошибка сети';
+    withButtonBusy_(btn, 'Сохраняю...', function () {
+      return apiPost({
+        action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text,
+        media: pendingMedia, removeMedia: removeMediaFlag
+      }).then(function (res) {
+        document.getElementById('announceStatus').innerText = '';
+        if (res.ok) {
+          document.getElementById('announceStatus').innerText = '✅ Сохранено';
+          loadAnnouncement();
+        } else {
+          document.getElementById('announceError').innerText = res.error || 'Не удалось сохранить';
+        }
+      }).catch(function () {
+        document.getElementById('announceStatus').innerText = '';
+        document.getElementById('announceError').innerText = 'Ошибка сети';
+      });
     });
   }
 
