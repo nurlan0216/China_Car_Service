@@ -247,26 +247,36 @@
   // base64-фото/видео (объявление) и загрузка иначе была бы "немой".
   // Один автоматический повтор при сетевой ошибке — как в fetchWithRetry_.
   function apiPostWithProgress_(payload, onProgress) {
+    // ВАЖНО: не используем XMLHttpRequest для Google Apps Script Web App.
+    // URL /exec может перенаправляться Google на googleusercontent.com, и
+    // XHR в некоторых браузерах трактует такой CORS-redirect как Network Error.
+    // Обычный fetch корректно проходит этот redirect.
     var body = JSON.stringify(payload);
+    var timer = null;
     function attempt() {
-      return new Promise(function (resolve, reject) {
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', SCRIPT_URL, true);
-        xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
-        if (xhr.upload && onProgress) {
-          xhr.upload.onprogress = function (e) {
-            if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
-          };
-        }
-        xhr.onload = function () {
-          try { resolve(JSON.parse(xhr.responseText)); }
-          catch (e) { reject(e); }
-        };
-        xhr.onerror = function () { reject(new Error('network')); };
-        xhr.send(body);
+      if (onProgress) onProgress(5);
+      var fake = 5;
+      timer = setInterval(function () {
+        // Не выдаём ложные 100%: максимум 90% до получения ответа сервера.
+        fake = Math.min(fake + (fake < 60 ? 8 : 3), 90);
+        if (onProgress) onProgress(fake);
+      }, 250);
+      return fetch(SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: body
+      }).then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      }).then(function (res) {
+        if (onProgress) onProgress(100);
+        return res;
+      }).finally(function () {
+        if (timer) { clearInterval(timer); timer = null; }
       });
     }
     return attempt().catch(function () {
+      if (timer) { clearInterval(timer); timer = null; }
       return new Promise(function (resolve) { setTimeout(resolve, 1500); }).then(attempt);
     });
   }
@@ -602,9 +612,21 @@
   document.getElementById('announceMediaInput').addEventListener('change', function(e){
     var file=e.target.files[0]; if(!file) return;
     pendingMedia=null;
+    // Большие видео превращаются в огромный base64 POST и могут упереться в
+    // лимит Google Apps Script. Лучше показать понятную ошибку, чем Network Error.
+    var MAX_VIDEO = 20 * 1024 * 1024;
+    if(file.type.indexOf('video')===0 && file.size > MAX_VIDEO){
+      document.getElementById('announceError').innerText='Видео слишком большое. Максимальный размер — 20 МБ.';
+      e.target.value='';
+      return;
+    }
+    document.getElementById('announceError').innerText='';
     var reader=new FileReader();
-    reader.onload=function(){ pendingMedia={base64:reader.result.split(',')[1],mimeType:file.type,fileName:file.name};
-      document.getElementById('announceMediaPreview').innerHTML=file.type.indexOf('video')===0?'<div class="sub">🎥 '+escapeHtml(file.name)+'</div>':'<img src="'+reader.result+'" style="max-width:100%;border-radius:8px">'; };
+    reader.onload=function(){
+      pendingMedia={base64:reader.result.split(',')[1],mimeType:file.type,fileName:file.name};
+      document.getElementById('announceMediaPreview').innerHTML=file.type.indexOf('video')===0?'<div class="sub">🎥 '+escapeHtml(file.name)+' ('+Math.round(file.size/1024/1024*10)/10+' МБ)</div>':'<img src="'+reader.result+'" style="max-width:100%;border-radius:8px">';
+    };
+    reader.onerror=function(){ document.getElementById('announceError').innerText='Не удалось прочитать файл'; };
     reader.readAsDataURL(file);
   });
 
