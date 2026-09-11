@@ -34,7 +34,6 @@
   .gear{background:none;border:1px solid var(--line);color:var(--text-dim);border-radius:8px;width:36px;height:36px;font-size:17px;cursor:pointer;}
   .progress{height:3px;background:var(--line);margin-top:12px;border-radius:2px;overflow:hidden;}
   .progress > div{height:100%;background:var(--amber);transition:width .3s;}
-  #vinPhotoInput{display:none;}
   main{flex:1;padding:18px 18px 100px;}
   .step{display:none;}
   .step.active{display:block;animation:fade .25s ease;}
@@ -184,7 +183,6 @@
         <div class="btn-row" style="margin-top:-6px;margin-bottom:14px;">
           <button class="btn secondary" id="btnVinPhoto" type="button">📷 Сфотографировать VIN</button>
         </div>
-        <div class="progress" id="vinPhotoProgress"><div id="vinPhotoProgressBar"></div></div>
         <div id="vinPhotoPreview"></div>
         <input type="file" id="vinPhotoInput" accept="image/*" capture="environment">
 
@@ -248,7 +246,6 @@
         <h2>Формирование и отправка акта…</h2>
         <div class="card">
           <div class="status-line" id="st_pdf"><div class="dot"></div><div>Формирование PDF</div></div>
-          <div class="progress" id="pdfBuildProgress" style="display:block;margin:8px 0 14px"><div id="pdfBuildProgressBar" style="width:0%"></div></div>
           <div class="status-line" id="st_tg"><div class="dot"></div><div>Отправка в Telegram</div></div>
           <div class="status-line" id="st_sheet"><div class="dot"></div><div>Запись в Google Таблицу</div></div>
           <div class="status-line" id="st_wa"><div class="dot"></div><div>Подготовка ссылки WhatsApp</div></div>
@@ -261,6 +258,7 @@
         <div class="card" id="doneSummary"></div>
         <button class="btn" id="btnDownloadPdf" type="button">⬇ Скачать PDF</button>
         <button class="btn" id="btnSendWhatsapp" type="button">📲 Отправить клиенту в WhatsApp</button>
+        <button class="btn secondary" id="btnShare" type="button">🔗 Поделиться PDF</button>
         <div class="btn-row">
           <button class="btn secondary" id="btnNewAct" type="button">Новый акт</button>
         </div>
@@ -418,24 +416,6 @@ async function reverseGeocode(lat,lon){
 }
 
 /* Stamp a captured photo with date/time + geo text, return dataURL */
-let photoGeoCache = null;
-let photoGeoPromise = null;
-async function getCachedPhotoGeo_(){
-  if(photoGeoCache && Date.now()-photoGeoCache.ts < 5*60*1000) return photoGeoCache;
-  if(photoGeoPromise) return photoGeoPromise;
-  photoGeoPromise = (async()=>{
-    const pos = await getPosition();
-    let geoText='координаты недоступны'; let lat=null, lon=null;
-    if(pos){
-      lat=pos.lat; lon=pos.lon;
-      geoText=`${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)} (±${Math.round(pos.acc)}м)`;
-      const addr=await reverseGeocode(pos.lat,pos.lon); if(addr) geoText+=' — '+addr;
-    }
-    photoGeoCache={lat,lon,geoText,ts:Date.now()}; return photoGeoCache;
-  })();
-  try{return await photoGeoPromise;}finally{photoGeoPromise=null;}
-}
-
 async function stampPhoto(file){
   const rawUrl = await fileToDataUrl(file);
   const img = await loadImg(rawUrl);
@@ -455,8 +435,15 @@ async function stampPhoto(file){
   ctx.drawImage(img,0,0,canvas.width,canvas.height);
 
   const now = new Date();
-  const geo = await getCachedPhotoGeo_();
-  const lat=geo.lat, lon=geo.lon, geoText=geo.geoText;
+  const pos = await getPosition();
+  let geoText = 'координаты недоступны';
+  let lat=null, lon=null;
+  if(pos){
+    lat=pos.lat; lon=pos.lon;
+    geoText = `${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)} (±${Math.round(pos.acc)}м)`;
+    const addr = await reverseGeocode(pos.lat,pos.lon);
+    if(addr) geoText += ' — '+addr;
+  }
   const line1 = fmtDT(now);
   const line2 = geoText;
   const pad = 10;
@@ -574,28 +561,13 @@ document.getElementById('btnVinPhoto').addEventListener('click', ()=>document.ge
 document.getElementById('vinPhotoInput').addEventListener('change', async (e)=>{
   const file = e.target.files[0];
   if(!file) return;
-  const progress = document.getElementById('vinPhotoProgress');
-  const bar = document.getElementById('vinPhotoProgressBar');
-  progress.style.display='block'; bar.style.width='0%';
-  const raw = await fileToDataUrlWithProgress_(file, p=>bar.style.width=p+'%');
-  state.vinPhotoOriginal = raw;
-  // Оригинал сохраняется в состоянии без OCR; для PDF ниже создаётся только
-  // оптимизированная копия, чтобы не раздувать файл акта.
-  state.vinPhoto = raw;
+  toast('Обработка фото…');
+  const url = await compressImage(file, 1000, 0.72);
+  state.vinPhoto = url;
   document.getElementById('vinPhotoPreview').innerHTML =
-    `<img src="${raw}" style="width:100%;border-radius:8px;margin:-4px 0 12px;max-height:180px;object-fit:contain;background:#000">`;
-  bar.style.width='100%';
-  toast('Фото VIN сохранено без распознавания');
-  setTimeout(()=>progress.style.display='none',500);
+    `<img src="${url}" style="width:100%;border-radius:8px;margin:-4px 0 12px;max-height:160px;object-fit:cover">`;
+  toast('Фото VIN сохранено');
 });
-
-function fileToDataUrlWithProgress_(file, onProgress){
-  return new Promise((resolve,reject)=>{
-    const r=new FileReader();
-    r.onprogress=e=>{ if(e.lengthComputable) onProgress(Math.round(e.loaded/e.total*100)); };
-    r.onload=()=>resolve(r.result); r.onerror=reject; r.readAsDataURL(file);
-  });
-}
 
 /* ===================== PHOTO GRID (step 2) ===================== */
 function buildPhotoGrid(){
@@ -752,10 +724,8 @@ async function prepSignatureStep(){
 }
 
 /* ===================== PDF GENERATION ===================== */
-async function buildPDF(progressCb){
+async function buildPDF(){
   const { jsPDF } = window.jspdf;
-  progressCb = progressCb || function(){};
-  progressCb(5,'Подготовка PDF');
   const doc = new jsPDF({unit:'mm', format:'a4'});
   doc.addFileToVFS('DejaVuSans.ttf', ASSET.fontReg);
   doc.addFont('DejaVuSans.ttf','DejaVu','normal');
@@ -840,7 +810,6 @@ async function buildPDF(progressCb){
   const cols=2, gap=6, imgW=(W-2*M-gap)/cols, imgH=imgW*0.72;
   let col=0, rowY=y;
   const slotsWithPhotos = PHOTO_SLOTS.filter(s=>state.photos[s.key]);
-  let pdfDone=0;
   for(const slot of slotsWithPhotos){
     const p = state.photos[slot.key];
     if(isDuplicateImage_(p.dataUrl)) continue; // такой же кадр уже вставлен в PDF выше
@@ -852,7 +821,6 @@ async function buildPDF(progressCb){
     doc.setFont('DejaVu','normal'); doc.setFontSize(7.3); doc.setTextColor(100,100,100);
     doc.text(fmtDT(p.time), x, rowY+imgH+8);
     col++;
-    pdfDone++; progressCb(20 + Math.round(pdfDone/Math.max(1,slotsWithPhotos.length)*35),'Добавляем фото автомобиля');
     if(col>=cols){ col=0; rowY += imgH+14; }
   }
   if(col!==0) rowY += imgH+14;
@@ -861,9 +829,8 @@ async function buildPDF(progressCb){
   if(state.vinPhoto && !isDuplicateImage_(state.vinPhoto)){
     if(y+60>285){ doc.addPage(); y=16; }
     doc.setFont('DejaVu','bold'); doc.setFontSize(9); doc.text('Фото VIN-кода:', M, y); y+=4;
-    const vinPdf = await compressImage(dataUrlToBlob(state.vinPhoto), 1000, 0.72);
-    doc.addImage(vinPdf, 'JPEG', M, y, 80, 55);
-    y+=60; progressCb(60,'Добавляем фото VIN');
+    doc.addImage(state.vinPhoto, 'JPEG', M, y, 80, 55);
+    y+=60;
   }
 
   // ---- DEFECTS MEDIA PAGE ----
@@ -895,7 +862,6 @@ async function buildPDF(progressCb){
     }
   }
 
-  progressCb(78,'Добавляем материалы дефектов');
   // ---- SIGNATURES PAGE ----
   doc.addPage(); y=20;
   text('ПОДПИСИ СТОРОН', M, 13, true);
@@ -921,10 +887,8 @@ async function buildPDF(progressCb){
   text(`Геолокация подписания: ${pos ? pos.lat.toFixed(5)+', '+pos.lon.toFixed(5) : 'недоступна'}`, M, 9);
   text(`IP-адрес устройства при подписании: ${state.ip}`, M, 9);
   text(`Идентификатор документа: ${state.actId}`, M, 9);
-  progressCb(96,'Завершаем PDF');
-  const out = doc.output('blob');
-  progressCb(100,'PDF готов');
-  return out;
+
+  return doc.output('blob');
 }
 
 /* ===================== SENDING PIPELINE ===================== */
@@ -1023,14 +987,10 @@ async function runSendPipeline(){
   state.createdAt = new Date();
   state.pdfName = `Akt_${state.actType}_${state.vehicle.plate.replace(/\s+/g,'')}_${state.actId}.pdf`;
 
-  const pdfProgress=document.getElementById('pdfBuildProgress');
-  const pdfBar=document.getElementById('pdfBuildProgressBar');
-  pdfProgress.style.display='block'; pdfBar.style.width='0%';
-  setStatus('st_pdf','busy','Формирование PDF… 0%');
-  const blob = await buildPDF((pct,label)=>{ pdfBar.style.width=pct+'%'; setStatus('st_pdf','busy','Формирование PDF… '+pct+'% — '+label); });
+  setStatus('st_pdf','busy','Формирование PDF…');
+  const blob = await buildPDF();
   state.pdfBlob = blob;
-  pdfBar.style.width='100%';
-  setStatus('st_pdf','done','PDF сформирован ('+(blob.size/1024/1024).toFixed(2)+' МБ)');
+  setStatus('st_pdf','done','PDF сформирован');
 
   await sendSheet(blob);
   setStatus('st_tg','done','Отправлено сервером в Telegram');
@@ -1059,8 +1019,24 @@ document.getElementById('btnSendWhatsapp').addEventListener('click', ()=>{
   else{ alert('Ссылка для WhatsApp не готова: проверьте, что у клиента указан номер WhatsApp.'); }
 });
 
-/* ЭТАП 5: кнопка "Поделиться PDF" убрана как избыточная — остаются
-   только "Скачать PDF" и "Отправить клиенту в WhatsApp" (см. ниже). */
+/* Системное меню "Поделиться" — позволяет отправить готовый PDF-файл в
+   любое приложение (WhatsApp, Telegram, почту и т.д.), выбор получателя —
+   на стороне телефона. Работает без сервера и без сторонних API. */
+document.getElementById('btnShare').addEventListener('click', async ()=>{
+  if(!state.pdfBlob){ alert('PDF ещё не готов.'); return; }
+  const file = new File([state.pdfBlob], state.pdfName, {type:'application/pdf'});
+  if(navigator.canShare && navigator.canShare({files:[file]})){
+    try{
+      await navigator.share({
+        files:[file],
+        title:`Акт ${state.actId}`,
+        text:`China Car Service: акт ${state.actId} по авто ${state.vehicle.plate}`
+      });
+    }catch(e){ /* пользователь отменил — ничего не делаем */ }
+  } else {
+    alert('Ваш браузер не поддерживает системное меню "Поделиться". Используйте кнопку "Скачать PDF" и отправьте файл вручную.');
+  }
+});
 
 document.getElementById('btnNewAct').addEventListener('click', ()=>location.reload());
 
@@ -1167,44 +1143,5 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
-\n<style id="ccs-settings-style">
-  #ccsSettingsBtn{position:fixed;right:14px;top:14px;z-index:9999;border:1px solid var(--border,#26324a);background:var(--card,#182130);color:var(--text,#fff);border-radius:12px;padding:9px 11px;cursor:pointer;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,.2)}
-  #ccsSettingsPanel{display:none;position:fixed;right:14px;top:58px;z-index:10000;width:250px;padding:14px;border-radius:14px;border:1px solid var(--border,#26324a);background:var(--card,#182130);color:var(--text,#fff);box-shadow:0 12px 30px rgba(0,0,0,.35)}
-  #ccsSettingsPanel label{display:block;margin:8px 0 4px;font-size:12px;color:var(--muted,#8a97ab)}
-  #ccsSettingsPanel select{width:100%;padding:9px;border-radius:9px;background:var(--bg,#0f1720);color:var(--text,#fff);border:1px solid var(--border,#26324a)}
-  body.ccs-light{--bg:#f3f6fa!important;--card:#fff!important;--panel:#fff!important;--panel2:#eef2f6!important;--line:#d6dde6!important;--border:#d6dde6!important;--text:#17202b!important;--text-dim:#617083!important;--muted:#617083!important}
-  body.ccs-light input,body.ccs-light select,body.ccs-light textarea{background:#f8fafc!important;color:#17202b!important}
-</style>
-<button id="ccsSettingsBtn" type="button" aria-label="Настройки">⚙️</button>
-<div id="ccsSettingsPanel">
-  <b>Настройки интерфейса</b>
-  <label>Тема</label><select id="ccsTheme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select>
-  <label>Язык</label><select id="ccsLang"><option value="ru">Русский</option><option value="kk">Қазақша</option></select>
-</div>
-<script>
-(function(){
-  var dict={
-    'Учёт автопарка':'Автопарк есебі','Выберите, кто вы':'Кім екеніңізді таңдаңыз','Я водитель':'Мен жүргізушімін','Я сотрудник СТО':'Мен СТО қызметкерімін',
-    '🚕 Мой автомобиль':'🚕 Менің көлігім','История обслуживания':'Қызмет көрсету тарихы','Акты приёма-передачи':'Қабылдау-тапсыру актілері','Договор':'Шарт','Открыть / скачать договор':'📄 Шартты ашу / жүктеу',
-    'Скачать PDF-историю':'📄 PDF тарихын жүктеу','Назад':'Артқа','Далее':'Келесі','Войти':'Кіру','Выйти':'Шығу','Регистрация':'Тіркелу',
-    'Данные Заказчика':'Тапсырыс беруші деректері','Данные автомобиля':'Көлік деректері','Гос. номер':'Мемлекеттік нөмір','VIN':'VIN','Пробег, км':'Жүріс, км',
-    'Фотофиксация автомобиля':'Көлікті фотоға түсіру','Дефекты и повреждения':'Ақаулар мен зақымдар','Проверка данных':'Деректерді тексеру','Подписание акта':'Актіге қол қою',
-    'Формирование и отправка акта…':'Актіні қалыптастыру және жіберу…','Акт оформлен':'Акт рәсімделді','Скачать PDF':'⬇ PDF жүктеу','Отправить клиенту в WhatsApp':'📲 WhatsApp арқылы клиентке жіберу',
-    'Объявления / Stories':'Жарияланымдар / Stories','Опубликовать':'Жариялау','Удалить':'Жою','Настройки интерфейса':'Интерфейс баптаулары','Тема':'Тақырып','Язык':'Тіл',
-    'Русский':'Орысша','Қазақша':'Қазақша','Светлая':'Жарық','Тёмная':'Қараңғы'
-  };
-  function applyTheme(){document.body.classList.toggle('ccs-light',localStorage.getItem('ccs_theme')==='light');document.getElementById('ccsTheme').value=localStorage.getItem('ccs_theme')||'dark';}
-  function applyLang(){var lang=localStorage.getItem('ccs_lang')||'ru';document.getElementById('ccsLang').value=lang;if(lang==='ru')return;
-    var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);var n;while(n=walker.nextNode()){if(!n.parentElement.closest('#ccsSettingsPanel')){var raw=n.textContent.trim();if(dict[raw]){if(!n.parentElement.dataset.ccsRu)n.parentElement.dataset.ccsRu=n.textContent;n.textContent=n.textContent.replace(raw,dict[raw]);}}}
-    document.querySelectorAll('input[placeholder],textarea[placeholder]').forEach(function(el){if(!el.dataset.ccsRuPh)el.dataset.ccsRuPh=el.placeholder;if(dict[el.dataset.ccsRuPh])el.placeholder=dict[el.dataset.ccsRuPh];});
-  }
-  document.getElementById('ccsSettingsBtn').onclick=function(){var p=document.getElementById('ccsSettingsPanel');p.style.display=p.style.display==='block'?'none':'block';};
-  document.getElementById('ccsTheme').onchange=function(){localStorage.setItem('ccs_theme',this.value);applyTheme();};
-  document.getElementById('ccsLang').onchange=function(){localStorage.setItem('ccs_lang',this.value);location.reload();};
-  applyTheme();
-  document.addEventListener('DOMContentLoaded',function(){applyLang();});
-})();
-</script>
-
 </body>
 </html>

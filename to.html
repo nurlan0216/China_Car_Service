@@ -30,9 +30,6 @@
     padding:16px; margin-bottom:16px;
   }
   .row{display:flex; gap:8px;}
-  /* ЭТАП 7: прогресс-бар загрузки фото/видео объявления */
-  .progress{height:4px; background:var(--border); margin:6px 0 10px; border-radius:2px; overflow:hidden; display:none;}
-  .progress > div{height:100%; width:0%; background:var(--accent); transition:width .15s;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
     background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
@@ -181,25 +178,28 @@
          статус определяется сразу при входе (см. tryLogin -> IS_SUPER),
          никакого отдельного экрана/пароля для этого не нужно. -->
     <div class="card" id="announceCard" style="display:none;">
-      <h1 style="font-size:16px; margin:0 0 4px;">📢 Объявления / Stories</h1>
-      <div class="sub" style="margin-bottom:12px;">До 10 объявлений одновременно. Каждое автоматически скрывается через 24 часа.</div>
+      <h1 style="font-size:16px; margin:0 0 4px;">📢 Объявление для водителей</h1>
+      <div class="sub" style="margin-bottom:12px;">Показывается всем водителям в кабинете. Оставьте текст пустым, чтобы убрать объявление.</div>
+
       <label>Текст объявления</label>
-      <textarea id="announceText" rows="3" maxlength="5000" placeholder="Текст объявления"></textarea>
-      <label>Фото или видео</label>
+      <textarea id="announceText" rows="4" placeholder="Например: 10 сентября СТО закрыто, обращайтесь по WhatsApp"></textarea>
+
+      <label>Фото или видео (необязательно)</label>
       <input id="announceMediaInput" type="file" accept="image/*,video/*">
       <div id="announceMediaPreview" style="margin-bottom:10px;"></div>
-      <div class="progress" id="announceProgress"><div id="announceProgressBar"></div></div>
-      <button class="btn-primary btn-full" onclick="saveAnnouncement(this)">Опубликовать</button>
+
+      <div id="announceMeta" class="sub" style="margin:0 0 8px;"></div>
+      <button class="btn-primary btn-full" onclick="saveAnnouncement(this)">Сохранить объявление</button>
+      <button class="btn-primary btn-full" style="background:#0d141e; border:1px solid var(--border); margin-top:8px;" onclick="clearAnnouncement()">Очистить (убрать объявление)</button>
       <div class="gate-error" id="announceError"></div>
       <div class="loading" id="announceStatus"></div>
-      <div id="storiesAdminList" style="margin-top:12px;"></div>
     </div>
   </div>
 
 <script>
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App, полученный при
   // Deploy -> Manage deployments -> Web app (заканчивается на /exec).
-  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
+  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
 
   var currentPlate = '';
   var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
@@ -240,60 +240,7 @@
     }).then(function (r) { return r.json(); });
   }
 
-  // ЭТАП 7: тот же POST, что apiPost(), но через XMLHttpRequest вместо
-  // fetch — только у XHR есть событие upload.onprogress, которое нужно,
-  // чтобы показать реальный процент загрузки, а не просто текст
-  // "Сохраняю...". Используется там, где в payload может быть большое
-  // base64-фото/видео (объявление) и загрузка иначе была бы "немой".
-  // Один автоматический повтор при сетевой ошибке — как в fetchWithRetry_.
-  function apiPostWithProgress_(payload, onProgress) {
-    var body = JSON.stringify(payload);
-    var timer = null;
-    function attempt() {
-      if (onProgress) onProgress(5);
-      var fake = 5;
-      timer = setInterval(function () {
-        fake = Math.min(fake + (fake < 60 ? 8 : 3), 90);
-        if (onProgress) onProgress(fake);
-      }, 180);
-      return fetch(SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: body
-      }).then(function (r) {
-        return r.text().then(function (txt) {
-          var data;
-          try { data = JSON.parse(txt); }
-          catch (e) {
-            throw new Error('Сервер вернул не JSON (HTTP ' + r.status + ')');
-          }
-          if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
-          if (!data || data.ok !== true) {
-            throw new Error((data && data.error) || 'Сервер не подтвердил публикацию');
-          }
-          return data;
-        });
-      }).then(function (res) {
-        if (onProgress) onProgress(100);
-        return res;
-      }).finally(function () {
-        if (timer) { clearInterval(timer); timer = null; }
-      });
-    }
-    return attempt().catch(function (err) {
-      if (timer) { clearInterval(timer); timer = null; }
-      return new Promise(function (resolve) { setTimeout(resolve, 1200); })
-        .then(attempt)
-        .catch(function (err2) {
-          var msg = (err2 && err2.message) || String(err2 || err);
-          if (msg === 'unknown payload') {
-            throw new Error('Сервер Google Apps Script не обновлён или указан другой Web App URL: action addStory не найден. Проверьте публикацию новой версии Apps Script и URL /exec.');
-          }
-          throw new Error(msg);
-        });
-    });
-  }
-
+  // ЭТАП 7: блокирует кнопку (disabled + временный текст) на время
   // промиса fn(), чтобы двойной клик/тап не отправил запрос дважды.
   function withButtonBusy_(btn, busyText, fn) {
     if (!btn) return fn();
@@ -595,100 +542,94 @@
      "Учёт ТО" (см. IS_SUPER выше), поэтому окно редактирования просто
      показывается или скрывается прямо здесь, без отдельной страницы.
      Добавлена возможность приложить фото или видео. */
-  var pendingMedia = null;
+  var pendingMedia = null;   // {base64, mimeType, fileName} выбранного, но ещё не сохранённого файла
+  var removeMediaFlag = false;
 
   function loadAnnouncement() {
-    document.getElementById('announceStatus').innerText = 'Загружаю…';
-    apiGet({ action: 'announcement' }).then(function(res){
-      document.getElementById('announceStatus').innerText='';
-      if(res.ok) renderStoriesAdmin(res.stories || []);
-    }).catch(function(){ document.getElementById('announceStatus').innerText=''; });
-  }
-
-  function renderStoriesAdmin(stories){
-    var wrap=document.getElementById('storiesAdminList');
-    if(!stories.length){ wrap.innerHTML='<div class="empty">Активных объявлений нет</div>'; return; }
-    wrap.innerHTML=stories.map(function(x){
-      var left=Math.max(0,Number(x.expiresAt)-Date.now());
-      var hours=Math.ceil(left/3600000);
-      return '<div class="card" style="margin:8px 0;padding:10px">' +
-        (x.text?'<div style="margin-bottom:6px">'+escapeHtml(x.text)+'</div>':'') +
-        (x.mediaUrl && x.mediaType==='image'?'<img src="'+x.mediaUrl+'" style="max-width:100%;border-radius:8px">':'') +
-        (x.mediaUrl && x.mediaType==='video'?'<a href="'+x.mediaUrl+'" target="_blank">🎥 Видео</a>':'') +
-        '<div class="sub" style="margin:6px 0">Осталось примерно '+hours+' ч.</div>' +
-        '<button class="btn-primary" style="background:#0d141e;border:1px solid var(--border)" onclick="deleteStory(\''+x.id+'\')">Удалить</button>' +
-        '</div>';
-    }).join('');
-  }
-
-  function prepareAnnouncementImage_(file) {
-    return new Promise(function(resolve, reject) {
-      var img = new Image();
-      var reader = new FileReader();
-      reader.onload = function() {
-        img.onload = function() {
-          var maxSide = 1800;
-          var scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
-          var w = Math.max(1, Math.round(img.naturalWidth * scale));
-          var h = Math.max(1, Math.round(img.naturalHeight * scale));
-          var canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          var ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, w, h);
-          var dataUrl = canvas.toDataURL('image/jpeg', 0.82);
-          resolve({ base64:dataUrl.split(',')[1], mimeType:'image/jpeg', fileName:'announcement_' + Date.now() + '.jpg', preview:dataUrl });
-        };
-        img.onerror = reject;
-        img.src = reader.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+    document.getElementById('announceStatus').innerText = 'Загружаю...';
+    apiGet({ action: 'announcement' }).then(function (res) {
+      document.getElementById('announceStatus').innerText = '';
+      if (!res.ok) return;
+      document.getElementById('announceText').value = res.text || '';
+      document.getElementById('announceMeta').innerText = res.updatedAt
+        ? 'Обновлено: ' + new Date(res.updatedAt).toLocaleString('ru-RU')
+        : 'Объявление ещё не устанавливали';
+      renderAnnounceMediaPreview(res.mediaUrl, res.mediaType);
+    }).catch(function () {
+      document.getElementById('announceStatus').innerText = '';
     });
   }
 
-  document.getElementById('announceMediaInput').addEventListener('change', function(e){
-    var file=e.target.files[0]; if(!file) return;
-    pendingMedia=null;
-    document.getElementById('announceError').innerText='';
-    var MAX_VIDEO = 8 * 1024 * 1024;
-    if(file.type.indexOf('video')===0){
-      if(file.size > MAX_VIDEO){
-        document.getElementById('announceError').innerText='Видео слишком большое. Максимальный размер — 8 МБ.';
-        e.target.value=''; return;
-      }
-      var reader=new FileReader();
-      reader.onload=function(){
-        pendingMedia={base64:reader.result.split(',')[1],mimeType:file.type,fileName:file.name};
-        document.getElementById('announceMediaPreview').innerHTML='<div class="sub">🎥 '+escapeHtml(file.name)+' ('+Math.round(file.size/1024/1024*10)/10+' МБ)</div>';
-      };
-      reader.onerror=function(){ document.getElementById('announceError').innerText='Не удалось прочитать видео'; };
-      reader.readAsDataURL(file);
-      return;
+  function renderAnnounceMediaPreview(mediaUrl, mediaType) {
+    var wrap = document.getElementById('announceMediaPreview');
+    pendingMedia = null;
+    removeMediaFlag = false;
+    document.getElementById('announceMediaInput').value = '';
+    if (!mediaUrl) { wrap.innerHTML = ''; return; }
+    if (mediaType === 'image') {
+      wrap.innerHTML = '<img src="' + mediaUrl + '" style="max-width:100%; border-radius:10px; margin-top:6px;">' +
+        '<div class="toggle" onclick="removeAnnounceMedia()">✕ Убрать текущее фото</div>';
+    } else if (mediaType === 'video') {
+      wrap.innerHTML = '<a href="' + mediaUrl + '" target="_blank" style="color:var(--accent); font-weight:600;">🎥 Текущее видео</a>' +
+        '<div class="toggle" onclick="removeAnnounceMedia()">✕ Убрать текущее видео</div>';
+    } else {
+      wrap.innerHTML = '';
     }
-    prepareAnnouncementImage_(file).then(function(media){
-      pendingMedia={base64:media.base64,mimeType:media.mimeType,fileName:media.fileName};
-      document.getElementById('announceMediaPreview').innerHTML='<img src="'+media.preview+'" style="max-width:100%;border-radius:8px">';
-    }).catch(function(){ document.getElementById('announceError').innerText='Не удалось обработать фото'; });
+  }
+
+  function removeAnnounceMedia() {
+    removeMediaFlag = true;
+    pendingMedia = null;
+    document.getElementById('announceMediaPreview').innerHTML = '<div class="sub">Текущий файл будет удалён при сохранении</div>';
+  }
+
+  document.getElementById('announceMediaInput').addEventListener('change', function (e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    removeMediaFlag = false;
+    var reader = new FileReader();
+    reader.onload = function () {
+      var base64 = reader.result.split(',')[1];
+      pendingMedia = { base64: base64, mimeType: file.type, fileName: file.name };
+      var wrap = document.getElementById('announceMediaPreview');
+      if (file.type.indexOf('video') === 0) {
+        wrap.innerHTML = '<div class="sub">Выбрано видео: ' + file.name + '</div>';
+      } else {
+        wrap.innerHTML = '<img src="' + reader.result + '" style="max-width:100%; border-radius:10px; margin-top:6px;">';
+      }
+    };
+    reader.readAsDataURL(file);
   });
 
-  function saveAnnouncement(btn){
-    var text=document.getElementById('announceText').value.trim();
-    if(!text && !pendingMedia){ document.getElementById('announceError').innerText='Добавьте текст, фото или видео'; return; }
-    var progress=document.getElementById('announceProgress'), bar=document.getElementById('announceProgressBar');
-    if(pendingMedia){progress.style.display='block';bar.style.width='0%';}
-    withButtonBusy_(btn,'Публикую...',function(){
-      return apiPostWithProgress_({action:'addStory',name:ADMIN_NAME,pw:PW,text:text,media:pendingMedia},function(p){bar.style.width=p+'%';document.getElementById('announceStatus').innerText='Загрузка… '+p+'%';})
-      .then(function(res){
-        progress.style.display='none';
-        if(!res.ok){document.getElementById('announceError').innerText=res.error||'Не удалось опубликовать';return;}
-        document.getElementById('announceText').value=''; document.getElementById('announceMediaInput').value=''; document.getElementById('announceMediaPreview').innerHTML=''; pendingMedia=null;
-        document.getElementById('announceStatus').innerText='✅ Опубликовано на 24 часа'; loadAnnouncement();
-      }).catch(function(err){progress.style.display='none';document.getElementById('announceError').innerText=(err && err.message) ? err.message : 'Ошибка соединения';});
+  function saveAnnouncement(btn) {
+    var text = document.getElementById('announceText').value;
+    document.getElementById('announceError').innerText = '';
+    document.getElementById('announceStatus').innerText = 'Сохраняю...';
+
+    withButtonBusy_(btn, 'Сохраняю...', function () {
+      return apiPost({
+        action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text,
+        media: pendingMedia, removeMedia: removeMediaFlag
+      }).then(function (res) {
+        document.getElementById('announceStatus').innerText = '';
+        if (res.ok) {
+          document.getElementById('announceStatus').innerText = '✅ Сохранено';
+          loadAnnouncement();
+        } else {
+          document.getElementById('announceError').innerText = res.error || 'Не удалось сохранить';
+        }
+      }).catch(function () {
+        document.getElementById('announceStatus').innerText = '';
+        document.getElementById('announceError').innerText = 'Ошибка сети';
+      });
     });
   }
 
-  function deleteStory(id){
-    apiPost({action:'deleteStory',name:ADMIN_NAME,pw:PW,id:id}).then(function(res){ if(res.ok) loadAnnouncement(); else alert(res.error||'Не удалось удалить'); });
+  function clearAnnouncement() {
+    document.getElementById('announceText').value = '';
+    removeMediaFlag = true;
+    pendingMedia = null;
+    saveAnnouncement();
   }
 
   if ('serviceWorker' in navigator) {
@@ -699,44 +640,5 @@
     });
   }
 </script>
-\n<style id="ccs-settings-style">
-  #ccsSettingsBtn{position:fixed;right:14px;top:14px;z-index:9999;border:1px solid var(--border,#26324a);background:var(--card,#182130);color:var(--text,#fff);border-radius:12px;padding:9px 11px;cursor:pointer;font-size:16px;box-shadow:0 4px 16px rgba(0,0,0,.2)}
-  #ccsSettingsPanel{display:none;position:fixed;right:14px;top:58px;z-index:10000;width:250px;padding:14px;border-radius:14px;border:1px solid var(--border,#26324a);background:var(--card,#182130);color:var(--text,#fff);box-shadow:0 12px 30px rgba(0,0,0,.35)}
-  #ccsSettingsPanel label{display:block;margin:8px 0 4px;font-size:12px;color:var(--muted,#8a97ab)}
-  #ccsSettingsPanel select{width:100%;padding:9px;border-radius:9px;background:var(--bg,#0f1720);color:var(--text,#fff);border:1px solid var(--border,#26324a)}
-  body.ccs-light{--bg:#f3f6fa!important;--card:#fff!important;--panel:#fff!important;--panel2:#eef2f6!important;--line:#d6dde6!important;--border:#d6dde6!important;--text:#17202b!important;--text-dim:#617083!important;--muted:#617083!important}
-  body.ccs-light input,body.ccs-light select,body.ccs-light textarea{background:#f8fafc!important;color:#17202b!important}
-</style>
-<button id="ccsSettingsBtn" type="button" aria-label="Настройки">⚙️</button>
-<div id="ccsSettingsPanel">
-  <b>Настройки интерфейса</b>
-  <label>Тема</label><select id="ccsTheme"><option value="dark">Тёмная</option><option value="light">Светлая</option></select>
-  <label>Язык</label><select id="ccsLang"><option value="ru">Русский</option><option value="kk">Қазақша</option></select>
-</div>
-<script>
-(function(){
-  var dict={
-    'Учёт автопарка':'Автопарк есебі','Выберите, кто вы':'Кім екеніңізді таңдаңыз','Я водитель':'Мен жүргізушімін','Я сотрудник СТО':'Мен СТО қызметкерімін',
-    '🚕 Мой автомобиль':'🚕 Менің көлігім','История обслуживания':'Қызмет көрсету тарихы','Акты приёма-передачи':'Қабылдау-тапсыру актілері','Договор':'Шарт','Открыть / скачать договор':'📄 Шартты ашу / жүктеу',
-    'Скачать PDF-историю':'📄 PDF тарихын жүктеу','Назад':'Артқа','Далее':'Келесі','Войти':'Кіру','Выйти':'Шығу','Регистрация':'Тіркелу',
-    'Данные Заказчика':'Тапсырыс беруші деректері','Данные автомобиля':'Көлік деректері','Гос. номер':'Мемлекеттік нөмір','VIN':'VIN','Пробег, км':'Жүріс, км',
-    'Фотофиксация автомобиля':'Көлікті фотоға түсіру','Дефекты и повреждения':'Ақаулар мен зақымдар','Проверка данных':'Деректерді тексеру','Подписание акта':'Актіге қол қою',
-    'Формирование и отправка акта…':'Актіні қалыптастыру және жіберу…','Акт оформлен':'Акт рәсімделді','Скачать PDF':'⬇ PDF жүктеу','Отправить клиенту в WhatsApp':'📲 WhatsApp арқылы клиентке жіберу',
-    'Объявления / Stories':'Жарияланымдар / Stories','Опубликовать':'Жариялау','Удалить':'Жою','Настройки интерфейса':'Интерфейс баптаулары','Тема':'Тақырып','Язык':'Тіл',
-    'Русский':'Орысша','Қазақша':'Қазақша','Светлая':'Жарық','Тёмная':'Қараңғы'
-  };
-  function applyTheme(){document.body.classList.toggle('ccs-light',localStorage.getItem('ccs_theme')==='light');document.getElementById('ccsTheme').value=localStorage.getItem('ccs_theme')||'dark';}
-  function applyLang(){var lang=localStorage.getItem('ccs_lang')||'ru';document.getElementById('ccsLang').value=lang;if(lang==='ru')return;
-    var walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);var n;while(n=walker.nextNode()){if(!n.parentElement.closest('#ccsSettingsPanel')){var raw=n.textContent.trim();if(dict[raw]){if(!n.parentElement.dataset.ccsRu)n.parentElement.dataset.ccsRu=n.textContent;n.textContent=n.textContent.replace(raw,dict[raw]);}}}
-    document.querySelectorAll('input[placeholder],textarea[placeholder]').forEach(function(el){if(!el.dataset.ccsRuPh)el.dataset.ccsRuPh=el.placeholder;if(dict[el.dataset.ccsRuPh])el.placeholder=dict[el.dataset.ccsRuPh];});
-  }
-  document.getElementById('ccsSettingsBtn').onclick=function(){var p=document.getElementById('ccsSettingsPanel');p.style.display=p.style.display==='block'?'none':'block';};
-  document.getElementById('ccsTheme').onchange=function(){localStorage.setItem('ccs_theme',this.value);applyTheme();};
-  document.getElementById('ccsLang').onchange=function(){localStorage.setItem('ccs_lang',this.value);location.reload();};
-  applyTheme();
-  document.addEventListener('DOMContentLoaded',function(){applyLang();});
-})();
-</script>
-
 </body>
 </html>
