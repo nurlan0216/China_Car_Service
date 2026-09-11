@@ -131,6 +131,7 @@
   <header class="top">
     <div class="brand">
       <div>
+        <a href="to.html" class="gear" id="btnBackToCto" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;margin-bottom:6px;width:auto;padding:0 10px;height:30px;font-size:13px;">← Учёт ТО</a>
         <div class="brand-name">CHINA CAR SERVICE</div>
         <div class="brand-sub">Акт приёма-передачи автомобиля</div>
       </div>
@@ -162,22 +163,22 @@
     <section class="step" data-step="1">
       <h2>Данные Заказчика</h2>
       <div class="card">
-        <label>ФИО</label>
+        <label>ФИО <span style="color:var(--danger)">*</span></label>
         <input type="text" id="f_fio" placeholder="Иванов Иван Иванович">
-        <label>ИИН</label>
+        <label>ИИН <span style="color:var(--danger)">*</span></label>
         <input type="text" id="f_iin" inputmode="numeric" maxlength="12" placeholder="12 цифр">
         <label>Номер водительского удостоверения (ВУ)</label>
         <input type="text" id="f_vu" placeholder="напр. 012345678">
-        <label>WhatsApp телефон Заказчика</label>
+        <label>WhatsApp телефон Заказчика <span style="color:var(--danger)">*</span></label>
         <input type="tel" id="f_phone" placeholder="+7 7__ ___ ____">
       </div>
 
       <h2>Данные автомобиля</h2>
       <div class="card">
-        <label>Гос. номер</label>
+        <label>Гос. номер <span style="color:var(--danger)">*</span></label>
         <input type="text" id="f_plate" placeholder="напр. 123 ABC 02">
 
-        <label>VIN-код</label>
+        <label>VIN-код (необязательно)</label>
         <input type="text" id="f_vin" maxlength="17" placeholder="17 символов, можно ввести вручную">
         <div class="btn-row" style="margin-top:-6px;margin-bottom:14px;">
           <button class="btn secondary" id="btnVinPhoto" type="button">📷 Сфотографировать VIN</button>
@@ -368,6 +369,24 @@ function dataUrlToBlob(dataUrl){
   return new Blob([arr], {type:mime});
 }
 
+/**
+ * Сжимает фото до разумного размера перед сохранением в акт.
+ * Без этого некоторые телефоны отдают фото по 4-8 МБ, из-за чего
+ * итоговый PDF раздувается и формируется заметно дольше (особенно
+ * фото VIN-кода, которое раньше сохранялось «как есть», без сжатия).
+ */
+async function compressImage(file, maxW=1000, quality=0.72){
+  const rawUrl = await fileToDataUrl(file);
+  const img = await loadImg(rawUrl);
+  const scale = Math.min(1, maxW/img.width);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(img.width*scale);
+  canvas.height = Math.round(img.height*scale);
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
 /* IP address */
 async function fetchIP(){
   try{
@@ -401,7 +420,14 @@ async function stampPhoto(file){
   const rawUrl = await fileToDataUrl(file);
   const img = await loadImg(rawUrl);
   const canvas = document.createElement('canvas');
-  const maxW = 1280;
+  // ЭТАП 3: было maxW=1280 / quality=0.85 — для фото ТС (5-6 шт. в акте)
+  // и фото дефектов этого достаточно, но при телефонных фото по 3000+ px
+  // итоговый PDF всё ещё выходил заметно тяжелее, чем нужно для акта на
+  // подпись клиенту. Снижено до 1000px/0.72 — тех же значений, что уже
+  // используются для фото VIN-кода (см. compressImage выше), — картинка
+  // на экране/в PDF остаётся чёткой, а вес каждого кадра падает в разы.
+  const maxW = 1000;
+  const quality = 0.72;
   const scale = Math.min(1, maxW/img.width);
   canvas.width = img.width*scale;
   canvas.height = img.height*scale;
@@ -431,7 +457,7 @@ async function stampPhoto(file){
   ctx.font = '400 12px Arial';
   ctx.fillText(line2, pad, canvas.height-boxH+36);
 
-  return { dataUrl: canvas.toDataURL('image/jpeg', 0.85), time: now, lat, lon, geoText };
+  return { dataUrl: canvas.toDataURL('image/jpeg', quality), time: now, lat, lon, geoText };
 }
 
 /* ===================== NAVIGATION ===================== */
@@ -475,13 +501,17 @@ function validateStep(step){
     const iin = document.getElementById('f_iin').value.trim();
     const plate = document.getElementById('f_plate').value.trim();
     const vin = document.getElementById('f_vin').value.trim();
+    const phoneRaw = document.getElementById('f_phone').value.trim();
     if(!fio){ toast('Укажите ФИО'); return false; }
     if(iin.length!==12){ toast('ИИН должен содержать 12 цифр'); return false; }
     if(!plate){ toast('Укажите гос. номер'); return false; }
-    if(vin.length<11){ toast('Укажите корректный VIN'); return false; }
+    if(!phoneRaw){ toast('Укажите WhatsApp телефон Заказчика'); return false; }
+    // VIN необязателен: если водитель не смог его найти/сфотографировать,
+    // акт всё равно можно оформить — раньше это блокировало сохранение.
+    if(vin && vin.length<11){ toast('VIN указан не полностью — проверьте или очистите поле'); return false; }
     state.client.fio=fio; state.client.iin=iin;
     state.client.vu=document.getElementById('f_vu').value.trim();
-    state.client.phone=normalizePhone(document.getElementById('f_phone').value.trim());
+    state.client.phone=normalizePhone(phoneRaw);
     state.vehicle.plate=plate; state.vehicle.vin=vin.toUpperCase();
     state.vehicle.mileage=document.getElementById('f_mileage').value.trim();
     state.vehicle.contract=document.getElementById('f_contract').value.trim();
@@ -531,7 +561,8 @@ document.getElementById('btnVinPhoto').addEventListener('click', ()=>document.ge
 document.getElementById('vinPhotoInput').addEventListener('change', async (e)=>{
   const file = e.target.files[0];
   if(!file) return;
-  const url = await fileToDataUrl(file);
+  toast('Обработка фото…');
+  const url = await compressImage(file, 1000, 0.72);
   state.vinPhoto = url;
   document.getElementById('vinPhotoPreview').innerHTML =
     `<img src="${url}" style="width:100%;border-radius:8px;margin:-4px 0 12px;max-height:160px;object-fit:cover">`;
@@ -635,7 +666,7 @@ function buildReview(){
     ['ВУ', state.client.vu||'—'],
     ['WhatsApp', state.client.phone||'—'],
     ['Гос. номер', state.vehicle.plate],
-    ['VIN', state.vehicle.vin],
+    ['VIN', state.vehicle.vin||'—'],
     ['Пробег', state.vehicle.mileage?state.vehicle.mileage+' км':'—'],
     ['Договор', state.vehicle.contract||'—'],
     ['Топливо/заряд', state.vehicle.fuel||'—'],
@@ -732,7 +763,7 @@ async function buildPDF(){
   hr();
 
   text('2. ТРАНСПОРТНОЕ СРЕДСТВО', M, 11.5, true);
-  text(`Гос. номер: ${state.vehicle.plate}      VIN: ${state.vehicle.vin}`, M, 10);
+  text(`Гос. номер: ${state.vehicle.plate}      VIN: ${state.vehicle.vin||'—'}`, M, 10);
   text(`Пробег на момент составления акта: ${state.vehicle.mileage||'—'} км.   Уровень топлива/заряда: ${state.vehicle.fuel||'—'}.`, M, 10);
   if(state.vehicle.kit) text(`Комплектность: ${state.vehicle.kit}`, M, 10);
   hr();
@@ -762,11 +793,26 @@ async function buildPDF(){
   doc.addPage(); y=16;
   text('ФОТОФИКСАЦИЯ АВТОМОБИЛЯ', M, 13, true);
   hr();
+  // ЭТАП 3: если один и тот же кадр случайно оказался в акте дважды
+  // (например, сотрудник по ошибке выбрал тот же файл сначала для
+  // фото VIN, а потом ещё и для одного из слотов общей сетки, или тот
+  // же снимок дважды прикрепил к разным дефектам) — такой повтор просто
+  // раздувает PDF без новой информации. Сравниваем сами data:URL картинок
+  // (после сжатия это обычный JPEG на 50–300 КБ, сравнение строк такого
+  // размера в паре десятков штук ничего не стоит) и второй раз тот же
+  // кадр в PDF не вставляем.
+  const seenImageUrls = new Set();
+  function isDuplicateImage_(dataUrl){
+    if(seenImageUrls.has(dataUrl)) return true;
+    seenImageUrls.add(dataUrl);
+    return false;
+  }
   const cols=2, gap=6, imgW=(W-2*M-gap)/cols, imgH=imgW*0.72;
   let col=0, rowY=y;
   const slotsWithPhotos = PHOTO_SLOTS.filter(s=>state.photos[s.key]);
   for(const slot of slotsWithPhotos){
     const p = state.photos[slot.key];
+    if(isDuplicateImage_(p.dataUrl)) continue; // такой же кадр уже вставлен в PDF выше
     if(rowY + imgH + 10 > 285){ doc.addPage(); rowY=16; col=0; }
     const x = M + col*(imgW+gap);
     doc.addImage(p.dataUrl, 'JPEG', x, rowY, imgW, imgH);
@@ -780,7 +826,7 @@ async function buildPDF(){
   if(col!==0) rowY += imgH+14;
   y = rowY;
 
-  if(state.vinPhoto){
+  if(state.vinPhoto && !isDuplicateImage_(state.vinPhoto)){
     if(y+60>285){ doc.addPage(); y=16; }
     doc.setFont('DejaVu','bold'); doc.setFontSize(9); doc.text('Фото VIN-кода:', M, y); y+=4;
     doc.addImage(state.vinPhoto, 'JPEG', M, y, 80, 55);
@@ -794,6 +840,14 @@ async function buildPDF(){
     hr();
     for(const d of state.defects){
       if(d.type==='image'){
+        if(isDuplicateImage_(d.dataUrl)){
+          // такой же кадр уже есть в акте выше — не вставляем картинку
+          // повторно, но комментарий к дефекту сохраняем в тексте, чтобы
+          // не потерять смысловую часть записи.
+          text(`[Фото совпадает с уже приложенным выше] Комментарий: ${d.comment||'—'}`, M, 9);
+          y+=2;
+          continue;
+        }
         if(y+65>285){ doc.addPage(); y=16; }
         doc.addImage(d.dataUrl,'JPEG', M, y, 85, 60);
         doc.setFont('DejaVu','normal'); doc.setFontSize(9);
@@ -898,7 +952,16 @@ async function sendSheet(pdfBlob){
     const r = await fetchWithRetry_(CFG.sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
     const res = await r.json();
     state.driveUrl = (res && res.driveUrl) || '';
-    setStatus('st_sheet','done','Записано в Google Таблицу, PDF сохранён на Диск');
+    // ЭТАП 2: сервер теперь возвращает pdfSaveError, если сама запись в
+    // таблицу прошла успешно, а вот PDF на Диск сохранить не удалось —
+    // раньше в этом случае статус всё равно показывал "готово", и
+    // сотрудник узнавал, что водитель не может скачать акт, только
+    // постфактум. Показываем предупреждение сразу же.
+    if(res && res.pdfSaveError){
+      setStatus('st_sheet','fail','Акт записан, но PDF НЕ сохранён на Диск — водитель его не увидит');
+    } else {
+      setStatus('st_sheet','done','Записано в Google Таблицу, PDF сохранён на Диск');
+    }
   }catch(e){ setStatus('st_sheet','fail','Ошибка записи в таблицу'); }
 }
 
@@ -938,7 +1001,7 @@ async function runSendPipeline(){
   done.style.display='block';
   document.getElementById('doneSummary').innerHTML = `
     <div class="summary-row"><span>Номер акта</span><span>${state.actId}</span></div>
-    <div class="summary-row"><span>Автомобиль</span><span>${state.vehicle.plate} · ${state.vehicle.vin}</span></div>
+    <div class="summary-row"><span>Автомобиль</span><span>${state.vehicle.plate}${state.vehicle.vin ? ' · '+state.vehicle.vin : ''}</span></div>
     <div class="summary-row"><span>Заказчик</span><span>${state.client.fio}</span></div>
   `;
 }

@@ -98,7 +98,7 @@
   <div id="mainApp" style="display:none;">
     <span class="logout" onclick="logout()">Выйти</span>
     <h1>🚗 Учёт обслуживания автопарка</h1>
-    <div class="sub"><a href="act.html" style="color:var(--accent);">📝 Оформить акт приёма-передачи ТС</a></div>
+    <a href="act.html" class="btn-primary btn-full" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;padding:16px;font-size:16px;font-weight:600;border-radius:10px;margin-bottom:14px;">📝 Оформить акт приёма-передачи ТС</a>
     <div class="sub">Поиск истории ТО по гос. номеру, PDF-выгрузка, добавление новых работ</div>
 
     <div class="card">
@@ -132,13 +132,13 @@
           <input id="f_owner" placeholder="Иванов Иван">
 
           <label>Телефон владельца</label>
-          <input id="f_phone" placeholder="+7 777 777 77 77">
+          <input id="f_phone" placeholder="+996...">
 
           <label>VIN (необязательно)</label>
           <input id="f_vin" placeholder="VIN номер">
 
           <label>Марка и модель (необязательно)</label>
-          <input id="f_model" placeholder="Например, Honghi E-QM5">
+          <input id="f_model" placeholder="Например, Chery Tiggo 4">
         </div>
 
         <label>Пробег, км</label>
