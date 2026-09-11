@@ -199,7 +199,7 @@
 <script>
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App, полученный при
   // Deploy -> Manage deployments -> Web app (заканчивается на /exec).
-  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwDiHkXOSvKTKRXss1aq13X_o6EuHTAnlmHv06EjBbp5bpIo7Z5ODIc8qhF7XCqeJAmvQ/exec';
+  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
 
   var currentPlate = '';
   var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
@@ -268,6 +268,9 @@
             throw new Error('Сервер вернул не JSON (HTTP ' + r.status + ')');
           }
           if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+          if (!data || data.ok !== true) {
+            throw new Error((data && data.error) || 'Сервер не подтвердил публикацию');
+          }
           return data;
         });
       }).then(function (res) {
@@ -284,7 +287,7 @@
         .catch(function (err2) {
           var msg = (err2 && err2.message) || String(err2 || err);
           if (msg === 'unknown payload') {
-            throw new Error('Сервер Google Apps Script не обновлён: addStory отсутствует. Обновите Apps Script и заново опубликуйте Web App.');
+            throw new Error('Сервер Google Apps Script не обновлён или указан другой Web App URL: action addStory не найден. Проверьте публикацию новой версии Apps Script и URL /exec.');
           }
           throw new Error(msg);
         });
