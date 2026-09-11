@@ -17,6 +17,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- ЭТАП 1: локальное распознавание VIN с фото (Tesseract.js, OCR в браузере,
+     без отправки фото на сторонний сервер) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js"></script>
 <style>
   :root{
     --bg:#0e1318; --panel:#161d24; --panel2:#1d252e; --line:#2a333d;
@@ -177,12 +180,17 @@
       <div class="card">
         <label>Гос. номер <span style="color:var(--danger)">*</span></label>
         <input type="text" id="f_plate" placeholder="напр. 123 ABC 02">
+        <div class="hint" id="plateVinHint" style="margin:-10px 0 14px;display:none"></div>
 
         <label>VIN-код (необязательно)</label>
-        <input type="text" id="f_vin" maxlength="17" placeholder="17 символов, можно ввести вручную">
-        <div class="btn-row" style="margin-top:-6px;margin-bottom:14px;">
+        <input type="text" id="f_vin" maxlength="17" placeholder="17 символов, можно ввести вручную или распознать с фото">
+        <div class="btn-row" style="margin-top:-6px;margin-bottom:6px;">
           <button class="btn secondary" id="btnVinPhoto" type="button">📷 Сфотографировать VIN</button>
         </div>
+        <div class="progress" id="vinOcrProgressWrap" style="display:none;margin:0 0 8px;">
+          <div id="vinOcrProgressBar" style="width:0%"></div>
+        </div>
+        <div class="hint" id="vinOcrHint" style="margin:-4px 0 8px;display:none"></div>
         <div id="vinPhotoPreview"></div>
         <input type="file" id="vinPhotoInput" accept="image/*" capture="environment">
 
@@ -244,6 +252,9 @@
     <section class="step" data-step="6">
       <div id="sendingView">
         <h2>Формирование и отправка акта…</h2>
+        <div class="progress" style="margin:0 0 14px;">
+          <div id="sendProgressBar" style="width:2%"></div>
+        </div>
         <div class="card">
           <div class="status-line" id="st_pdf"><div class="dot"></div><div>Формирование PDF</div></div>
           <div class="status-line" id="st_tg"><div class="dot"></div><div>Отправка в Telegram</div></div>
@@ -416,18 +427,23 @@ async function reverseGeocode(lat,lon){
 }
 
 /* Stamp a captured photo with date/time + geo text, return dataURL */
-async function stampPhoto(file){
+async function stampPhoto(file, opts){
   const rawUrl = await fileToDataUrl(file);
   const img = await loadImg(rawUrl);
   const canvas = document.createElement('canvas');
-  // ЭТАП 3: было maxW=1280 / quality=0.85 — для фото ТС (5-6 шт. в акте)
-  // и фото дефектов этого достаточно, но при телефонных фото по 3000+ px
-  // итоговый PDF всё ещё выходил заметно тяжелее, чем нужно для акта на
-  // подпись клиенту. Снижено до 1000px/0.72 — тех же значений, что уже
-  // используются для фото VIN-кода (см. compressImage выше), — картинка
-  // на экране/в PDF остаётся чёткой, а вес каждого кадра падает в разы.
-  const maxW = 1000;
-  const quality = 0.72;
+  // ЭТАП 3: было maxW=1280 / quality=0.85 — для фото ТС и фото дефектов
+  // этого достаточно, но при телефонных фото по 3000+ px итоговый PDF
+  // всё ещё выходил заметно тяжелее, чем нужно для акта на подпись
+  // клиенту. Снижено до 1000px/0.72.
+  // ЭТАП 4: дефекты — единственное МЕСТО в акте без ограничения по
+  // количеству, поэтому именно они чаще всего «раздували» итоговый PDF
+  // до 14 МБ (несколько детальных фото повреждений — самые «тяжёлые»
+  // кадры даже после сжатия, так как на них много мелких деталей).
+  // Даём звонящему коду возможность передать более жёсткие параметры
+  // именно для дефектов (см. вызов ниже), не трогая качество обязательных
+  // 6 фото машины.
+  const maxW = (opts && opts.maxW) || 1000;
+  const quality = (opts && opts.quality) || 0.72;
   const scale = Math.min(1, maxW/img.width);
   canvas.width = img.width*scale;
   canvas.height = img.height*scale;
@@ -556,17 +572,166 @@ document.querySelectorAll('.choice-card').forEach(card=>{
   });
 });
 
+/* ===================== ЭТАП 1: РАСПОЗНАВАНИЕ VIN С ФОТО ===================== */
+/*
+ * VIN состоит из 17 символов латинского алфавита и цифр, БЕЗ букв
+ * I, O, Q (их легко спутать с 1 и 0, поэтому производители в VIN их
+ * не используют). Это ограничение мы используем дважды:
+ *  - ограничиваем распознавание Tesseract этим алфавитом (whitelist),
+ *    чтобы модель не путала буквы с похожими цифрами;
+ *  - при разборе результата исправляем типичные ошибки OCR (O→0, I→1,
+ *    Q→0) и ищем подряд идущий 17-символьный фрагмент из допустимых
+ *    символов, а не просто берём "как распозналось".
+ */
+const VIN_CHARSET = 'ABCDEFGHJKLMNPRSTUVWXYZ0123456789';
+const VIN_WHITELIST = VIN_CHARSET; // алфавит для tessedit_char_whitelist
+
+function vinOcrProgress_(pct){
+  const wrap = document.getElementById('vinOcrProgressWrap');
+  const bar = document.getElementById('vinOcrProgressBar');
+  wrap.style.display = 'block';
+  bar.style.width = Math.max(4, Math.min(100, Math.round(pct))) + '%';
+}
+function vinOcrProgressDone_(){
+  setTimeout(()=>{ document.getElementById('vinOcrProgressWrap').style.display='none'; }, 600);
+}
+function vinOcrHint_(msg){
+  const el = document.getElementById('vinOcrHint');
+  if(!msg){ el.style.display='none'; el.textContent=''; return; }
+  el.style.display='block'; el.textContent = msg;
+}
+
+/**
+ * Приводит "сырой" текст OCR к кандидату на VIN: убирает всё, что не
+ * буква/цифра, исправляет типичные путаницы (O↔0, I↔1, Q↔0) и ищет
+ * 17-символьный фрагмент из допустимого алфавита VIN. Возвращает
+ * найденный VIN или null, если уверенного совпадения нет.
+ */
+function extractVinCandidate_(rawText){
+  let s = (rawText || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  // типичные подмены OCR: буквы, которых не бывает в VIN
+  s = s.replace(/O/g, '0').replace(/Q/g, '0').replace(/I/g, '1');
+  const allowed = new Set(VIN_CHARSET.split(''));
+  const clean = s.split('').filter(ch => allowed.has(ch)).join('');
+  if(clean.length === 17) return clean;
+  if(clean.length > 17){
+    // Берём наиболее «содержательное» окно из 17 символов — то, где
+    // есть и буквы, и цифры (у настоящего VIN всегда есть оба вида),
+    // а не первое попавшееся.
+    let best=null, bestScore=-1;
+    for(let i=0; i+17<=clean.length; i++){
+      const win = clean.slice(i, i+17);
+      const hasDigit = /[0-9]/.test(win), hasLetter = /[A-Z]/.test(win);
+      const score = (hasDigit?1:0) + (hasLetter?1:0);
+      if(score > bestScore){ bestScore = score; best = win; }
+    }
+    if(bestScore === 2) return best;
+  }
+  return clean.length === 17 ? clean : null;
+}
+
+async function runVinOcr_(imageDataUrl){
+  vinOcrHint_('Распознавание VIN на фото…');
+  vinOcrProgress_(3);
+  // Два прохода с разным режимом сегментации страницы: одиночная строка
+  // (типичный кадр наклейки VIN) и затем блок текста как резервный
+  // вариант — если первый проход не дал уверенного 17-символьного
+  // результата (VIN на некоторых кузовах напечатан в две строки).
+  const attempts = [
+    { psm: 7 }, // одна строка
+    { psm: 6 }, // произвольный блок текста
+  ];
+  let bestCandidate = null;
+  let lastRawText = '';
+  for(let i=0;i<attempts.length;i++){
+    const { psm } = attempts[i];
+    try{
+      const result = await Tesseract.recognize(imageDataUrl, 'eng', {
+        logger: m => {
+          if(m.status === 'recognizing text'){
+            // Первый проход — 0-45%, второй — 45-95% (оставляем запас
+            // до 100%, чтобы финальная обработка текста не «прыгала»).
+            const base = i===0 ? 0 : 45;
+            const span = 45;
+            vinOcrProgress_(base + m.progress*span);
+          }
+        },
+        tessedit_char_whitelist: VIN_WHITELIST,
+        tessedit_pageseg_mode: psm
+      });
+      const text = result && result.data && result.data.text || '';
+      lastRawText = text.trim() || lastRawText;
+      const candidate = extractVinCandidate_(text);
+      if(candidate){ bestCandidate = candidate; break; }
+    }catch(err){
+      console.log('VIN OCR ошибка:', err);
+    }
+  }
+  vinOcrProgress_(100);
+  vinOcrProgressDone_();
+  return { vin: bestCandidate, raw: lastRawText };
+}
+
 /* VIN photo */
 document.getElementById('btnVinPhoto').addEventListener('click', ()=>document.getElementById('vinPhotoInput').click());
 document.getElementById('vinPhotoInput').addEventListener('change', async (e)=>{
   const file = e.target.files[0];
   if(!file) return;
   toast('Обработка фото…');
-  const url = await compressImage(file, 1000, 0.72);
+  vinOcrHint_('');
+  // Фото VIN нужно только как приложение к акту (само значение теперь
+  // распознаётся автоматически) — 700px/0.68 достаточно для читаемости
+  // и заметно легче прежних 1000px/0.72 (см. ЭТАП 2 — вес PDF).
+  const url = await compressImage(file, 700, 0.68);
   state.vinPhoto = url;
   document.getElementById('vinPhotoPreview').innerHTML =
     `<img src="${url}" style="width:100%;border-radius:8px;margin:-4px 0 12px;max-height:160px;object-fit:cover">`;
-  toast('Фото VIN сохранено');
+  toast('Фото сохранено, распознаю VIN…');
+
+  const { vin, raw } = await runVinOcr_(url);
+  const vinInput = document.getElementById('f_vin');
+  if(vin){
+    vinInput.value = vin;
+    vinOcrHint_(`Распознано автоматически: ${vin}. Проверьте и при необходимости исправьте.`);
+    toast('VIN распознан: '+vin);
+  } else {
+    vinOcrHint_(raw
+      ? `Не удалось надёжно распознать VIN (получено: «${raw.replace(/\s+/g,' ').slice(0,40)}»). Введите вручную или переснимите фото при лучшем освещении.`
+      : 'Не удалось распознать VIN на фото. Введите вручную или переснимите фото крупнее и без бликов.');
+    toast('VIN не распознан — проверьте фото или введите вручную');
+  }
+});
+
+/* ===================== АВТОПОДСТАНОВКА VIN ПО ГОС. НОМЕРУ =====================
+ * Если по этому гос. номеру машина уже есть в базе (лист "Транспорт") —
+ * подставляем сохранённый там VIN во все места, где он спрашивается,
+ * не заставляя сотрудника снова фотографировать/вводить его вручную.
+ * Срабатывает по потере фокуса поля "Гос. номер", один запрос на
+ * значение (повторный blur с тем же номером не дублирует запрос).
+ */
+let lastCheckedPlate_ = '';
+document.getElementById('f_plate').addEventListener('blur', async ()=>{
+  const plate = document.getElementById('f_plate').value.trim();
+  const hintEl = document.getElementById('plateVinHint');
+  if(!plate || plate === lastCheckedPlate_) return;
+  lastCheckedPlate_ = plate;
+  if(!GATE_NAME || !GATE_PW) return; // не вошли — сервер не даст ответа
+  try{
+    const res = await gateApiPost({ action:'vehicleinfo', name:GATE_NAME, password:GATE_PW, plate });
+    if(res && res.ok && res.exists && res.vin){
+      const vinInput = document.getElementById('f_vin');
+      if(!vinInput.value.trim()){
+        vinInput.value = res.vin;
+        vinOcrHint_('');
+        hintEl.style.display='block';
+        hintEl.textContent = `VIN подставлен автоматически по гос. номеру (найден в базе): ${res.vin}`;
+        toast('VIN подставлен по гос. номеру: '+res.vin);
+      } else if(vinInput.value.trim().toUpperCase() !== res.vin.toUpperCase()){
+        hintEl.style.display='block';
+        hintEl.textContent = `⚠ В базе по этому гос. номеру сохранён другой VIN: ${res.vin}. Проверьте, какой верный.`;
+      }
+    }
+  }catch(err){ /* тихо игнорируем — это необязательная подсказка */ }
 });
 
 /* ===================== PHOTO GRID (step 2) ===================== */
@@ -613,7 +778,10 @@ document.getElementById('btnAddDefect').addEventListener('click', ()=>{
       const url = await fileToDataUrl(file);
       entry = {type:'video', dataUrl:url, comment:'', time:new Date()};
     } else {
-      const stamped = await stampPhoto(file);
+      // ЭТАП 2: дефектов может быть сколько угодно — сжимаем их заметно
+      // сильнее, чем обязательные 6 фото машины (800px/0.62 против
+      // 1000px/0.72), иначе именно они превращают акт в 10-14 МБ файл.
+      const stamped = await stampPhoto(file, {maxW:800, quality:0.62});
       entry = {type:'image', dataUrl:stamped.dataUrl, comment:'', time:stamped.time};
     }
     state.defects.push(entry);
@@ -724,9 +892,14 @@ async function prepSignatureStep(){
 }
 
 /* ===================== PDF GENERATION ===================== */
-async function buildPDF(){
+async function buildPDF(onProgress){
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({unit:'mm', format:'a4'});
+  // ЭТАП 2: compress:true включает сжатие (deflate) внутренних потоков
+  // PDF (текст, шрифты, служебные объекты) — на сами JPEG-фото это не
+  // влияет (они уже сжаты), но заметно уменьшает вес текстовых страниц
+  // акта и не требует лишнего времени на генерацию.
+  const doc = new jsPDF({unit:'mm', format:'a4', compress:true});
+  const reportProgress = (pct)=>{ if(typeof onProgress==='function') onProgress(pct); };
   doc.addFileToVFS('DejaVuSans.ttf', ASSET.fontReg);
   doc.addFont('DejaVuSans.ttf','DejaVu','normal');
   doc.addFileToVFS('DejaVuSans-Bold.ttf', ASSET.fontBold);
@@ -788,6 +961,7 @@ async function buildPDF(){
 
   text('5. СПОРЫ', M, 11.5, true);
   text('Споры по настоящему Акту разрешаются в соответствии с условиями Договора подряда и действующим законодательством Республики Казахстан.', M, 9.7);
+  reportProgress(15);
 
   // ---- PHOTOS PAGE ----
   doc.addPage(); y=16;
@@ -810,9 +984,19 @@ async function buildPDF(){
   const cols=2, gap=6, imgW=(W-2*M-gap)/cols, imgH=imgW*0.72;
   let col=0, rowY=y;
   const slotsWithPhotos = PHOTO_SLOTS.filter(s=>state.photos[s.key]);
+  // ЭТАП 2: вставка фото — самый долгий шаг buildPDF (декодирование +
+  // упаковка JPEG-байтов в PDF), поэтому именно здесь двигаем прогресс-
+  // бар от 15% до ~70%, пропорционально количеству кадров, а не одним
+  // скачком в конце — так «формирование акта» не выглядит зависшим.
+  const totalMediaItems = slotsWithPhotos.length + (state.vinPhoto?1:0) + state.defects.length;
+  let mediaDone = 0;
+  const bumpMediaProgress = ()=>{
+    mediaDone++;
+    reportProgress(15 + Math.round((mediaDone/Math.max(1,totalMediaItems))*55));
+  };
   for(const slot of slotsWithPhotos){
     const p = state.photos[slot.key];
-    if(isDuplicateImage_(p.dataUrl)) continue; // такой же кадр уже вставлен в PDF выше
+    if(isDuplicateImage_(p.dataUrl)){ bumpMediaProgress(); continue; } // такой же кадр уже вставлен в PDF выше
     if(rowY + imgH + 10 > 285){ doc.addPage(); rowY=16; col=0; }
     const x = M + col*(imgW+gap);
     doc.addImage(p.dataUrl, 'JPEG', x, rowY, imgW, imgH);
@@ -822,6 +1006,7 @@ async function buildPDF(){
     doc.text(fmtDT(p.time), x, rowY+imgH+8);
     col++;
     if(col>=cols){ col=0; rowY += imgH+14; }
+    bumpMediaProgress();
   }
   if(col!==0) rowY += imgH+14;
   y = rowY;
@@ -831,6 +1016,7 @@ async function buildPDF(){
     doc.setFont('DejaVu','bold'); doc.setFontSize(9); doc.text('Фото VIN-кода:', M, y); y+=4;
     doc.addImage(state.vinPhoto, 'JPEG', M, y, 80, 55);
     y+=60;
+    bumpMediaProgress();
   }
 
   // ---- DEFECTS MEDIA PAGE ----
@@ -846,6 +1032,7 @@ async function buildPDF(){
           // не потерять смысловую часть записи.
           text(`[Фото совпадает с уже приложенным выше] Комментарий: ${d.comment||'—'}`, M, 9);
           y+=2;
+          bumpMediaProgress();
           continue;
         }
         if(y+65>285){ doc.addPage(); y=16; }
@@ -859,8 +1046,10 @@ async function buildPDF(){
         text(`Комментарий: ${d.comment||'—'}`, M, 9);
         y+=2;
       }
+      bumpMediaProgress();
     }
   }
+  reportProgress(72);
 
   // ---- SIGNATURES PAGE ----
   doc.addPage(); y=20;
@@ -887,8 +1076,11 @@ async function buildPDF(){
   text(`Геолокация подписания: ${pos ? pos.lat.toFixed(5)+', '+pos.lon.toFixed(5) : 'недоступна'}`, M, 9);
   text(`IP-адрес устройства при подписании: ${state.ip}`, M, 9);
   text(`Идентификатор документа: ${state.actId}`, M, 9);
+  reportProgress(85);
 
-  return doc.output('blob');
+  const blob = doc.output('blob');
+  reportProgress(100);
+  return blob;
 }
 
 /* ===================== SENDING PIPELINE ===================== */
@@ -982,19 +1174,39 @@ function buildWhatsappLink(){
   setStatus('st_wa','done','Ссылка для WhatsApp готова');
 }
 
+/* ЭТАП 2: единый прогресс-бар всего процесса "Формирование и отправка
+ * акта" — раньше сотрудник видел только статичный список из 4 строк без
+ * какого-либо движения между "точка не горит" и "точка горит", из-за
+ * чего при небыстром интернете экран выглядел как зависший. Три этапа
+ * пайплайна отражены разными диапазонами общей шкалы:
+ *   0–50%   — формирование PDF на устройстве (buildPDF сам отдаёт
+ *             промежуточный процент через onProgress, см. bumpMediaProgress)
+ *   50–92%  — загрузка готового PDF на сервер (сама долгая сетевая часть)
+ *   92–100% — подготовка ссылки WhatsApp (моментально, но не даём бару
+ *             оставаться на месте до самого конца)
+ */
+function setSendProgress_(pct){
+  document.getElementById('sendProgressBar').style.width = Math.max(2, Math.min(100,Math.round(pct))) + '%';
+}
+
 async function runSendPipeline(){
   state.actId = 'ACT-'+Date.now().toString(36).toUpperCase();
   state.createdAt = new Date();
   state.pdfName = `Akt_${state.actType}_${state.vehicle.plate.replace(/\s+/g,'')}_${state.actId}.pdf`;
 
+  setSendProgress_(2);
   setStatus('st_pdf','busy','Формирование PDF…');
-  const blob = await buildPDF();
+  const blob = await buildPDF(pct => setSendProgress_(pct*0.5));
   state.pdfBlob = blob;
-  setStatus('st_pdf','done','PDF сформирован');
+  setStatus('st_pdf','done',`PDF сформирован (${(blob.size/1024/1024).toFixed(1)} МБ)`);
+  setSendProgress_(50);
 
+  setSendProgress_(58); // видимый шаг перед сетевым запросом — иначе бар «замирает» на 50%
   await sendSheet(blob);
+  setSendProgress_(92);
   setStatus('st_tg','done','Отправлено сервером в Telegram');
   buildWhatsappLink();
+  setSendProgress_(100);
 
   document.getElementById('sendingView').style.display='none';
   const done = document.getElementById('doneView');
@@ -1003,6 +1215,7 @@ async function runSendPipeline(){
     <div class="summary-row"><span>Номер акта</span><span>${state.actId}</span></div>
     <div class="summary-row"><span>Автомобиль</span><span>${state.vehicle.plate}${state.vehicle.vin ? ' · '+state.vehicle.vin : ''}</span></div>
     <div class="summary-row"><span>Заказчик</span><span>${state.client.fio}</span></div>
+    <div class="summary-row"><span>Размер PDF</span><span>${(blob.size/1024/1024).toFixed(2)} МБ</span></div>
   `;
 }
 
