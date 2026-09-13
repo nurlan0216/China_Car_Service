@@ -891,10 +891,57 @@
       });
   }
 
+  // ЭТАП 8.1 (PROMPT_stage7_fixes.md): регистрация Service Worker +
+  // ненавязчивое уведомление об обновлении. Новый код НЕ подменяется
+  // тихо/принудительно во время работы (например, посреди заполнения
+  // формы) — только по явному нажатию кнопки в баннере снизу экрана.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('service-worker.js').catch(function (err) {
+      navigator.serviceWorker.register('service-worker.js').then(function (reg) {
+        function showUpdateBanner(worker) {
+          if (document.getElementById('swUpdateBanner')) return;
+          var bar = document.createElement('div');
+          bar.id = 'swUpdateBanner';
+          bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#1b2836;color:#fff;padding:10px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;box-shadow:0 -2px 10px rgba(0,0,0,.35)';
+          var label = document.createElement('span');
+          label.textContent = 'Доступно обновление приложения';
+          var btn = document.createElement('button');
+          btn.textContent = 'Обновить';
+          btn.style.cssText = 'background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:13px;cursor:pointer;flex-shrink:0';
+          btn.addEventListener('click', function () {
+            btn.disabled = true;
+            btn.textContent = '...';
+            worker.postMessage('SKIP_WAITING');
+          });
+          bar.appendChild(label);
+          bar.appendChild(btn);
+          document.body.appendChild(bar);
+        }
+
+        if (reg.waiting && navigator.serviceWorker.controller) {
+          showUpdateBanner(reg.waiting);
+        }
+        reg.addEventListener('updatefound', function () {
+          var newWorker = reg.installing;
+          if (!newWorker) return;
+          newWorker.addEventListener('statechange', function () {
+            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+              showUpdateBanner(newWorker);
+            }
+          });
+        });
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'visible') reg.update();
+        });
+      }).catch(function (err) {
         console.log('SW registration failed:', err);
+      });
+
+      var reloadedAfterUpdate = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (reloadedAfterUpdate) return;
+        reloadedAfterUpdate = true;
+        location.reload();
       });
     });
   }
