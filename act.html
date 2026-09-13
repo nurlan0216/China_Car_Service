@@ -223,43 +223,54 @@
       <h2 id="amountPayHeading">Сумма и оплата</h2>
       <div class="card" id="amountPayCard">
         <div id="amountFieldWrap">
-          <label>Сумма <span style="color:var(--danger)">*</span></label>
+          <label>Сумма работы и запчастей <span id="amountRequiredMark" style="color:var(--danger)">*</span></label>
           <input type="number" id="f_amount" inputmode="numeric" placeholder="напр. 50000" min="0" step="1">
+          <!-- ЭТАП 7 (промт stage7 fixes, п.4): для акта «Получения» сумму
+               можно оставить пустой/0 — не все водители платят или
+               оставляют задаток при сдаче машины на СТО. Для «Выдачи» без
+               найденного открытого акта «Получения» сумма по-прежнему
+               обязательна (см. updatePaymentUIForActType_/validateStep). -->
+          <div id="amountOptionalHint" class="hint" style="display:none">Оставьте поле пустым или 0, если оплата при получении не вносится.</div>
         </div>
 
-        <label style="margin-top:2px">Способ оплаты <span style="color:var(--danger)">*</span></label>
-        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:6px">
-          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
-            <input type="checkbox" id="pay_kaspi" style="width:auto;margin:0"> 💳 Kaspi перевод
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
-            <input type="checkbox" id="pay_cash" style="width:auto;margin:0"> 💵 Наличка
-          </label>
-          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
-            <input type="checkbox" id="pay_ip" style="width:auto;margin:0"> 🏢 ИП
-          </label>
-        </div>
+        <!-- ЭТАП 7 (промт stage7 fixes, п.4): при «Получении» без денег
+             (f_amount пуст/0) весь остальной блок способа/типа оплаты
+             скрывается и не требуется — см. updatePaymentUIForActType_. -->
+        <div id="paymentMethodsSection">
+          <label style="margin-top:2px">Способ оплаты <span style="color:var(--danger)">*</span></label>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:6px">
+            <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+              <input type="checkbox" id="pay_kaspi" style="width:auto;margin:0"> 💳 Kaspi перевод
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+              <input type="checkbox" id="pay_cash" style="width:auto;margin:0"> 💵 Наличка
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+              <input type="checkbox" id="pay_ip" style="width:auto;margin:0"> 🏢 ИП
+            </label>
+          </div>
 
-        <!-- ЭТАП 2.2 (промт «Мастер / Комбинированная оплата»): при 2-3
-             отмеченных способах — поля суммы только для отмеченных, с
-             автораспределением остатка (пользователь никогда не считает
-             сумму последнего поля сам). При ровно 1 способе эти поля
-             скрыты — вся сумма акта автоматически считается оплаченной
-             этим единственным способом, отдельно вводить не нужно. -->
-        <div id="paySplitWrap" style="display:none;flex-direction:column;gap:10px;margin-bottom:6px">
-          <div id="paySplitKaspiWrap" style="display:none">
-            <label style="margin:0 0 4px">💳 Kaspi перевод, ₸</label>
-            <input type="number" id="f_amount_kaspi" min="0" step="1" placeholder="0">
+          <!-- ЭТАП 2.2 (промт «Мастер / Комбинированная оплата»): при 2-3
+               отмеченных способах — поля суммы только для отмеченных, с
+               автораспределением остатка (пользователь никогда не считает
+               сумму последнего поля сам). При ровно 1 способе эти поля
+               скрыты — вся сумма акта автоматически считается оплаченной
+               этим единственным способом, отдельно вводить не нужно. -->
+          <div id="paySplitWrap" style="display:none;flex-direction:column;gap:10px;margin-bottom:6px">
+            <div id="paySplitKaspiWrap" style="display:none">
+              <label style="margin:0 0 4px">💳 Kaspi перевод, ₸</label>
+              <input type="number" id="f_amount_kaspi" min="0" step="1" placeholder="0">
+            </div>
+            <div id="paySplitCashWrap" style="display:none">
+              <label style="margin:0 0 4px">💵 Наличка, ₸</label>
+              <input type="number" id="f_amount_cash" min="0" step="1" placeholder="0">
+            </div>
+            <div id="paySplitIpWrap" style="display:none">
+              <label style="margin:0 0 4px">🏢 ИП, ₸</label>
+              <input type="number" id="f_amount_ip" min="0" step="1" placeholder="0">
+            </div>
+            <div id="paySplitHint" style="font-size:12px;color:var(--muted)"></div>
           </div>
-          <div id="paySplitCashWrap" style="display:none">
-            <label style="margin:0 0 4px">💵 Наличка, ₸</label>
-            <input type="number" id="f_amount_cash" min="0" step="1" placeholder="0">
-          </div>
-          <div id="paySplitIpWrap" style="display:none">
-            <label style="margin:0 0 4px">🏢 ИП, ₸</label>
-            <input type="number" id="f_amount_ip" min="0" step="1" placeholder="0">
-          </div>
-          <div id="paySplitHint" style="font-size:12px;color:var(--muted)"></div>
         </div>
       </div>
 
@@ -267,8 +278,10 @@
            тип оплаты — полный расчёт или задаток. При «Выдаче» ТС, если
            найден незакрытый акт «Получения» по этому гос. номеру, вместо
            ручного ввода показывается блок #paymentTypeLinked с уже
-           внесённой суммой/остатком (см. fetchLinkedIntake_). -->
-      <h2>Тип оплаты</h2>
+           внесённой суммой/остатком (см. fetchLinkedIntake_). ЭТАП 7:
+           при «Получении» без денег (см. amountOptionalHint выше) весь
+           этот блок тоже скрывается — id="paymentTypeHeading" ниже. -->
+      <h2 id="paymentTypeHeading">Тип оплаты</h2>
       <div class="card" id="paymentTypeWrap">
         <div id="paymentTypeManual">
           <label style="display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px;color:var(--text);font-weight:400">
@@ -771,74 +784,93 @@ function validateStep(step){
     } else {
       state.linkedActId = '';
 
-      // ЭТАП 6: сумма акта — обязательна и должна быть положительным числом.
+      // ЭТАП 7 (промт stage7 fixes, п.4): сумма акта «Получения» больше
+      // не обязана быть > 0 — многие водители ничего не платят и не
+      // оставляют задаток при сдаче машины на СТО. Для «Выдачи» без
+      // найденного открытого акта «Получения» (обычный ручной ввод, как
+      // и раньше) сумма по-прежнему обязательна и должна быть > 0 — это
+      // отдельный, самостоятельный сценарий продажи/расчёта.
       const amountRaw = document.getElementById('f_amount').value.trim();
-      const amountNum = Number(amountRaw);
-      if(!amountRaw || isNaN(amountNum) || amountNum<=0){ toast('Укажите корректную сумму'); return false; }
+      const amountNum = amountRaw ? Number(amountRaw) : 0;
+      if(isNaN(amountNum) || amountNum<0){ toast('Укажите корректную сумму'); return false; }
+      const isNoPaymentIntake = state.actType==='intake' && amountNum===0;
+      if(!isNoPaymentIntake && amountNum<=0){ toast('Укажите корректную сумму'); return false; }
       state.amount = amountNum;
 
-      // ЭТАП 3.1: тип оплаты определяем ДО распределения по способам —
-      // способы распределяют именно уплачиваемую сейчас сумму (paid), а
-      // при задатке она меньше полной суммы акта.
-      const ptFull = document.getElementById('pt_full').checked;
-      const ptDeposit = document.getElementById('pt_deposit').checked;
-      if(!ptFull && !ptDeposit){ toast('Выберите тип оплаты: Полный расчёт или Задаток'); return false; }
-      let paidNum = amountNum;
-      if(ptDeposit){
-        const depositRaw = document.getElementById('f_deposit').value.trim();
-        const depositNum = Number(depositRaw);
-        if(!depositRaw || isNaN(depositNum) || depositNum<=0 || depositNum>amountNum){
-          toast('Сумма задатка должна быть больше 0 и не больше общей суммы'); return false;
-        }
-        if(depositNum === amountNum){
-          // ЭТАП 3.1: задаток, равный полной сумме, — это просто полный
-          // расчёт (меняется только ярлык, без доп. подтверждения).
+      if(isNoPaymentIntake){
+        // Оплата не вносится при получении вообще — способ и тип оплаты
+        // не нужны и не запрашиваются (см. updatePaymentUIForActType_,
+        // которая скрывает эти блоки при f_amount===0 для «Получения»).
+        state.paymentType = 'none';
+        state.deposit = 0;
+        state.paid = 0;
+        state.balance = 0;
+        state.paymentMethods = [];
+        state.amountByMethod = {kaspi:0,cash:0,ip:0};
+      } else {
+        // ЭТАП 3.1: тип оплаты определяем ДО распределения по способам —
+        // способы распределяют именно уплачиваемую сейчас сумму (paid), а
+        // при задатке она меньше полной суммы акта.
+        const ptFull = document.getElementById('pt_full').checked;
+        const ptDeposit = document.getElementById('pt_deposit').checked;
+        if(!ptFull && !ptDeposit){ toast('Выберите тип оплаты: Полный расчёт или Задаток'); return false; }
+        let paidNum = amountNum;
+        if(ptDeposit){
+          const depositRaw = document.getElementById('f_deposit').value.trim();
+          const depositNum = Number(depositRaw);
+          if(!depositRaw || isNaN(depositNum) || depositNum<=0 || depositNum>amountNum){
+            toast('Сумма задатка должна быть больше 0 и не больше общей суммы'); return false;
+          }
+          if(depositNum === amountNum){
+            // ЭТАП 3.1: задаток, равный полной сумме, — это просто полный
+            // расчёт (меняется только ярлык, без доп. подтверждения).
+            state.paymentType = 'full';
+            state.deposit = 0;
+            paidNum = amountNum;
+          } else {
+            state.paymentType = 'deposit';
+            state.deposit = depositNum;
+            paidNum = depositNum;
+          }
+        } else {
           state.paymentType = 'full';
           state.deposit = 0;
           paidNum = amountNum;
+        }
+        state.paid = paidNum;
+        state.balance = amountNum - paidNum;
+
+        // ЭТАП 7: можно выбрать один, два или все три способа оплаты, но
+        // хотя бы один — обязательно.
+        const methods = [];
+        if(document.getElementById('pay_kaspi').checked) methods.push('Kaspi перевод');
+        if(document.getElementById('pay_cash').checked) methods.push('Наличка');
+        if(document.getElementById('pay_ip').checked) methods.push('ИП');
+        if(!methods.length){ toast('Выберите способ оплаты'); return false; }
+        state.paymentMethods = methods;
+
+        // ЭТАП 2.2/3: при одном способе — вся уплачиваемая сейчас сумма
+        // (paidNum) автоматически считается оплаченной этим способом. При
+        // 2-3 способах — сумма полей разбивки обязана совпадать именно с
+        // paidNum (не с полной суммой акта при задатке) — сервер это тоже
+        // проверит.
+        if(methods.length===1){
+          state.amountByMethod = {
+            kaspi: document.getElementById('pay_kaspi').checked ? paidNum : 0,
+            cash: document.getElementById('pay_cash').checked ? paidNum : 0,
+            ip: document.getElementById('pay_ip').checked ? paidNum : 0
+          };
         } else {
-          state.paymentType = 'deposit';
-          state.deposit = depositNum;
-          paidNum = depositNum;
+          const kaspiVal = document.getElementById('pay_kaspi').checked ? (Number(document.getElementById('f_amount_kaspi').value)||0) : 0;
+          const cashVal = document.getElementById('pay_cash').checked ? (Number(document.getElementById('f_amount_cash').value)||0) : 0;
+          const ipVal = document.getElementById('pay_ip').checked ? (Number(document.getElementById('f_amount_ip').value)||0) : 0;
+          const sumVal = kaspiVal + cashVal + ipVal;
+          if(sumVal !== paidNum){
+            toast('Сумма способов оплаты ('+sumVal.toLocaleString('ru-RU')+' ₸) не совпадает с суммой к оплате ('+paidNum.toLocaleString('ru-RU')+' ₸)');
+            return false;
+          }
+          state.amountByMethod = {kaspi:kaspiVal, cash:cashVal, ip:ipVal};
         }
-      } else {
-        state.paymentType = 'full';
-        state.deposit = 0;
-        paidNum = amountNum;
-      }
-      state.paid = paidNum;
-      state.balance = amountNum - paidNum;
-
-      // ЭТАП 7: можно выбрать один, два или все три способа оплаты, но
-      // хотя бы один — обязательно.
-      const methods = [];
-      if(document.getElementById('pay_kaspi').checked) methods.push('Kaspi перевод');
-      if(document.getElementById('pay_cash').checked) methods.push('Наличка');
-      if(document.getElementById('pay_ip').checked) methods.push('ИП');
-      if(!methods.length){ toast('Выберите способ оплаты'); return false; }
-      state.paymentMethods = methods;
-
-      // ЭТАП 2.2/3: при одном способе — вся уплачиваемая сейчас сумма
-      // (paidNum) автоматически считается оплаченной этим способом. При
-      // 2-3 способах — сумма полей разбивки обязана совпадать именно с
-      // paidNum (не с полной суммой акта при задатке) — сервер это тоже
-      // проверит.
-      if(methods.length===1){
-        state.amountByMethod = {
-          kaspi: document.getElementById('pay_kaspi').checked ? paidNum : 0,
-          cash: document.getElementById('pay_cash').checked ? paidNum : 0,
-          ip: document.getElementById('pay_ip').checked ? paidNum : 0
-        };
-      } else {
-        const kaspiVal = document.getElementById('pay_kaspi').checked ? (Number(document.getElementById('f_amount_kaspi').value)||0) : 0;
-        const cashVal = document.getElementById('pay_cash').checked ? (Number(document.getElementById('f_amount_cash').value)||0) : 0;
-        const ipVal = document.getElementById('pay_ip').checked ? (Number(document.getElementById('f_amount_ip').value)||0) : 0;
-        const sumVal = kaspiVal + cashVal + ipVal;
-        if(sumVal !== paidNum){
-          toast('Сумма способов оплаты ('+sumVal.toLocaleString('ru-RU')+' ₸) не совпадает с суммой к оплате ('+paidNum.toLocaleString('ru-RU')+' ₸)');
-          return false;
-        }
-        state.amountByMethod = {kaspi:kaspiVal, cash:cashVal, ip:ipVal};
       }
     }
   }
@@ -1082,18 +1114,86 @@ function updatePaymentUIForActType_(){
       amountPayCard.style.display='block';  // способ(ы) оплаты остатка всё ещё нужны
     }
   } else {
-    paymentTypeManual.style.display='block';
     paymentTypeLinked.style.display='none';
     amountFieldWrap.style.display='block';
     amountPayHeading.style.display='block';
     amountPayCard.style.display='block';
+    updateNoPaymentIntakeUI_();
   }
   updatePaySplitVisibility_();
 }
 
+/**
+ * ЭТАП 7 (промт stage7 fixes, п.4): при обычном ручном вводе (акт
+ * «Получения», либо «Выдача» без найденного открытого акта «Получения»)
+ * — если это акт «Получения» и сумма оставлена пустой/0, весь блок
+ * способа оплаты и типа оплаты не нужен и скрывается (водитель ничего
+ * не платит при сдаче машины). Для «Выдачи» без найденной привязки эти
+ * блоки всегда показываются — там сумма по-прежнему обязательна.
+ */
+function updateNoPaymentIntakeUI_(){
+  const paymentTypeManual = document.getElementById('paymentTypeManual');
+  const paymentTypeHeading = document.getElementById('paymentTypeHeading');
+  const paymentTypeWrap = document.getElementById('paymentTypeWrap');
+  const paymentMethodsSection = document.getElementById('paymentMethodsSection');
+  const amountRequiredMark = document.getElementById('amountRequiredMark');
+  const amountOptionalHint = document.getElementById('amountOptionalHint');
+
+  const amountVal = document.getElementById('f_amount').value.trim();
+  const amountNum = amountVal ? Number(amountVal) : 0;
+  const isNoPaymentIntake = state.actType==='intake' && (!amountVal || amountNum===0);
+
+  if(state.actType==='intake'){
+    amountRequiredMark.style.display = 'none';
+    amountOptionalHint.style.display = 'block';
+  } else {
+    amountRequiredMark.style.display = 'inline';
+    amountOptionalHint.style.display = 'none';
+  }
+
+  if(isNoPaymentIntake){
+    paymentTypeManual.style.display='none';
+    paymentTypeHeading.style.display='none';
+    paymentTypeWrap.style.display='none';
+    paymentMethodsSection.style.display='none';
+  } else {
+    paymentTypeManual.style.display='block';
+    paymentTypeHeading.style.display='block';
+    paymentTypeWrap.style.display='block';
+    paymentMethodsSection.style.display='block';
+  }
+}
+document.getElementById('f_amount').addEventListener('input', updateNoPaymentIntakeUI_);
+
 document.getElementById('btnNext').addEventListener('click', async ()=>{
   if(!validateStep(state.step)) return;
   if(state.step===5){
+    // ЭТАП 7 (промт stage7 fixes, п.5.4): защита перед финальной отправкой
+    // акта «Выдачи» — если по факту вводятся деньги (paid>0) вручную, а
+    // связка с открытым актом «Получения» не найдена, стоит ещё раз
+    // попытаться найти акт непосредственно перед сохранением (а не
+    // полагаться только на событие blur/выбор типа акта), и, если
+    // по-прежнему не нашли — явно спросить сотрудника, точно ли это
+    // верный гос. номер, а не тихо сохранять акт без привязки.
+    if(state.actType==='issue' && !state.linkedIntake && Number(state.paid)>0){
+      await checkLinkedIntake_(); // повторная попытка прямо перед сохранением
+      if(state.linkedIntake){
+        // Акт нашёлся только сейчас — данные шага «Сумма и оплата» уже
+        // устарели (заполнялись как для несвязанной сделки), сохранять
+        // их как есть нельзя. Возвращаем сотрудника на этот шаг, чтобы
+        // он заполнил его заново уже с учётом найденного акта.
+        toast('Найден открытый акт получения по этому номеру — проверьте шаг «Сумма и оплата» заново');
+        state.step = 1;
+        renderStep();
+        window.scrollTo(0,0);
+        return;
+      }
+      const proceed = confirm(
+        'Открытый акт получения по этому гос. номеру не найден — это точно верный гос. номер?\n\n' +
+        'Если продолжить, «Выдача» будет сохранена как отдельная сделка без привязки к акту «Получения».'
+      );
+      if(!proceed) return;
+    }
     state.step=6;
     renderStep();
     await runSendPipeline();
@@ -1249,8 +1349,12 @@ function buildReview(){
     // Информационный случай — деньги уже собраны при получении, новой
     // оплаты сейчас нет.
     rows.push(['Оплата', 'Оплачено при получении: '+state.amount.toLocaleString('ru-RU')+' ₸']);
+  } else if(state.paymentType==='none'){
+    // ЭТАП 7 (промт stage7 fixes, п.4): «Получение» без денег вообще.
+    rows.push(['Сумма работы и запчастей', state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—']);
+    rows.push(['Оплата', 'Не вносилась при получении']);
   } else {
-    rows.push(['Сумма', state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—']);
+    rows.push(['Сумма работы и запчастей', state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—']);
     rows.push(['Способ оплаты', state.paymentMethods.join(' + ')||'—']);
     if(formatPaySplit_()) rows.push(['Разбивка суммы', formatPaySplit_()]);
     if(state.paymentType) rows.push(['Тип оплаты', state.paymentType==='full' ? 'Полный расчёт' : 'Задаток']);
@@ -1384,8 +1488,11 @@ async function buildPDF(){
     // ЭТАП 3.2: полный расчёт был произведён при получении — на выдаче
     // раздел чисто информационный, новых сумм/способов оплаты нет.
     text(`Оплачено при получении: ${state.amount.toLocaleString('ru-RU')} ₸ (см. акт приёма-передачи №${state.linkedActId}).`, M, 10);
+  } else if(state.paymentType==='none'){
+    // ЭТАП 7 (промт stage7 fixes, п.4): «Получение» без денег вообще.
+    text(`Сумма работы и запчастей: ${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}. Оплата не вносилась при получении.`, M, 10);
   } else {
-    text(`Сумма: ${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}.   Способ оплаты: ${state.paymentMethods.join(' + ')||'—'}.`, M, 10);
+    text(`Сумма работы и запчастей: ${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}.   Способ оплаты: ${state.paymentMethods.join(' + ')||'—'}.`, M, 10);
     const paySplitLines = formatPaySplitLines_();
     if(paySplitLines.length){
       text('Разбивка суммы по способам оплаты:', M, 10);
@@ -1674,8 +1781,11 @@ async function runSendPipeline(){
     ${state.linkedActId ? `<div class="summary-row"><span>Акт получения</span><span>${state.linkedActId}</span></div>` : ''}
     ${(state.actType==='issue' && state.linkedIntake && state.linkedIntake.paymentType==='full') ? `
       <div class="summary-row"><span>Оплата</span><span>Оплачено при получении: ${state.amount.toLocaleString('ru-RU')} ₸</span></div>
+    ` : state.paymentType==='none' ? `
+      <div class="summary-row"><span>Сумма работы и запчастей</span><span>${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}</span></div>
+      <div class="summary-row"><span>Оплата</span><span>Не вносилась при получении</span></div>
     ` : `
-      <div class="summary-row"><span>Сумма</span><span>${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}</span></div>
+      <div class="summary-row"><span>Сумма работы и запчастей</span><span>${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}</span></div>
       <div class="summary-row"><span>Оплата</span><span>${state.paymentMethods.join(' + ')||'—'}</span></div>
       ${formatPaySplit_() ? `<div class="summary-row"><span>Разбивка суммы</span><span>${formatPaySplit_()}</span></div>` : ''}
       ${state.paymentType ? `<div class="summary-row"><span>Тип оплаты</span><span>${state.paymentType==='full'?'Полный расчёт':'Задаток'}</span></div>` : ''}

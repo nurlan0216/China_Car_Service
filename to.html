@@ -293,7 +293,13 @@
         <button class="btn-primary" style="flex:1;" onclick="loadWorkHistory()">Показать</button>
         <button class="btn-primary" style="flex:1; background:var(--accent-2);" onclick="downloadWorkHistory()">⬇ Скачать</button>
       </div>
-      <div class="toggle" onclick="resetHistoryFilters()">Сбросить фильтры</div>
+      <div class="row">
+        <div class="toggle" onclick="resetHistoryFilters()">Сбросить фильтры</div>
+        <!-- ЭТАП 7 (промт stage7 fixes, п.6): по умолчанию (без выбранных
+             дат) показываются только сегодняшние записи — полный список
+             за всё время остаётся доступен отдельно, одним кликом. -->
+        <div class="toggle" onclick="showAllHistory()">Показать всё за всё время</div>
+      </div>
 
       <div id="historyStatus" class="loading" style="margin-top:8px;"></div>
       <div id="historyTableWrap"></div>
@@ -527,19 +533,32 @@
      Общий список работ под строкой поиска машины (не путать с блоком
      resultsCard — там история конкретной уже найденной машины). Сервер
      сам фильтрует по правам (свои / все для супер-админа), фронтенд
-     дополнительно передаёт необязательные фильтры по номеру и дате. */
+     дополнительно передаёт необязательные фильтры по номеру и дате.
+     ЭТАП 7 (промт stage7 fixes, п.6): без явно выбранных дат сервер
+     теперь по умолчанию отдаёт только СЕГОДНЯШНИЙ короткий рабочий
+     список, а не архив за всё время — полный список доступен отдельно,
+     через "Показать всё" (showAllHistory) или CSV (downloadWorkHistory
+     всегда выгружает весь диапазон, даже если на экране показан только
+     сегодняшний день). */
   var lastHistoryRows = [];
+  var historyShowAll_ = false; // true — после клика "Показать всё"
 
-  function loadWorkHistory() {
+  function loadWorkHistory(showAll) {
+    if (showAll !== undefined) historyShowAll_ = showAll;
     var statusEl = document.getElementById('historyStatus');
     var wrap = document.getElementById('historyTableWrap');
     statusEl.innerText = 'Загружаю...';
     wrap.innerHTML = '';
 
+    var dateFrom = document.getElementById('histFrom').value;
+    var dateTo = document.getElementById('histTo').value;
     var filters = {
       plate: document.getElementById('histPlateFilter').value.trim(),
-      dateFrom: document.getElementById('histFrom').value,
-      dateTo: document.getElementById('histTo').value
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      // showAll имеет смысл только когда даты не заданы явно — при явном
+      // диапазоне сервер и так фильтрует именно по нему.
+      showAll: historyShowAll_ && !dateFrom && !dateTo
     };
 
     apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
@@ -547,19 +566,29 @@
         if (!res.ok) { statusEl.innerText = 'Ошибка: ' + res.error; return; }
         statusEl.innerText = '';
         lastHistoryRows = res.rows;
-        document.getElementById('historyScopeNote').innerText = res.isSuperAdmin
+        var scopeNote = res.isSuperAdmin
           ? 'Вы супер-админ: показаны работы всех сотрудников'
           : 'Показаны только ваши работы';
+        if (!dateFrom && !dateTo) {
+          scopeNote += filters.showAll ? ' за всё время' : ' за сегодня';
+        }
+        document.getElementById('historyScopeNote').innerText = scopeNote;
         renderHistoryTable_(res.rows, res.total, res.isSuperAdmin);
       })
       .catch(function () { statusEl.innerText = 'Ошибка сети'; });
+  }
+
+  function showAllHistory() {
+    loadWorkHistory(true);
   }
 
   function resetHistoryFilters() {
     document.getElementById('histPlateFilter').value = '';
     document.getElementById('histFrom').value = '';
     document.getElementById('histTo').value = '';
-    loadWorkHistory();
+    // ЭТАП 7 (п.6): сброс фильтров возвращает к дефолтному поведению —
+    // сегодняшний день, а не "показать всё" (если оно было включено).
+    loadWorkHistory(false);
   }
 
   function renderHistoryTable_(rows, total, isSuperAdmin) {
@@ -588,16 +617,34 @@
     wrap.innerHTML = html;
   }
 
-  // Скачивание CSV — по уже загруженным (с учётом текущих фильтров и
-  // прав доступа) строкам; если список ещё не загружен, сначала грузим.
+  // ЭТАП 7 (промт stage7 fixes, п.6): CSV должен уметь выгрузить полный
+  // список за всё время независимо от того, что сейчас показано на
+  // экране (там по умолчанию только сегодняшний день) — поэтому делаем
+  // отдельный запрос с явным showAll (если даты не заданы), а не
+  // полагаемся на уже загруженные lastHistoryRows.
   function downloadWorkHistory() {
-    if (!lastHistoryRows.length) {
-      loadWorkHistory();
-      setTimeout(function () { if (lastHistoryRows.length) downloadWorkHistory(); }, 900);
-      return;
-    }
+    var statusEl = document.getElementById('historyStatus');
+    var dateFrom = document.getElementById('histFrom').value;
+    var dateTo = document.getElementById('histTo').value;
+    var filters = {
+      plate: document.getElementById('histPlateFilter').value.trim(),
+      dateFrom: dateFrom,
+      dateTo: dateTo,
+      showAll: !dateFrom && !dateTo
+    };
+    statusEl.innerText = 'Готовлю файл для скачивания...';
+    apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
+      .then(function (res) {
+        statusEl.innerText = '';
+        if (!res.ok) { statusEl.innerText = 'Ошибка: ' + res.error; return; }
+        exportHistoryCsv_(res.rows);
+      })
+      .catch(function () { statusEl.innerText = 'Ошибка сети'; });
+  }
+
+  function exportHistoryCsv_(rows) {
     var csvRows = [['Дата', 'Гос. номер', 'Работа', 'Сотрудник', 'Сумма']];
-    lastHistoryRows.forEach(function (r) {
+    rows.forEach(function (r) {
       csvRows.push([r.date, r.plate, r.type, r.master, r.cost]);
     });
     var csv = csvRows.map(function (row) {
@@ -671,13 +718,18 @@
   function renderOpenActInfo(openAct) {
     var el = document.getElementById('openActInfo');
     if (!openAct) { el.style.display = 'none'; el.innerHTML = ''; return; }
-    var typeLabel = openAct.paymentType === 'deposit' ? 'Задаток' : 'Полный расчёт';
+    // ЭТАП 7 (промт stage7 fixes, п.4): paymentType==='none' — «Получение»
+    // без денег вообще (водитель ничего не платил при сдаче машины), не
+    // путать с paymentType==='full' (полный расчёт) — там формулировка
+    // "Оплачено полностью" верна, а здесь денег не было изначально.
+    var typeLabel = openAct.paymentType === 'deposit' ? 'Задаток'
+      : (openAct.paymentType === 'none' ? 'Без оплаты при получении' : 'Полный расчёт');
     var balance = Number(openAct.balance) || 0;
     var balanceLine = balance > 0
       ? 'Остаток к оплате: <b>' + balance.toLocaleString('ru-RU') + ' ₸</b>'
       : (balance < 0
           ? '⚠️ Долг: <b style="color:var(--danger)">' + Math.abs(balance).toLocaleString('ru-RU') + ' ₸</b>'
-          : 'Оплачено полностью');
+          : (openAct.paymentType === 'none' ? 'Оплата не вносилась' : 'Оплачено полностью'));
     el.innerHTML =
       '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) +
       ' · Сумма: ' + Number(openAct.cost || 0).toLocaleString('ru-RU') + ' ₸' +
