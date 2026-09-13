@@ -892,6 +892,22 @@
   // строкой из Части 5 исходного ТЗ. Остаток может быть отрицательным
   // (долг), если работы ТО за время нахождения машины на СТО превысили
   // остаток — это не ошибка, см. открытый вопрос №1 промта.
+  // ЭТАП 9.1: карточка с открытым актом «Получения» теперь также:
+  //  - ссылается на сам PDF акта (если он уже успел сформироваться на
+  //    сервере — fileUrl может быть пустым считанные секунды сразу
+  //    после сохранения акта, пока PDF ещё генерируется);
+  //  - показывает кнопку «Выдача авто», которая открывает act.html уже
+  //    в режиме «Выдача», с подставленными гос. номером/VIN и ID найденного
+  //    акта «Получения» — сотруднику не нужно заново вводить номер и
+  //    выбирать тип акта вручную (см. checkLinkedIntake_ в act.html).
+  function buildIssueActUrl_(openAct) {
+    var vin = (document.getElementById('f_vin').value || '').trim();
+    var url = 'act.html?mode=issue&plate=' + encodeURIComponent(currentPlate)
+      + '&linkedActId=' + encodeURIComponent(openAct.actId);
+    if (vin) url += '&vin=' + encodeURIComponent(vin);
+    return url;
+  }
+
   function renderOpenActInfo(openAct) {
     var el = document.getElementById('openActInfo');
     if (!openAct) { el.style.display = 'none'; el.innerHTML = ''; return; }
@@ -907,11 +923,17 @@
       : (balance < 0
           ? '⚠️ Долг: <b style="color:var(--danger)">' + Math.abs(balance).toLocaleString('ru-RU') + ' ₸</b>'
           : (openAct.paymentType === 'none' ? 'Оплата не вносилась' : 'Оплачено полностью'));
+    var actLabelHtml = openAct.fileUrl
+      ? '<a href="' + escapeHtml(openAct.fileUrl) + '" target="_blank" rel="noopener" style="color:var(--accent)">📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) + ' (PDF)</a>'
+      : '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId);
     el.innerHTML =
-      '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) +
+      actLabelHtml +
       ' · Сумма: ' + Number(openAct.cost || 0).toLocaleString('ru-RU') + ' ₸' +
       ' · ' + typeLabel + '<br>' + balanceLine +
-      '<div style="color:var(--muted); font-size:12px; margin-top:4px;">Сумма, внесённая на дату получения, не является окончательной — окончательный расчёт производится при выдаче.</div>';
+      '<div style="color:var(--muted); font-size:12px; margin-top:4px;">Сумма, внесённая на дату получения, не является окончательной — окончательный расчёт производится при выдаче.</div>' +
+      '<div style="margin-top:10px;">' +
+        '<a href="' + buildIssueActUrl_(openAct) + '" class="btn-primary" style="display:inline-block;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:600;">🚗 Выдача авто</a>' +
+      '</div>';
     el.style.display = 'block';
   }
 

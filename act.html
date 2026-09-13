@@ -57,6 +57,10 @@
   .choice-card{border:1px solid var(--line);background:var(--panel2);border-radius:var(--radius);padding:18px;margin-bottom:12px;cursor:pointer;transition:.15s;}
   .choice-card:active{transform:scale(.98);}
   .choice-card.selected{border-color:var(--amber);background:#241d0f;}
+  /* ЭТАП 9.1: карточка типа акта блокируется, когда пришли из to.html
+     по кнопке «Выдача авто» — сотрудник не должен случайно переключить
+     тип акта на «Получение» в этом потоке. */
+  .choice-card.locked{opacity:.4;pointer-events:none;cursor:not-allowed;}
   .choice-card .ico{font-size:26px;}
   .choice-card h3{margin:8px 0 4px;font-size:17px;}
   .choice-card p{margin:0;color:var(--text-dim);font-size:13px;line-height:1.4;}
@@ -111,18 +115,42 @@
 </head>
 <body>
 
-<!-- ЭКРАН ВХОДА: акт составляет только вошедший сотрудник СТО, та же
-     учётка, что и в to.html (проверяется через action 'adminLogin'). -->
-<div id="gate">
-  <h2>🔒 Вход сотрудника СТО</h2>
-  <div class="sub">Войдите под своим именем и паролем, чтобы оформить акт</div>
-  <div class="card">
-    <label>Имя</label>
-    <input type="text" id="gateName" placeholder="Например, Асан" autocomplete="username">
-    <label>Пароль</label>
-    <input type="password" id="gatePw" placeholder="••••••" autocomplete="current-password">
-    <button class="btn" id="gateLoginBtn" onclick="tryGateLogin()">Войти</button>
-    <div class="gate-error" id="gateError"></div>
+<!-- ЭКРАН ВХОДА: ЭТАП 9.3 (PROMPT_stage9.md) — единственная штатная точка
+     входа с логином/паролем теперь to.html; act.html больше не
+     предлагает собственный вход как основной путь, а тихо подхватывает
+     уже проверенное устройство (см. tryGateDeviceLogin_/INIT ниже). Этот
+     экран показывается только когда подхватить нечего: либо в
+     localStorage вообще нет общего с to.html токена устройства (прямой
+     заход в act.html, минуя to.html, либо новое устройство), либо тихий
+     вход по нему не удался (просрочен/отозван) — см. gateLoginFailed(). -->
+<div id="gate" style="display:none;">
+  <div id="gateNoSession">
+    <h2>🔒 Нужен вход через to.html</h2>
+    <div class="sub">Акт оформляет вошедший сотрудник СТО. Войдите в «Учёт ТО» (to.html) — сюда вход подхватится автоматически, без повторного ввода пароля.</div>
+    <div class="card">
+      <a href="to.html" class="btn" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;">Перейти в to.html</a>
+      <div style="text-align:center;margin-top:14px;">
+        <a href="#" id="gateShowManual" style="font-size:12.5px;color:var(--text-dim);text-decoration:underline;">Войти вручную (резервный способ)</a>
+      </div>
+    </div>
+  </div>
+  <!-- Резервный вход по паролю — на случай, если to.html недоступен
+       (см. промт: "на усмотрение, но по умолчанию основной путь именно
+       через to.html"). Скрыт, пока сотрудник явно не попросит его. -->
+  <div id="gateManualForm" style="display:none;">
+    <h2>🔒 Вход сотрудника СТО</h2>
+    <div class="sub">Резервный вход — обычно достаточно войти в to.html</div>
+    <div class="card">
+      <label>Имя</label>
+      <input type="text" id="gateName" placeholder="Например, Асан" autocomplete="username">
+      <label>Пароль</label>
+      <input type="password" id="gatePw" placeholder="••••••" autocomplete="current-password">
+      <button class="btn" id="gateLoginBtn" onclick="tryGateLogin()">Войти</button>
+      <div class="gate-error" id="gateError"></div>
+      <div style="text-align:center;margin-top:12px;">
+        <a href="#" id="gateShowNoSession" style="font-size:12.5px;color:var(--text-dim);text-decoration:underline;">← Назад</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -146,13 +174,25 @@
       <h2>Тип акта</h2>
       <p class="hint" style="margin-top:0">Выберите, что сейчас происходит с автомобилем.</p>
 
+      <!-- ЭТАП 9.1 (найденный попутно баг): значения data-type здесь ниже
+           по коду читаются в state.actType (см. click-обработчик
+           .choice-card) и сравниваются с 'intake'/'issue' повсюду в
+           файле (checkLinkedIntake_, updatePaymentUIForActType_, расчёт
+           остатка и т.д.). Карточка «Выдача» раньше имела
+           data-type="return" — ни разу не совпадало с 'issue', поэтому
+           весь сценарий поиска/привязки акта «Получения» при ручном
+           выборе типа в этой карточке никогда не срабатывал (это,
+           по всей видимости, и есть настоящая причина бага "долг не
+           минусуется при полной оплате" из Этапа 9.2, п.3 — код,
+           который должен был это считать, просто не запускался).
+           Исправлено на data-type="issue". -->
       <div class="choice-card" data-type="intake">
         <div class="ico">🔧</div>
         <h3>Получение ТС на СТО (от водителя)</h3>
         <p>Автомобиль поступает на сервис. Мы фиксируем его состояние на момент получения от Заказчика/Водителя.</p>
       </div>
 
-      <div class="choice-card" data-type="return">
+      <div class="choice-card" data-type="issue">
         <div class="ico">✅</div>
         <h3>Выдача ТС Заказчику (от СТО)</h3>
         <p>Работы завершены, автомобиль возвращается Заказчику/Водителю. Фиксируем итоговое состояние.</p>
@@ -161,6 +201,12 @@
 
     <!-- STEP 1: client & vehicle data -->
     <section class="step" data-step="1">
+      <!-- ЭТАП 9.1: видно только в режиме «Выдача из to.html» (см.
+           applyForcedIssueParams_) — поясняет сотруднику, почему тип
+           акта и гос. номер уже заполнены и не редактируются здесь. -->
+      <div id="forcedIssueBanner" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:#0d141e; border:1px solid var(--amber); font-size:13px;">
+        🚗 Оформляется <b>Выдача авто</b> по данным из истории машины — гос. номер подставлен автоматически, тип акта менять нельзя.
+      </div>
       <h2>Данные Заказчика</h2>
       <div class="card">
         <label>ФИО <span style="color:var(--danger)">*</span></label>
@@ -177,6 +223,12 @@
       <div class="card">
         <label>Гос. номер <span style="color:var(--danger)">*</span></label>
         <input type="text" id="f_plate" placeholder="напр. 123 ABC 02">
+        <!-- ЭТАП 9.2 (баг 1 из PROMPT_stage9.md): раньше проверка связанного
+             акта «Получения» шла молча — не было видно, что что-то вообще
+             происходит, и не было сообщения при сетевой ошибке (см.
+             checkLinkedIntake_/scheduleCheckLinkedIntake_ ниже). Виден
+             только когда актуален (тип акта «Выдача»). -->
+        <div id="linkedIntakeStatus" style="display:none; font-size:12.5px; margin:-8px 0 12px; color:var(--text-dim);"></div>
 
         <label>VIN-код (необязательно)</label>
         <input type="text" id="f_vin" maxlength="17" placeholder="17 символов, можно ввести вручную">
@@ -443,6 +495,10 @@ const PHOTO_SLOTS = [
 const state = {
   step:0,
   actType:null,
+  // ЭТАП 9.1: true, если сюда пришли из to.html по кнопке «Выдача авто»
+  // (act.html?mode=issue&plate=...&linkedActId=...) — тип акта уже
+  // выбран и заблокирован, шаг выбора типа пропускается.
+  forcedIssue:false,
   client:{fio:'',iin:'',vu:'',phone:''},
   vehicle:{plate:'',vin:'',mileage:'',contract:'',fuel:'',kit:''},
   master:'', // ЭТАП 5
@@ -635,7 +691,11 @@ function renderStep(){
   const back = document.getElementById('btnBack');
   const next = document.getElementById('btnNext');
   nav.style.display = state.step===6 ? 'none' : 'flex';
-  back.style.display = state.step===0 ? 'none' : 'inline-flex';
+  // ЭТАП 9.1: в режиме «Выдача из to.html» шаг 0 пропущен и заблокирован
+  // (см. applyForcedIssueParams_/btnBack) — на первом видимом шаге (1)
+  // кнопка «Назад» тоже скрыта, чтобы не вести в пустоту.
+  const backFloorStep = state.forcedIssue ? 1 : 0;
+  back.style.display = state.step===backFloorStep ? 'none' : 'inline-flex';
   next.textContent = state.step===5 ? 'Подписать и отправить' : 'Далее';
 
   if(state.step===1){
@@ -1007,27 +1067,64 @@ document.getElementById('pt_deposit').addEventListener('change', ()=>{
 document.getElementById('f_deposit').addEventListener('input', updatePaySplitVisibility_);
 
 /**
- * ЭТАП 3.2: при типе акта «Выдача» ищем на сервере незакрытый акт
- * «Получения» по этому гос. номеру (action:'findopenintake' →
- * apiFindOpenIntakeAct в apps-script/2_Sheets.gs). Если найден — сумма
- * и тип оплаты подтягиваются автоматически, ручной ввод скрывается
- * (см. updatePaymentUIForActType_). Если не найден (или тип акта —
- * «Получение») — обычный ручной ввод, как раньше.
+ * ЭТАП 9.2 (баг 1 из PROMPT_stage9.md — "поиск по гос номеру тупит"):
+ * раньше checkLinkedIntake_() вызывалась только по blur, без debounce,
+ * без индикатора "Ищу...", без защиты от race condition при нескольких
+ * подряд идущих запросах (напечатал номер, стёр, напечатал другой —
+ * ответы могли прийти в другом порядке и перезаписать состояние
+ * устаревшими данными), без явного сообщения об ошибке сети (падало в
+ * тихое state.linkedIntake=null, будто акта просто нет). Исправлено:
+ *  - вызов теперь идёт и по 'input' (см. scheduleCheckLinkedIntake_,
+ *    debounce 500мс — не бомбим сервер на каждое нажатие клавиши) и по
+ *    'blur' (сразу, без ожидания debounce — сотрудник ушёл с поля,
+ *    результат нужен как можно быстрее);
+ *  - linkedIntakeReqToken_ — номер последнего отправленного запроса;
+ *    если к моменту ответа он уже не совпадает с текущим (успел уйти
+ *    более новый запрос) — ответ игнорируется, не перетирает состояние;
+ *  - #linkedIntakeStatus показывает "Ищу..." на время запроса и явное
+ *    сообщение об ошибке сети при неудаче, вместо молчаливого сброса.
  */
+let linkedIntakeDebounceTimer_ = null;
+let linkedIntakeReqToken_ = 0;
+
+function setLinkedIntakeStatus_(text, isError){
+  const el = document.getElementById('linkedIntakeStatus');
+  if(!el) return;
+  if(!text){ el.style.display = 'none'; el.textContent = ''; return; }
+  el.style.display = 'block';
+  el.style.color = isError ? 'var(--danger)' : 'var(--text-dim)';
+  el.textContent = text;
+}
+
+function scheduleCheckLinkedIntake_(){
+  if(state.actType !== 'issue'){
+    setLinkedIntakeStatus_('');
+    return;
+  }
+  clearTimeout(linkedIntakeDebounceTimer_);
+  linkedIntakeDebounceTimer_ = setTimeout(checkLinkedIntake_, 500);
+}
+
 async function checkLinkedIntake_(){
+  clearTimeout(linkedIntakeDebounceTimer_); // отдельный явный вызов (blur/renderStep) отменяет ожидающий debounce
   if(state.actType !== 'issue'){
     state.linkedIntake = null;
+    setLinkedIntakeStatus_('');
     updatePaymentUIForActType_();
     return;
   }
   const plate = document.getElementById('f_plate').value.trim();
   if(!plate){
     state.linkedIntake = null;
+    setLinkedIntakeStatus_('');
     updatePaymentUIForActType_();
     return;
   }
+  const myToken = ++linkedIntakeReqToken_;
+  setLinkedIntakeStatus_('Ищу акт получения по этому номеру…');
   try{
     const res = await gateApiPost({ action:'findopenintake', plate: plate, name: GATE_NAME, pw: GATE_PW });
+    if(myToken !== linkedIntakeReqToken_) return; // пришёл ответ на уже неактуальный запрос — игнорируем
     if(res && res.ok && res.found){
       state.linkedIntake = {
         actId: res.actId,
@@ -1037,14 +1134,22 @@ async function checkLinkedIntake_(){
         paid: Number(res.paid)||0,
         balance: Number(res.balance)||0
       };
+      setLinkedIntakeStatus_('');
+    } else if(res && res.ok){
+      state.linkedIntake = null;
+      setLinkedIntakeStatus_('');
     } else {
       state.linkedIntake = null;
+      setLinkedIntakeStatus_('⚠️ Не удалось проверить акт получения: ' + ((res && res.error) || 'ошибка сервера') + '. Проверьте номер или введите данные вручную.', true);
     }
   } catch(e){
+    if(myToken !== linkedIntakeReqToken_) return;
     state.linkedIntake = null;
+    setLinkedIntakeStatus_('⚠️ Ошибка сети при проверке акта получения — повторите ввод номера или проверьте соединение.', true);
   }
   updatePaymentUIForActType_();
 }
+document.getElementById('f_plate').addEventListener('input', scheduleCheckLinkedIntake_);
 document.getElementById('f_plate').addEventListener('blur', checkLinkedIntake_);
 
 /**
@@ -1204,7 +1309,10 @@ document.getElementById('btnNext').addEventListener('click', async ()=>{
   window.scrollTo(0,0);
 });
 document.getElementById('btnBack').addEventListener('click', ()=>{
-  state.step = Math.max(state.step-1,0);
+  // ЭТАП 9.1: в режиме «Выдача из to.html» шаг 0 (выбор типа акта)
+  // пропущен и заблокирован — назад дальше шага 1 уходить некуда.
+  const floor = state.forcedIssue ? 1 : 0;
+  state.step = Math.max(state.step-1, floor);
   renderStep();
   window.scrollTo(0,0);
 });
@@ -1212,6 +1320,10 @@ document.getElementById('btnBack').addEventListener('click', ()=>{
 /* STEP 0 choice */
 document.querySelectorAll('.choice-card').forEach(card=>{
   card.addEventListener('click', ()=>{
+    // ЭТАП 9.1: в принудительном режиме «Выдача» переключатель типа
+    // акта заблокирован (карточки получают class="locked", см. CSS и
+    // applyForcedIssueParams_) — клик по ним игнорируется.
+    if(state.forcedIssue) return;
     document.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));
     card.classList.add('selected');
     state.actType = card.dataset.type;
@@ -1221,6 +1333,44 @@ document.querySelectorAll('.choice-card').forEach(card=>{
     state.linkedIntake = null;
   });
 });
+
+/**
+ * ЭТАП 9.1: если сюда пришли из to.html по кнопке «Выдача авто»
+ * (act.html?mode=issue&plate=...&linkedActId=...[&vin=...]) —
+ * подставляем гос. номер (и VIN, если передан), сразу выбираем и
+ * блокируем тип акта «Выдача» и пропускаем шаг 0 — сразу открывается
+ * шаг 1, где renderStep() (как и в обычном ручном сценарии) сам вызовет
+ * checkLinkedIntake_(), потому что state.actType уже 'issue'. Данными
+ * из query-строки (сумма/остаток) намеренно не пользуемся напрямую —
+ * они должны браться только из свежего ответа сервера, см. п.6 промта
+ * "работать только со свежими данными".
+ * linkedActId из ссылки используется только для наглядности и как
+ * контроль ожидания — реально привязка акта берётся из ответа
+ * findopenintake, а не из query-параметра.
+ */
+const forcedIssueParams = new URLSearchParams(location.search);
+const forcedIssuePlate = (forcedIssueParams.get('plate') || '').trim();
+const forcedIssueVin = (forcedIssueParams.get('vin') || '').trim();
+const forcedIssueExpectedActId = (forcedIssueParams.get('linkedActId') || '').trim();
+const isForcedIssueMode = forcedIssueParams.get('mode') === 'issue' && !!forcedIssuePlate;
+
+function applyForcedIssueParams_(){
+  if(!isForcedIssueMode) return;
+  state.forcedIssue = true;
+  state.actType = 'issue';
+  state.step = 1; // сразу к шагу "Данные Заказчика", шаг выбора типа не нужен
+  document.getElementById('f_plate').value = forcedIssuePlate;
+  if(forcedIssueVin) document.getElementById('f_vin').value = forcedIssueVin.toUpperCase();
+  document.getElementById('forcedIssueBanner').style.display = 'block';
+  document.querySelectorAll('.choice-card').forEach(c=>{
+    const isIssueCard = c.dataset.type === 'issue';
+    c.classList.toggle('selected', isIssueCard);
+    if(!isIssueCard) c.classList.add('locked');
+  });
+  if(forcedIssueExpectedActId){
+    document.getElementById('linkedActIdLabel').textContent = forcedIssueExpectedActId + ' (проверяю…)';
+  }
+}
 
 /* VIN photo */
 document.getElementById('btnVinPhoto').addEventListener('click', ()=>document.getElementById('vinPhotoInput').click());
@@ -1916,7 +2066,16 @@ function showActApp() {
   document.getElementById('app').style.display = 'flex';
   fetchIP();
   setupMasterField();
+  applyForcedIssueParams_(); // ЭТАП 9.1 — до renderStep(), чтобы шаг 1 сразу открылся в режиме «Выдача»
   renderStep();
+}
+
+// ЭТАП 9.3: показывает экран "войдите через to.html" (по умолчанию,
+// сворачивает форму ручного пароля, если она была открыта).
+function showGateNoSession_() {
+  document.getElementById('gate').style.display = 'block';
+  document.getElementById('gateNoSession').style.display = 'block';
+  document.getElementById('gateManualForm').style.display = 'none';
 }
 
 function gateLoginFailed() {
@@ -1927,7 +2086,11 @@ function gateLoginFailed() {
   // войти одним и тем же недействительным токеном.
   localStorage.removeItem(GATE_DEVICE_NAME_KEY);
   localStorage.removeItem(GATE_DEVICE_TOKEN_KEY);
-  document.getElementById('gate').style.display = 'block';
+  // ЭТАП 9.3: раньше здесь сразу показывалась собственная форма
+  // логин/пароль — теперь показывается сообщение "войдите через
+  // to.html", а форма пароля доступна только по явному клику
+  // "Войти вручную" (см. gateShowManual ниже).
+  showGateNoSession_();
 }
 
 // ЭТАП 8.2: тихий вход по токену устройства (аналог tryDeviceLogin_ в
@@ -2005,15 +2168,43 @@ if (gatePwInput) {
   });
 }
 
+// ЭТАП 9.3: переключение между сообщением "войдите через to.html" и
+// резервной формой логин/пароль — форма пароля больше не показывается
+// сама по себе, только по явному запросу сотрудника.
+var gateShowManualLink = document.getElementById('gateShowManual');
+if (gateShowManualLink) {
+  gateShowManualLink.addEventListener('click', function (e) {
+    e.preventDefault();
+    document.getElementById('gateNoSession').style.display = 'none';
+    document.getElementById('gateManualForm').style.display = 'block';
+  });
+}
+var gateShowNoSessionLink = document.getElementById('gateShowNoSession');
+if (gateShowNoSessionLink) {
+  gateShowNoSessionLink.addEventListener('click', function (e) {
+    e.preventDefault();
+    showGateNoSession_();
+  });
+}
+
 /* ===================== INIT ===================== */
 // Экран составления акта скрыт (см. #app{display:none} в разметке) до тех
 // пор, пока не подтверждён вход сотрудника. Если в localStorage уже есть
 // общий с to.html токен устройства — проверяем его молча (ЭТАП 8.2);
-// иначе показываем экран входа и ждём.
+// иначе (ЭТАП 9.3) показываем сообщение "сначала войдите в to.html", а
+// не собственную форму логин/пароль.
 var gateSavedDeviceName = localStorage.getItem(GATE_DEVICE_NAME_KEY) || '';
 var gateSavedDeviceToken = localStorage.getItem(GATE_DEVICE_TOKEN_KEY) || '';
 if (gateSavedDeviceName && gateSavedDeviceToken) {
   tryGateDeviceLogin_(gateSavedDeviceName, gateSavedDeviceToken);
+} else {
+  // ЭТАП 9.2 (баг 2): #gate скрыт по умолчанию — раньше он был виден
+  // всегда, из-за чего форма логина на мгновение "торчала" поверх/до
+  // формы акта на время тихого входа. Показываем её явно только здесь
+  // (токена нет вовсе, тихий вход даже не будет пытаться выполниться).
+  // ЭТАП 9.3: содержимое самого экрана теперь — не форма пароля, а
+  // сообщение с переходом в to.html (см. showGateNoSession_).
+  showGateNoSession_();
 }
 
 if ('serviceWorker' in navigator) {
