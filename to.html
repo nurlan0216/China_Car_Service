@@ -123,39 +123,6 @@
       <div id="searchStatus" class="loading"></div>
     </div>
 
-    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 1):
-         общий список выполненных работ, не привязанный к поиску по одной
-         машине выше. Обычный сотрудник видит только свои работы, супер-
-         админ — все (сервер сам решает это в apiGetWorkHistory, фронтенд
-         только показывает то, что пришло). -->
-    <div class="card" id="historyCard">
-      <h1 style="font-size:16px; margin:0 0 4px;">🧾 История выполненных работ</h1>
-      <div class="sub" id="historyScopeNote" style="margin-bottom:12px;">Показаны ваши работы</div>
-
-      <label>Фильтр по гос. номеру (необязательно)</label>
-      <input id="histPlateFilter" placeholder="Например, 123ABC02" autocapitalize="characters">
-
-      <div class="row">
-        <div style="flex:1;">
-          <label>С даты</label>
-          <input type="date" id="histFrom">
-        </div>
-        <div style="flex:1;">
-          <label>По дату</label>
-          <input type="date" id="histTo">
-        </div>
-      </div>
-
-      <div class="row">
-        <button class="btn-primary" style="flex:1;" onclick="loadWorkHistory()">Показать</button>
-        <button class="btn-primary" style="flex:1; background:var(--accent-2);" onclick="downloadWorkHistory()">⬇ Скачать</button>
-      </div>
-      <div class="toggle" onclick="resetHistoryFilters()">Сбросить фильтры</div>
-
-      <div id="historyStatus" class="loading" style="margin-top:8px;"></div>
-      <div id="historyTableWrap"></div>
-    </div>
-
     <div id="resultsCard" class="card" style="display:none;">
       <!-- ЭТАП 4 (Часть 4.2 промта): короткий блок остатка по открытому
            акту "Получения" этой машины (если есть) — сумма, тип оплаты,
@@ -274,6 +241,47 @@
         <button class="btn-primary btn-full" onclick="submitAdd(this)">Сохранить запись</button>
         <div id="addStatus" class="loading"></div>
       </div>
+    </div>
+
+    <!-- ЭТАП 7 (пункт 2 промта фиксов, Вариант А): этот блок раньше
+         располагался сразу после карточки поиска, ДО resultsCard —
+         из-за этого, чтобы дойти до кнопки "Добавить новую запись по
+         этой машине" (внутри resultsCard выше), приходилось пролистывать
+         весь общий список истории работ. Перенесён сюда, ниже
+         resultsCard, — логика загрузки/фильтрации истории
+         (loadWorkHistory/apiGetWorkHistory) не менялась, изменилось
+         только расположение блока в разметке. -->
+    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 1):
+         общий список выполненных работ, не привязанный к поиску по одной
+         машине выше. Обычный сотрудник видит только свои работы, супер-
+         админ — все (сервер сам решает это в apiGetWorkHistory, фронтенд
+         только показывает то, что пришло). -->
+    <div class="card" id="historyCard">
+      <h1 style="font-size:16px; margin:0 0 4px;">🧾 История выполненных работ</h1>
+      <div class="sub" id="historyScopeNote" style="margin-bottom:12px;">Показаны ваши работы</div>
+
+      <label>Фильтр по гос. номеру (необязательно)</label>
+      <input id="histPlateFilter" placeholder="Например, 123ABC02" autocapitalize="characters">
+
+      <div class="row">
+        <div style="flex:1;">
+          <label>С даты</label>
+          <input type="date" id="histFrom">
+        </div>
+        <div style="flex:1;">
+          <label>По дату</label>
+          <input type="date" id="histTo">
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="btn-primary" style="flex:1;" onclick="loadWorkHistory()">Показать</button>
+        <button class="btn-primary" style="flex:1; background:var(--accent-2);" onclick="downloadWorkHistory()">⬇ Скачать</button>
+      </div>
+      <div class="toggle" onclick="resetHistoryFilters()">Сбросить фильтры</div>
+
+      <div id="historyStatus" class="loading" style="margin-top:8px;"></div>
+      <div id="historyTableWrap"></div>
     </div>
 
     <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
