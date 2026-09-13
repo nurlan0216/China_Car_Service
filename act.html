@@ -45,6 +45,10 @@
     border-radius:8px;padding:11px 12px;font-size:15px;margin-bottom:14px;font-family:inherit;
   }
   input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber);}
+  /* ЭТАП 9.4: поле гос. номера при «Выдаче», начатой из to.html, — не
+     редактируется (значение подставлено автоматически) — визуально
+     показываем это тем же образом, что и заблокированное поле «Мастер». */
+  input[readonly]{opacity:.65;cursor:not-allowed;}
   textarea{resize:vertical;min-height:60px;}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--amber);color:#1a1204;
     border:none;border-radius:9px;padding:13px 18px;font-size:15px;font-weight:600;cursor:pointer;width:100%;font-family:'Inter';}
@@ -437,7 +441,6 @@
         <div class="card" id="doneSummary"></div>
         <button class="btn" id="btnDownloadPdf" type="button">⬇ Скачать PDF</button>
         <button class="btn" id="btnSendWhatsapp" type="button">📲 Отправить клиенту в WhatsApp</button>
-        <button class="btn secondary" id="btnShare" type="button">🔗 Поделиться PDF</button>
         <div class="btn-row">
           <button class="btn secondary" id="btnNewAct" type="button">Новый акт</button>
         </div>
@@ -524,7 +527,8 @@ const state = {
   pdfBlob:null,
   pdfName:'',
   waLink:null,
-  driveUrl:'' // ссылка на PDF на Google Диске, приходит от сервера в sendSheet()
+  driveUrl:'', // ссылка на PDF на Google Диске, приходит от сервера в sendSheet()
+  _autofilledIntakeActId:null // ЭТАП 9.4 — ID акта «Получения», данные которого уже подставлены в форму
 };
 
 const STEPS_TOTAL = 7;
@@ -1096,6 +1100,25 @@ function setLinkedIntakeStatus_(text, isError){
   el.textContent = text;
 }
 
+/**
+ * ЭТАП 9.4: подставляет в поля шага «Данные Заказчика» (ФИО, ИИН, ВУ,
+ * WhatsApp) значения из найденного акта «Получения», чтобы сотрудник не
+ * вводил их заново при «Выдаче» — заполняются автоматически, но поля
+ * остаются обычными редактируемыми input'ами: сотрудник может поправить
+ * любое из них (например, если у клиента поменялся номер телефона).
+ * Не редактируются в этом сценарии только гос. номер автомобиля (см.
+ * applyForcedIssueParams_ — f_plate.readOnly) и сам факт того, какой
+ * именно акт «Получения» найден и привязан — это определяет сервер по
+ * гос. номеру, выбрать другой акт вручную нельзя.
+ */
+function autofillClientFromLinkedIntake_(li){
+  if(!li) return;
+  if(li.fio) document.getElementById('f_fio').value = li.fio;
+  if(li.iin) document.getElementById('f_iin').value = li.iin;
+  if(li.vu) document.getElementById('f_vu').value = li.vu;
+  if(li.phone) document.getElementById('f_phone').value = li.phone;
+}
+
 function scheduleCheckLinkedIntake_(){
   if(state.actType !== 'issue'){
     setLinkedIntakeStatus_('');
@@ -1132,8 +1155,23 @@ async function checkLinkedIntake_(){
         paymentType: res.paymentType || 'full',
         deposit: Number(res.deposit)||0,
         paid: Number(res.paid)||0,
-        balance: Number(res.balance)||0
+        balance: Number(res.balance)||0,
+        // ЭТАП 9.4: данные Заказчика из самого акта «Получения» — см.
+        // autofillClientFromLinkedIntake_ ниже.
+        fio: res.fio || '',
+        iin: res.iin || '',
+        vu: res.vu || '',
+        phone: res.phone || ''
       };
+      // ЭТАП 9.4 (промт «Автоподтягивание данных клиента при Выдаче»):
+      // подставляем ФИО/ИИН/ВУ/WhatsApp из найденного акта «Получения» —
+      // только один раз на каждый вновь найденный акт, чтобы не затирать
+      // то, что сотрудник уже мог поправить руками вручную после
+      // подстановки (см. state._autofilledIntakeActId).
+      if(state._autofilledIntakeActId !== res.actId){
+        autofillClientFromLinkedIntake_(state.linkedIntake);
+        state._autofilledIntakeActId = res.actId;
+      }
       setLinkedIntakeStatus_('');
     } else if(res && res.ok){
       state.linkedIntake = null;
@@ -1360,6 +1398,9 @@ function applyForcedIssueParams_(){
   state.actType = 'issue';
   state.step = 1; // сразу к шагу "Данные Заказчика", шаг выбора типа не нужен
   document.getElementById('f_plate').value = forcedIssuePlate;
+  // ЭТАП 9.4: гос. номер в этом сценарии подставлен из to.html и не
+  // редактируется сотрудником (см. промт «кроме гос. номера и акта»).
+  document.getElementById('f_plate').readOnly = true;
   if(forcedIssueVin) document.getElementById('f_vin').value = forcedIssueVin.toUpperCase();
   document.getElementById('forcedIssueBanner').style.display = 'block';
   document.querySelectorAll('.choice-card').forEach(c=>{
@@ -1960,24 +2001,14 @@ document.getElementById('btnSendWhatsapp').addEventListener('click', ()=>{
   else{ alert('Ссылка для WhatsApp не готова: проверьте, что у клиента указан номер WhatsApp.'); }
 });
 
-/* Системное меню "Поделиться" — позволяет отправить готовый PDF-файл в
-   любое приложение (WhatsApp, Telegram, почту и т.д.), выбор получателя —
-   на стороне телефона. Работает без сервера и без сторонних API. */
-document.getElementById('btnShare').addEventListener('click', async ()=>{
-  if(!state.pdfBlob){ alert('PDF ещё не готов.'); return; }
-  const file = new File([state.pdfBlob], state.pdfName, {type:'application/pdf'});
-  if(navigator.canShare && navigator.canShare({files:[file]})){
-    try{
-      await navigator.share({
-        files:[file],
-        title:`Акт ${state.actId}`,
-        text:`China Car Service: акт ${state.actId} по авто ${state.vehicle.plate}`
-      });
-    }catch(e){ /* пользователь отменил — ничего не делаем */ }
-  } else {
-    alert('Ваш браузер не поддерживает системное меню "Поделиться". Используйте кнопку "Скачать PDF" и отправьте файл вручную.');
-  }
-});
+/* ЭТАП 9.4: кнопка "Поделиться PDF" (системное меню navigator.share)
+   убрана — вместо выбора приложения вручную сразу готова прямая ссылка
+   на чат с клиентом в WhatsApp (выше), уже с текстом и ссылкой на PDF
+   на Google Диске, подставленными автоматически. Такая же готовая
+   ссылка на WhatsApp дополнительно приходит и в служебное уведомление
+   в Telegram (см. apps-script/4_Telegram.gs -> notifyActTelegram_) —
+   сотрудник может отправить клиенту сообщение прямо оттуда, даже не
+   открывая сам act.html. */
 
 document.getElementById('btnNewAct').addEventListener('click', ()=>location.reload());
 
