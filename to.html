@@ -1094,15 +1094,21 @@
     }).map(function (m) { return m.input; });
   }
 
-  // ЭТАП 2.3: показываем поле суммы только для отмеченных чекбоксов.
-  // В отличие от act.html поле не скрывается даже при ровно одном
-  // отмеченном способе — здесь нет отдельного общего поля "оплачено",
-  // сумма вводится прямо в это поле, и оплата может быть частичной.
+  // ЭТАП 9.5 (найденный баг): при РОВНО одном отмеченном способе оплаты
+  // сумма этого способа больше не спрашивается отдельным полем — вся
+  // "Стоимость" сверху и так уже введена сотрудником один раз, повторно
+  // вводить её же рядом с "Kaspi"/"Наличные"/"ИП" не нужно (это и было
+  // тем самым багом: сумма "переспрашивалась"). Поле суммы способа
+  // показывается только когда отмечено 2 или 3 способа одновременно —
+  // тогда действительно нужно явно указать, как стоимость делится между
+  // ними. Это то же самое поведение, что и в act.html.
   function updatePayFieldVisibility_() {
+    var checked = checkedPayFieldIds_();
+    var singleMode = checked.length === 1;
     PAY_METHOD_MAP_.forEach(function (m) {
-      var checked = document.getElementById(m.cb).checked;
-      document.getElementById(m.wrap).style.display = checked ? 'block' : 'none';
-      if (!checked) {
+      var isChecked = document.getElementById(m.cb).checked;
+      document.getElementById(m.wrap).style.display = (isChecked && !singleMode) ? 'block' : 'none';
+      if (!isChecked) {
         // Снятый чекбокс — сумма по этому способу больше не участвует
         // ни в подсчёте "Оплачено/Остаток", ни в автораспределении, ни
         // в данных, отправляемых на сервер.
@@ -1111,6 +1117,14 @@
         if (idx !== -1) payEditOrder_.splice(idx, 1);
       }
     });
+    if (singleMode) {
+      // Единственный отмеченный способ автоматически "забирает" всю
+      // введённую стоимость целиком — частичная оплата при ровно одном
+      // способе как сценарий не нужна (если она нужна — сотрудник
+      // отмечает второй способ и вручную распределяет сумму).
+      var cost = Number(document.getElementById('f_cost').value) || 0;
+      document.getElementById(checked[0]).value = cost > 0 ? cost : '';
+    }
     updatePayLine_();
   }
 
@@ -1146,7 +1160,12 @@
   function handleCostInput_() {
     var cost = Number(document.getElementById('f_cost').value) || 0;
     var checked = checkedPayFieldIds_();
-    if (cost > 0 && checked.length === 2) {
+    if (checked.length === 1) {
+      // ЭТАП 9.5: единственный способ всегда равен полной стоимости —
+      // держим его в синхронизации при каждом изменении стоимости, а не
+      // только в момент установки галочки.
+      document.getElementById(checked[0]).value = cost > 0 ? cost : '';
+    } else if (cost > 0 && checked.length === 2) {
       var filled = checked.filter(function (id) {
         return Number(document.getElementById(id).value) > 0;
       });
