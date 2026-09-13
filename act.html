@@ -1834,14 +1834,27 @@ document.getElementById('btnNewAct').addEventListener('click', ()=>location.relo
 /* ===================== ВХОД СОТРУДНИКА (та же учётка, что в to.html) =====================
  * Акт приёма-передачи теперь оформляет только вошедший сотрудник СТО.
  * Проверка идёт той же серверной функцией adminLogin (action: 'adminLogin'),
- * что используется в to.html. Сессия хранится в sessionStorage под теми же
- * ключами (to_name/to_pw), поэтому если сотрудник уже вошёл в to.html в этой
- * вкладке/сессии браузера, повторный вход здесь не потребуется.
+ * что используется в to.html.
+ *
+ * ЭТАП 8.2: раньше сессия хранилась в sessionStorage под теми же ключами
+ * (to_name/to_pw), что и to.html, — то есть сырой пароль сотрудника
+ * дублировался на диске браузера, и общий вход работал только пока обе
+ * страницы открыты в ОДНОЙ вкладке за одну сессию браузера. Теперь
+ * act.html использует тот же самый токен "запомнить устройство"
+ * (localStorage, ключи to_device_name/to_device_token — НАМЕРЕННО те же,
+ * что и в to.html, чтобы вход, выполненный в одном из двух файлов,
+ * автоматически подхватывался и в другом): если сотрудник уже входил в
+ * to.html на этом устройстве, act.html тоже войдёт тихо, без пароля, и
+ * это будет работать даже после перезапуска браузера, а не только в
+ * рамках одной вкладки. Сам пароль нигде не сохраняется дольше момента
+ * явного входа.
  */
-var GATE_NAME = sessionStorage.getItem('to_name') || '';
-var GATE_PW = sessionStorage.getItem('to_pw') || '';
+var GATE_DEVICE_NAME_KEY = 'to_device_name';
+var GATE_DEVICE_TOKEN_KEY = 'to_device_token';
+var GATE_NAME = '';
+var GATE_PW = '';
 // ЭТАП 5: определяется заново при каждом входе (см. tryGateLogin) — не
-// сохраняем в sessionStorage, чтобы не разойтись с реальным статусом
+// сохраняем отдельно, чтобы не разойтись с реальным статусом
 // в листе "Админ", если он изменится между визитами.
 var GATE_IS_SUPER = false;
 
@@ -1907,9 +1920,36 @@ function showActApp() {
 }
 
 function gateLoginFailed() {
-  sessionStorage.removeItem('to_name');
-  sessionStorage.removeItem('to_pw');
+  // ЭТАП 8.2: раньше здесь чистился sessionStorage (to_name/to_pw) —
+  // теперь общие с to.html данные для тихого входа лежат в localStorage
+  // как токен устройства; если сервер его отверг (отозван/просрочен),
+  // сбрасываем именно его, иначе оба файла продолжили бы пытаться тихо
+  // войти одним и тем же недействительным токеном.
+  localStorage.removeItem(GATE_DEVICE_NAME_KEY);
+  localStorage.removeItem(GATE_DEVICE_TOKEN_KEY);
   document.getElementById('gate').style.display = 'block';
+}
+
+// ЭТАП 8.2: тихий вход по токену устройства (аналог tryDeviceLogin_ в
+// to.html) — если в localStorage уже есть общие с to.html имя+токен,
+// пробуем войти ими молча, прежде чем показывать форму пароля.
+function tryGateDeviceLogin_(name, token) {
+  gateApiPost({ action: 'adminDeviceLogin', name: name, token: token })
+    .then(function (res) {
+      if (res.ok && res.valid) {
+        GATE_NAME = name;
+        GATE_PW = token; // сервер и дальше принимает этот же токен вместо пароля (loginAdmin)
+        GATE_IS_SUPER = !!res.isSuperAdmin;
+        showActApp();
+      } else {
+        gateLoginFailed();
+      }
+    })
+    .catch(function () {
+      // сети сейчас нет — оставляем экран входа для этой попытки, токен
+      // не трогаем: он ещё может сработать при следующем открытии.
+      document.getElementById('gate').style.display = 'block';
+    });
 }
 
 function tryGateLogin(silent) {
@@ -1930,10 +1970,17 @@ function tryGateLogin(silent) {
     .then(function (res) {
       if (res.ok) {
         GATE_NAME = name;
-        GATE_PW = pw;
         GATE_IS_SUPER = !!res.isSuperAdmin;
-        sessionStorage.setItem('to_name', name);
-        sessionStorage.setItem('to_pw', pw);
+        // ЭТАП 8.2: сохраняем выданный токен в localStorage (не пароль) —
+        // теми же ключами, что и to.html, чтобы вход здесь автоматически
+        // подхватывался и там, и наоборот.
+        if (res.deviceToken) {
+          GATE_PW = res.deviceToken;
+          localStorage.setItem(GATE_DEVICE_NAME_KEY, name);
+          localStorage.setItem(GATE_DEVICE_TOKEN_KEY, res.deviceToken);
+        } else {
+          GATE_PW = pw; // на случай, если сервер почему-то не выдал токен — не блокируем вход
+        }
         showActApp();
       } else {
         if (silent) {
@@ -1960,11 +2007,13 @@ if (gatePwInput) {
 
 /* ===================== INIT ===================== */
 // Экран составления акта скрыт (см. #app{display:none} в разметке) до тех
-// пор, пока не подтверждён вход сотрудника. Если в этой вкладке уже есть
-// сохранённая сессия (например, только что вошли в to.html) — проверяем её
-// молча; иначе показываем экран входа и ждём.
-if (GATE_NAME && GATE_PW) {
-  tryGateLogin(true);
+// пор, пока не подтверждён вход сотрудника. Если в localStorage уже есть
+// общий с to.html токен устройства — проверяем его молча (ЭТАП 8.2);
+// иначе показываем экран входа и ждём.
+var gateSavedDeviceName = localStorage.getItem(GATE_DEVICE_NAME_KEY) || '';
+var gateSavedDeviceToken = localStorage.getItem(GATE_DEVICE_TOKEN_KEY) || '';
+if (gateSavedDeviceName && gateSavedDeviceToken) {
+  tryGateDeviceLogin_(gateSavedDeviceName, gateSavedDeviceToken);
 }
 
 if ('serviceWorker' in navigator) {

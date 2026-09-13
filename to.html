@@ -89,7 +89,7 @@
       <input id="loginName" placeholder="Например, Асан" autocomplete="username">
       <label>Пароль</label>
       <input id="loginPw" type="password" placeholder="••••••" autocomplete="current-password">
-      <button class="btn-primary btn-full" onclick="tryLogin(false, this)">Войти</button>
+      <button class="btn-primary btn-full" onclick="tryLogin(this)">Войти</button>
       <div class="gate-error" id="gateError"></div>
     </div>
     <div class="toggle" style="text-align:center; margin-bottom:8px;" onclick="toggleRegister()">Нет аккаунта? Регистрация</div>
@@ -341,15 +341,32 @@
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
 
   var currentPlate = '';
-  var ADMIN_NAME = sessionStorage.getItem('to_name') || '';
-  var PW = sessionStorage.getItem('to_pw') || '';
+  var ADMIN_NAME = '';
+  // ЭТАП 8.2: раньше здесь ADMIN_NAME/PW читались из sessionStorage —
+  // то есть сырой пароль хранился (пусть и временно) на диске браузера и
+  // терялся при каждом закрытии вкладки/перезапуске браузера, вынуждая
+  // сотрудника вводить пароль заново при каждом новом открытии to.html.
+  // Теперь пароль нигде не сохраняется дольше момента явного входа: в
+  // localStorage хранится только непрозрачный токен устройства
+  // (deviceToken, см. issueStaffDeviceToken_ в apps-script/2_Sheets.gs),
+  // который сервер принимает как замену пароля (loginAdmin) и который
+  // можно централизованно отозвать (кнопка "Выйти" ниже). PW — только
+  // переменная в памяти этой вкладки, содержит либо токен устройства
+  // (обычный случай), либо, кратко, только что введённый пароль сразу
+  // после явного входа, если сервер по какой-то причине не вернул токен.
+  var PW = '';
   var IS_SUPER = false;
+  var DEVICE_NAME_KEY = 'to_device_name';
+  var DEVICE_TOKEN_KEY = 'to_device_token';
 
-  // Если сессия уже сохранена в этой вкладке — не открываем приложение
-  // вслепую, а сразу заново проверяем логин/пароль на сервере. Это же
-  // сразу говорит нам, супер-админ этот сотрудник или нет (IS_SUPER),
-  // от чего зависит, показывать ли ниже раздел Stories.
-  if (ADMIN_NAME && PW) tryLogin(true);
+  // При каждом открытии to.html — если в localStorage уже есть
+  // сохранённые имя+токен устройства, сначала тихо пробуем войти по ним
+  // (аналог apiDriverDeviceLogin у водителя), и только если токена нет
+  // или сервер его не принял (отозван логаутом, истёк по сроку) —
+  // остаётся обычная форма логин/пароль, как и раньше.
+  var savedDeviceName = localStorage.getItem(DEVICE_NAME_KEY) || '';
+  var savedDeviceToken = localStorage.getItem(DEVICE_TOKEN_KEY) || '';
+  if (savedDeviceName && savedDeviceToken) tryDeviceLogin_(savedDeviceName, savedDeviceToken);
 
   // ЭТАП 7: один автоматический повтор при сетевой ошибке (обрыв связи,
   // fetch reject) перед тем, как показать пользователю "Ошибка сети" —
@@ -379,6 +396,67 @@
     }).then(function (r) { return r.json(); });
   }
 
+  // ЭТАП 8.4: короткий клиентский кэш ДАННЫХ (не файлов оболочки — та
+  // часть уже сделана в 8.1 через service-worker, стратегией
+  // network-first специально для .html/.js/.css). Здесь кэшируется
+  // именно ответ Apps Script (поиск по номеру, история работ), чтобы при
+  // повторном открытии/повторном поиске того же номера в течение TTL
+  // экран обновлялся мгновенно из localStorage, а свежий запрос всё
+  // равно уходит в сеть следом и обновляет и кэш, и экран, когда придёт
+  // ответ (stale-while-revalidate). TTL специально короче серверного
+  // кэша из 8.3 (30 сек. у apiDriverCheckPlate), чтобы клиентский кэш не
+  // "маскировал" уже устаревшие на сервере данные дольше необходимого.
+  var CLIENT_CACHE_PREFIX = 'to_cache_';
+  var CLIENT_CACHE_TTL_MS = 20000;
+
+  function clientCacheGet_(key) {
+    try {
+      var raw = localStorage.getItem(CLIENT_CACHE_PREFIX + key);
+      if (!raw) return null;
+      var entry = JSON.parse(raw);
+      if (!entry || typeof entry.t !== 'number') return null;
+      if (Date.now() - entry.t > CLIENT_CACHE_TTL_MS) return null; // протухло
+      return entry.v;
+    } catch (e) { return null; }
+  }
+
+  function clientCacheSet_(key, value) {
+    try {
+      localStorage.setItem(CLIENT_CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: value }));
+    } catch (e) { /* localStorage переполнен/недоступен — не критично, просто не кэшируем в этот раз */ }
+  }
+
+  // Полная очистка клиентского кэша данных — вызывается при явном
+  // выходе (logout), чтобы на общем/чужом устройстве не оставались
+  // данные предыдущего сотрудника дольше, чем сессия входа (п.8.4,
+  // "не хранить чужие персональные данные дольше необходимого").
+  function clientCacheClearAll_() {
+    var toRemove = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(CLIENT_CACHE_PREFIX) === 0) toRemove.push(k);
+    }
+    toRemove.forEach(function (k) { localStorage.removeItem(k); });
+  }
+
+  // Точечная инвалидация после успешного сохранения новой записи —
+  // чтобы следующий поиск/просмотр истории того же номера не показал ещё
+  // на TTL-секунд устаревшие (без только что добавленной записи) данные
+  // из кэша. Историю чистим всю (а не только по этому номеру) — она
+  // могла быть закэширована и без фильтра по номеру (общий список).
+  function clientCacheInvalidateAfterSave_(plate) {
+    var norm = (plate || '').trim().toUpperCase();
+    var toRemove = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (!k || k.indexOf(CLIENT_CACHE_PREFIX) !== 0) continue;
+      if (k.indexOf(CLIENT_CACHE_PREFIX + 'search_' + norm) === 0 || k.indexOf(CLIENT_CACHE_PREFIX + 'history_') === 0) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach(function (k) { localStorage.removeItem(k); });
+  }
+
   // ЭТАП 7: блокирует кнопку (disabled + временный текст) на время
   // промиса fn(), чтобы двойной клик/тап не отправил запрос дважды.
   function withButtonBusy_(btn, busyText, fn) {
@@ -395,38 +473,73 @@
     return result;
   }
 
+  // ЭТАП 8.2: тихий вход по токену устройства, вызывается один раз при
+  // открытии страницы (если в localStorage сохранены имя+токен). Не
+  // показывает пользователю никаких ошибок при неудаче — это ожидаемый
+  // сценарий (токен ещё не выдавался/отозван/истёк), просто остаётся
+  // обычный экран "логин/пароль".
+  function tryDeviceLogin_(name, token) {
+    apiPost({ action: 'adminDeviceLogin', name: name, token: token })
+      .then(function (res) {
+        if (res.ok && res.valid) {
+          ADMIN_NAME = name;
+          PW = token; // сервер и дальше принимает этот же токен вместо пароля во всех запросах
+          IS_SUPER = !!res.isSuperAdmin;
+          showApp();
+        } else {
+          // токен недействителен/отозван/просрочен — тихо очищаем и
+          // оставляем обычный экран входа для этой попытки.
+          clearDeviceToken_();
+        }
+      })
+      .catch(function () {
+        // сети сейчас нет — не трогаем сохранённый токен, он ещё может
+        // сработать при следующем открытии с сетью; просто остаёмся на
+        // обычном экране входа сейчас.
+      });
+  }
+
+  function clearDeviceToken_() {
+    localStorage.removeItem(DEVICE_NAME_KEY);
+    localStorage.removeItem(DEVICE_TOKEN_KEY);
+  }
+
   function toggleRegister() {
     var c = document.getElementById('registerCard');
     c.style.display = (c.style.display === 'none' || !c.style.display) ? 'block' : 'none';
   }
 
-  // silent=true — при автовходе из сохранённой в этой вкладке сессии
-  // (см. вызов выше); тогда не показываем ошибки заново, а просто
-  // сбрасываем сессию, если она вдруг стала невалидной.
-  function tryLogin(silent, btn) {
-    var name = silent ? ADMIN_NAME : document.getElementById('loginName').value.trim();
-    var pw = silent ? PW : document.getElementById('loginPw').value;
+  function tryLogin(btn) {
+    var name = document.getElementById('loginName').value.trim();
+    var pw = document.getElementById('loginPw').value;
     if (!name || !pw) return;
-    if (!silent) document.getElementById('gateError').innerText = '';
+    document.getElementById('gateError').innerText = '';
 
-    withButtonBusy_(silent ? null : btn, 'Вхожу...', function () {
+    withButtonBusy_(btn, 'Вхожу...', function () {
       return apiPost({ action: 'adminLogin', name: name, password: pw })
         .then(function (res) {
           if (res.ok) {
             ADMIN_NAME = name;
-            PW = pw;
             IS_SUPER = !!res.isSuperAdmin;
-            sessionStorage.setItem('to_name', name);
-            sessionStorage.setItem('to_pw', pw);
+            // ЭТАП 8.2: сервер выдал токен "запомнить устройство" —
+            // сохраняем ЕГО в localStorage (не пароль) и с этого момента
+            // используем именно его для всех остальных запросов в этой
+            // и будущих сессиях; введённый пароль дальше нигде не
+            // хранится и не переиспользуется.
+            if (res.deviceToken) {
+              PW = res.deviceToken;
+              localStorage.setItem(DEVICE_NAME_KEY, name);
+              localStorage.setItem(DEVICE_TOKEN_KEY, res.deviceToken);
+            } else {
+              PW = pw; // на случай, если сервер почему-то не выдал токен — не блокируем вход
+            }
             showApp();
-          } else if (!silent) {
-            document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
           } else {
-            logout(); // сохранённая сессия больше не валидна
+            document.getElementById('gateError').innerText = res.error || 'Неверный логин или пароль';
           }
         })
         .catch(function () {
-          if (!silent) document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
+          document.getElementById('gateError').innerText = 'Ошибка сети. Проверьте SCRIPT_URL.';
         });
     });
   }
@@ -524,8 +637,22 @@
   }
 
   function logout() {
-    sessionStorage.removeItem('to_name');
-    sessionStorage.removeItem('to_pw');
+    // ЭТАП 8.2: явный выход должен отозвать токен устройства и на
+    // сервере (best-effort — если сети сейчас нет, просто очищаем
+    // локально; сотрудник и так больше не увидит приложение на этом
+    // устройстве без повторного пароля, а просроченный/осиротевший
+    // токен на сервере тоже рано или поздно перестанет действовать по
+    // сроку — см. STAFF_DEVICE_TOKEN_TTL_DAYS), а не только очистить
+    // локальное хранилище — иначе устройство продолжило бы тихо
+    // заходить снова после перезагрузки страницы.
+    if (ADMIN_NAME && PW) {
+      apiPost({ action: 'adminDeviceLogout', name: ADMIN_NAME, token: PW }).catch(function () {});
+    }
+    clearDeviceToken_();
+    // ЭТАП 8.4: выход очищает и клиентский кэш данных, а не только токен
+    // входа — на общем устройстве следующий сотрудник не должен видеть
+    // недавно закэшированные результаты поиска/историю чужих работ.
+    clientCacheClearAll_();
     location.reload();
   }
 
@@ -543,12 +670,25 @@
   var lastHistoryRows = [];
   var historyShowAll_ = false; // true — после клика "Показать всё"
 
+  // Вынесено из .then() ниже, чтобы одинаково применять и закэшированный
+  // (мгновенно), и свежий с сервера (следом, в фоне) результат — см.
+  // ЭТАП 8.4, stale-while-revalidate.
+  function applyHistoryResult_(res, dateFrom, dateTo, showAllUsed) {
+    lastHistoryRows = res.rows;
+    var scopeNote = res.isSuperAdmin
+      ? 'Вы супер-админ: показаны работы всех сотрудников'
+      : 'Показаны только ваши работы';
+    if (!dateFrom && !dateTo) {
+      scopeNote += showAllUsed ? ' за всё время' : ' за сегодня';
+    }
+    document.getElementById('historyScopeNote').innerText = scopeNote;
+    renderHistoryTable_(res.rows, res.total, res.isSuperAdmin);
+  }
+
   function loadWorkHistory(showAll) {
     if (showAll !== undefined) historyShowAll_ = showAll;
     var statusEl = document.getElementById('historyStatus');
     var wrap = document.getElementById('historyTableWrap');
-    statusEl.innerText = 'Загружаю...';
-    wrap.innerHTML = '';
 
     var dateFrom = document.getElementById('histFrom').value;
     var dateTo = document.getElementById('histTo').value;
@@ -561,21 +701,29 @@
       showAll: historyShowAll_ && !dateFrom && !dateTo
     };
 
+    // ЭТАП 8.4: ключ кэша учитывает все фильтры разом (номер+даты+showAll
+    // и то, под кем именно вошли — обычный сотрудник и супер-админ видят
+    // разный состав строк по одному и тому же фильтру, поэтому ADMIN_NAME
+    // и IS_SUPER тоже часть ключа, чтобы кэш одного не "утёк" в подсказку
+    // другому на общем устройстве в пределах одного TTL).
+    var cacheKey = 'history_' + ADMIN_NAME + '_' + IS_SUPER + '_' + JSON.stringify(filters);
+    var cached = clientCacheGet_(cacheKey);
+    if (cached) {
+      statusEl.innerText = '';
+      applyHistoryResult_(cached, dateFrom, dateTo, filters.showAll);
+    } else {
+      statusEl.innerText = 'Загружаю...';
+      wrap.innerHTML = '';
+    }
+
     apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
       .then(function (res) {
-        if (!res.ok) { statusEl.innerText = 'Ошибка: ' + res.error; return; }
+        if (!res.ok) { if (!cached) statusEl.innerText = 'Ошибка: ' + res.error; return; }
         statusEl.innerText = '';
-        lastHistoryRows = res.rows;
-        var scopeNote = res.isSuperAdmin
-          ? 'Вы супер-админ: показаны работы всех сотрудников'
-          : 'Показаны только ваши работы';
-        if (!dateFrom && !dateTo) {
-          scopeNote += filters.showAll ? ' за всё время' : ' за сегодня';
-        }
-        document.getElementById('historyScopeNote').innerText = scopeNote;
-        renderHistoryTable_(res.rows, res.total, res.isSuperAdmin);
+        clientCacheSet_(cacheKey, res);
+        applyHistoryResult_(res, dateFrom, dateTo, filters.showAll);
       })
-      .catch(function () { statusEl.innerText = 'Ошибка сети'; });
+      .catch(function () { if (!cached) statusEl.innerText = 'Ошибка сети'; });
   }
 
   function showAllHistory() {
@@ -667,12 +815,39 @@
   var lastRows = [];
   var isKnownVehicle = true; // по умолчанию считаем машину известной, пока не проверили
 
+  // Вынесено из .then() ниже, чтобы одинаково применять и закэшированный
+  // (мгновенно), и свежий с сервера результат — ЭТАП 8.4.
+  function applySearchResults_(searchRes, vehRes, keepFormOpen) {
+    isKnownVehicle = vehRes.ok ? !!vehRes.exists : true; // при ошибке не мешаем работе — считаем известной
+    var newFields = document.getElementById('newVehicleFields');
+    newFields.style.display = isKnownVehicle ? 'none' : 'block';
+    document.getElementById('f_owner').value = (vehRes.ok && vehRes.owner) || '';
+    document.getElementById('f_phone').value = (vehRes.ok && vehRes.phone) || '';
+    document.getElementById('f_vin').value = (vehRes.ok && vehRes.vin) || '';
+    document.getElementById('f_model').value = (vehRes.ok && vehRes.model) || '';
+    renderOpenActInfo(vehRes.ok ? vehRes.openAct : null);
+    renderResults(searchRes.rows, keepFormOpen);
+  }
+
   function doSearch(keepFormOpen) {
     var plate = document.getElementById('plateInput').value.trim();
     if (!plate) return;
     currentPlate = plate;
-    document.getElementById('searchStatus').innerText = 'Ищу...';
     document.getElementById('resultsCard').style.display = 'none';
+
+    // ЭТАП 8.4: тот же номер могли искать секунды назад (типичный сценарий
+    // из промта: искали → ушли добавлять запись → вернулись и снова ищут
+    // тот же номер) — если в кэше есть свежий (в пределах TTL) результат,
+    // показываем его немедленно, не дожидаясь сети, и всё равно уходим в
+    // сеть за актуальными данными следом (stale-while-revalidate).
+    var cacheKey = 'search_' + plate.trim().toUpperCase() + '_' + ADMIN_NAME;
+    var cached = clientCacheGet_(cacheKey);
+    if (cached) {
+      document.getElementById('searchStatus').innerText = '';
+      applySearchResults_(cached.searchRes, cached.vehRes, keepFormOpen);
+    } else {
+      document.getElementById('searchStatus').innerText = 'Ищу...';
+    }
 
     // ЭТАП 6: раньше пароль уходил в query-строке через apiGet(...&pw=...),
     // теперь — только в теле POST, чтобы он не оседал в истории браузера.
@@ -682,20 +857,16 @@
     ]).then(function (results) {
       var searchRes = results[0];
       var vehRes = results[1];
-      if (!searchRes.ok) { handleAuthError({ message: searchRes.error }); return; }
+      if (!searchRes.ok) { if (!cached) handleAuthError({ message: searchRes.error }); return; }
 
-      isKnownVehicle = vehRes.ok ? !!vehRes.exists : true; // при ошибке не мешаем работе — считаем известной
-      var newFields = document.getElementById('newVehicleFields');
-      newFields.style.display = isKnownVehicle ? 'none' : 'block';
-      document.getElementById('f_owner').value = (vehRes.ok && vehRes.owner) || '';
-      document.getElementById('f_phone').value = (vehRes.ok && vehRes.phone) || '';
-      document.getElementById('f_vin').value = (vehRes.ok && vehRes.vin) || '';
-      document.getElementById('f_model').value = (vehRes.ok && vehRes.model) || '';
-      renderOpenActInfo(vehRes.ok ? vehRes.openAct : null);
-
-      renderResults(searchRes.rows, keepFormOpen);
+      clientCacheSet_(cacheKey, { searchRes: searchRes, vehRes: vehRes });
+      applySearchResults_(searchRes, vehRes, keepFormOpen);
     }).catch(function () {
-      handleAuthError({ message: 'Ошибка сети' });
+      // Если уже показали закэшированный результат — не перекрываем его
+      // сообщением о сетевой ошибке, пользователь и так видит недавние
+      // (пусть и не самые свежие) данные; ошибку показываем только когда
+      // кэша не было и показать вообще нечего.
+      if (!cached) handleAuthError({ message: 'Ошибка сети' });
     });
   }
 
@@ -703,8 +874,14 @@
     document.getElementById('searchStatus').innerText = 'Ошибка: ' + err.message;
     var msg = ('' + err.message);
     if (msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1) {
-      sessionStorage.removeItem('to_name');
-      sessionStorage.removeItem('to_pw');
+      // ЭТАП 8.2: раньше здесь чистился sessionStorage (то_name/to_pw) —
+      // теперь учётные данные для повторного тихого входа хранятся в
+      // localStorage как токен устройства (см. DEVICE_NAME_KEY/
+      // DEVICE_TOKEN_KEY выше); если сервер отверг текущие данные для
+      // входа (в т.ч. просроченный/отозванный токен), их тоже нужно
+      // сбросить, иначе устройство продолжило бы тихо пытаться войти
+      // теми же недействительными данными при следующем открытии.
+      clearDeviceToken_();
       setTimeout(function () { location.reload(); }, 1200);
     }
   }
@@ -1052,6 +1229,11 @@
       return apiPost({ action: 'addRecord', name: ADMIN_NAME, pw: PW, data: data })
         .then(function (res) {
           if (res.ok) {
+            // ЭТАП 8.4: сразу после сохранения инвалидируем клиентский
+            // кэш поиска этого номера и истории работ — иначе следующий
+            // поиск/просмотр истории мог бы до TTL-секунд показывать
+            // список ещё без только что добавленной записи.
+            clientCacheInvalidateAfterSave_(currentPlate);
             // ЭТАП 4: если запись привязалась к открытому акту "Получения"
             // и остаток ушёл в минус — сервер прислал предупреждение
             // (debtWarning) одной строкой, показываем его вместо обычного

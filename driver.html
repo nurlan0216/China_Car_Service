@@ -289,6 +289,12 @@
     // не подтвердил, показываем обычный экран (пароль/регистрация).
     document.getElementById('plateInput').value = currentPlate;
     if (deviceToken) {
+      // ЭТАП 8.4: если недавно (в пределах TTL) кабинет этой машины уже
+      // открывался на этом устройстве — отрисовываем его немедленно из
+      // кэша, не дожидаясь ответа сети, а тихий вход по токену всё равно
+      // уходит следом и обновит экран свежими данными, когда придёт ответ.
+      var cachedCabinet = clientCacheGet_('cabinet_' + currentPlate);
+      if (cachedCabinet) showCabinet(cachedCabinet, true);
       tryDeviceLogin(currentPlate, deviceToken);
     } else {
       checkVehicle(currentPlate, true);
@@ -311,9 +317,10 @@
         }
       })
       .catch(function () {
-        // Сетевая ошибка — не удаляем токен (может быть временный сбой),
-        // просто идём обычным путём через ввод пароля.
-        checkVehicle(plate, true);
+        // Сетевая ошибка — не удаляем токен (может быть временный сбой);
+        // если уже показали закэшированный кабинет — на этом и остаёмся,
+        // иначе идём обычным путём через ввод пароля.
+        if (!clientCacheGet_('cabinet_' + plate)) checkVehicle(plate, true);
       });
   }
 
@@ -326,6 +333,7 @@
     }
     localStorage.removeItem('driver_device_token');
     localStorage.removeItem('driver_plate');
+    clientCacheClearAll_(); // ЭТАП 8.4: не оставлять кабинет прошлой машины в кэше
     location.reload();
   }
 
@@ -350,6 +358,44 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); });
+  }
+
+  // ЭТАП 8.4: тот же короткий клиентский кэш данных, что и в to.html —
+  // здесь кэшируется полный payload кабинета водителя
+  // (buildDriverCabinetPayload_ на сервере) по гос. номеру, чтобы при
+  // повторном открытии PWA/возврате на вкладку кабинет отрисовывался
+  // мгновенно из localStorage, а свежий запрос по токену устройства
+  // всё равно уходит в сеть следом и обновляет экран (см. ниже, где
+  // используется вместе с tryDeviceLogin) — stale-while-revalidate.
+  var CLIENT_CACHE_PREFIX = 'driver_cache_';
+  var CLIENT_CACHE_TTL_MS = 20000;
+
+  function clientCacheGet_(key) {
+    try {
+      var raw = localStorage.getItem(CLIENT_CACHE_PREFIX + key);
+      if (!raw) return null;
+      var entry = JSON.parse(raw);
+      if (!entry || typeof entry.t !== 'number') return null;
+      if (Date.now() - entry.t > CLIENT_CACHE_TTL_MS) return null; // протухло
+      return entry.v;
+    } catch (e) { return null; }
+  }
+
+  function clientCacheSet_(key, value) {
+    try {
+      localStorage.setItem(CLIENT_CACHE_PREFIX + key, JSON.stringify({ t: Date.now(), v: value }));
+    } catch (e) { /* не критично — просто не кэшируем в этот раз */ }
+  }
+
+  // Очистка при выходе/смене устройства — не оставлять данные предыдущего
+  // водителя в localStorage дольше сессии (п.8.4).
+  function clientCacheClearAll_() {
+    var toRemove = [];
+    for (var i = 0; i < localStorage.length; i++) {
+      var k = localStorage.key(i);
+      if (k && k.indexOf(CLIENT_CACHE_PREFIX) === 0) toRemove.push(k);
+    }
+    toRemove.forEach(function (k) { localStorage.removeItem(k); });
   }
 
   // ЭТАП 7: блокирует кнопку (disabled + временный текст) на время
@@ -418,6 +464,7 @@
   function logout() {
     localStorage.removeItem('driver_plate');
     localStorage.removeItem('driver_device_token');
+    clientCacheClearAll_(); // ЭТАП 8.4: не оставлять кабинет прошлой машины в кэше
     location.reload();
   }
 
@@ -586,7 +633,7 @@
 
   // ---- КАБИНЕТ ----
 
-  function showCabinet(data) {
+  function showCabinet(data, fromCache) {
     hideAllScreens();
     document.getElementById('cabinet').style.display = 'block';
 
@@ -597,6 +644,12 @@
     if (data.deviceToken) {
       localStorage.setItem('driver_device_token', data.deviceToken);
     }
+
+    // ЭТАП 8.4: кэшируем последний показанный кабинет по номеру машины —
+    // кроме случая, когда мы сами только что отрисовали его ИЗ кэша (тут
+    // незачем перезаписывать запись той же датой и продлевать TTL мимо
+    // реального обновления с сервера).
+    if (!fromCache) clientCacheSet_('cabinet_' + currentPlate, data);
 
     document.getElementById('cabPlateSub').innerText = 'Гос. номер: ' + currentPlate;
     document.getElementById('vehModel').innerText = data.model || 'Модель не указана';
