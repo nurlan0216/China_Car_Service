@@ -192,6 +192,108 @@
         <label>Номер договора подряда (если есть)</label>
         <input type="text" id="f_contract" placeholder="напр. №1526/CCC/BYD от 01.09.2026">
       </div>
+
+      <!-- ЭТАП 5 (обновление, Часть 1 нового ТЗ): "Мастер" — тот же
+           человек, что выполнил работу. Для обычного сотрудника поле
+           нередактируемое и заполняется его же именем автоматически
+           (никакого отдельного ввода имени сотрудника не показываем —
+           см. Этап 4). Супер-админ вводит имя мастера в обычное
+           текстовое поле — можно сразу печатать любое имя; список уже
+           существующих мастеров (тот же источник — лист "Админ")
+           подставлен как подсказки через <datalist> и ничего не
+           блокирует, просто помогает не печатать вручную, если мастер
+           уже есть в списке. -->
+      <h2>Мастер</h2>
+      <div class="card">
+        <div id="masterAutoWrap">
+          <label>Мастер</label>
+          <input type="text" id="f_master_auto" disabled>
+        </div>
+        <div id="masterAdminWrap" style="display:none">
+          <label>Мастер</label>
+          <input type="text" id="f_master_input" list="masterOptions" placeholder="Введите имя мастера">
+          <datalist id="masterOptions"></datalist>
+        </div>
+      </div>
+
+      <!-- ЭТАП 6-7: сумма и способ(ы) оплаты. Способов может быть выбрано
+           несколько одновременно (Kaspi, наличка, ИП) — автоматическое
+           распределение остатка между несколькими выбранными способами
+           реализуется отдельным этапом. -->
+      <h2 id="amountPayHeading">Сумма и оплата</h2>
+      <div class="card" id="amountPayCard">
+        <div id="amountFieldWrap">
+          <label>Сумма <span style="color:var(--danger)">*</span></label>
+          <input type="number" id="f_amount" inputmode="numeric" placeholder="напр. 50000" min="0" step="1">
+        </div>
+
+        <label style="margin-top:2px">Способ оплаты <span style="color:var(--danger)">*</span></label>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:6px">
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="pay_kaspi" style="width:auto;margin:0"> 💳 Kaspi перевод
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="pay_cash" style="width:auto;margin:0"> 💵 Наличка
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="pay_ip" style="width:auto;margin:0"> 🏢 ИП
+          </label>
+        </div>
+
+        <!-- ЭТАП 2.2 (промт «Мастер / Комбинированная оплата»): при 2-3
+             отмеченных способах — поля суммы только для отмеченных, с
+             автораспределением остатка (пользователь никогда не считает
+             сумму последнего поля сам). При ровно 1 способе эти поля
+             скрыты — вся сумма акта автоматически считается оплаченной
+             этим единственным способом, отдельно вводить не нужно. -->
+        <div id="paySplitWrap" style="display:none;flex-direction:column;gap:10px;margin-bottom:6px">
+          <div id="paySplitKaspiWrap" style="display:none">
+            <label style="margin:0 0 4px">💳 Kaspi перевод, ₸</label>
+            <input type="number" id="f_amount_kaspi" min="0" step="1" placeholder="0">
+          </div>
+          <div id="paySplitCashWrap" style="display:none">
+            <label style="margin:0 0 4px">💵 Наличка, ₸</label>
+            <input type="number" id="f_amount_cash" min="0" step="1" placeholder="0">
+          </div>
+          <div id="paySplitIpWrap" style="display:none">
+            <label style="margin:0 0 4px">🏢 ИП, ₸</label>
+            <input type="number" id="f_amount_ip" min="0" step="1" placeholder="0">
+          </div>
+          <div id="paySplitHint" style="font-size:12px;color:var(--muted)"></div>
+        </div>
+      </div>
+
+      <!-- ЭТАП 3 (промт «Мастер / Комбинированная оплата / Задаток»):
+           тип оплаты — полный расчёт или задаток. При «Выдаче» ТС, если
+           найден незакрытый акт «Получения» по этому гос. номеру, вместо
+           ручного ввода показывается блок #paymentTypeLinked с уже
+           внесённой суммой/остатком (см. fetchLinkedIntake_). -->
+      <h2>Тип оплаты</h2>
+      <div class="card" id="paymentTypeWrap">
+        <div id="paymentTypeManual">
+          <label style="display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:14px;color:var(--text);font-weight:400">
+            <input type="radio" name="paymentType" id="pt_full" style="width:auto;margin:0"> Полный расчёт
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="radio" name="paymentType" id="pt_deposit" style="width:auto;margin:0"> Задаток
+          </label>
+          <div id="depositWrap" style="display:none;margin-top:12px">
+            <label>Сумма задатка, ₸</label>
+            <input type="number" id="f_deposit" min="0" step="1" placeholder="0">
+          </div>
+        </div>
+        <div id="paymentTypeLinked" style="display:none">
+          <div class="summary-row"><span>Найден акт получения</span><span id="linkedActIdLabel">—</span></div>
+          <div id="linkedFullBlock" style="display:none">
+            <div class="summary-row"><span>Оплачено при получении</span><span id="linkedFullAmount">—</span></div>
+          </div>
+          <div id="linkedDepositBlock" style="display:none">
+            <div class="summary-row"><span>Внесено ранее</span><span id="linkedDepositAmount">—</span></div>
+            <div class="summary-row"><span>Остаток к оплате</span><span id="linkedBalanceAmount">—</span></div>
+          </div>
+          <p class="hint" id="linkedNote" style="margin-bottom:0"></p>
+        </div>
+      </div>
     </section>
 
     <!-- STEP 2: photos -->
@@ -245,6 +347,18 @@
       <div id="sendingView">
         <h2>Формирование и отправка акта…</h2>
         <div class="card">
+          <!-- ЭТАП 2: отдельный прогресс-бар формирования АКТА (не путать с
+               прогресс-баром навигации по шагам сверху экрана и с прогрессом
+               загрузки отдельных фото). Показывает этапный процент, а не
+               имитацию бесконечной загрузки: 20% — подготовка фотографий
+               (сжатие уже загруженных снимков перед вставкой в PDF), 50% —
+               формирование самого PDF-документа, 80% — загрузка готового
+               файла на сервер (Google Drive + запись в Таблицу), 100% —
+               акт полностью готов. -->
+          <div class="progress" style="margin-bottom:12px">
+            <div id="actProgressBar" style="width:0%"></div>
+          </div>
+          <div class="small" id="actProgressLabel" style="margin-bottom:12px;color:var(--muted)">Подготовка фотографий…</div>
           <div class="status-line" id="st_pdf"><div class="dot"></div><div>Формирование PDF</div></div>
           <div class="status-line" id="st_tg"><div class="dot"></div><div>Отправка в Telegram</div></div>
           <div class="status-line" id="st_sheet"><div class="dot"></div><div>Запись в Google Таблицу</div></div>
@@ -318,6 +432,19 @@ const state = {
   actType:null,
   client:{fio:'',iin:'',vu:'',phone:''},
   vehicle:{plate:'',vin:'',mileage:'',contract:'',fuel:'',kit:''},
+  master:'', // ЭТАП 5
+  amount:null, // ЭТАП 6
+  paymentMethods:[], // ЭТАП 7 — например ['Kaspi перевод','Наличка']
+  amountByMethod:{kaspi:0,cash:0,ip:0}, // ЭТАП 2.2 — разбивка суммы, только при 2-3 способах
+  // ЭТАП 3 (промт «Мастер / Комбинированная оплата / Задаток»): тип
+  // оплаты акта «Получения» (полный расчёт / задаток) и связь «Выдачи»
+  // с закрываемым ею актом «Получения».
+  paymentType:null, // 'full' | 'deposit' | null (пока не выбрано)
+  deposit:0,        // сумма задатка (0, если полный расчёт)
+  paid:0,           // сколько денег фактически собирается по ЭТОМУ акту сейчас
+  balance:0,        // остаток после этого акта (0, если оплачено полностью)
+  linkedActId:'',   // ID акта «Получения», который закрывает эта «Выдача» (если найден)
+  linkedIntake:null,// {actId,cost,paymentType,deposit,paid,balance} — данные найденного акта «Получения», или null
   vinPhoto:null,
   photos:{},
   defects:[],
@@ -338,6 +465,31 @@ function pad2(n){return n<10?'0'+n:''+n;}
 function fmtDT(d){
   return `${pad2(d.getDate())}.${pad2(d.getMonth()+1)}.${d.getFullYear()} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 }
+/* ЭТАП 2.2: человекочитаемая разбивка суммы по способам оплаты — только
+   когда способов больше одного (при одном способе вся сумма и так
+   равна ему, отдельно показывать нечего). */
+function formatPaySplit_(){
+  if(state.paymentMethods.length<2) return '';
+  const parts = [];
+  if(document.getElementById('pay_kaspi').checked && state.amountByMethod.kaspi) parts.push('Kaspi '+state.amountByMethod.kaspi.toLocaleString('ru-RU')+' ₸');
+  if(document.getElementById('pay_cash').checked && state.amountByMethod.cash) parts.push('Наличка '+state.amountByMethod.cash.toLocaleString('ru-RU')+' ₸');
+  if(document.getElementById('pay_ip').checked && state.amountByMethod.ip) parts.push('ИП '+state.amountByMethod.ip.toLocaleString('ru-RU')+' ₸');
+  return parts.join(' + ');
+}
+
+/* ЭТАП 2.2: та же разбивка, но построчно (по одному способу на строку) —
+   именно так просит промт для раздела "5. ОПЛАТА" в PDF, в отличие от
+   однострочного варианта выше, который используется в "Проверке данных"
+   и на финальном экране. */
+function formatPaySplitLines_(){
+  if(state.paymentMethods.length<2) return [];
+  const lines = [];
+  if(document.getElementById('pay_kaspi').checked && state.amountByMethod.kaspi) lines.push('Kaspi перевод: '+state.amountByMethod.kaspi.toLocaleString('ru-RU')+' ₸');
+  if(document.getElementById('pay_cash').checked && state.amountByMethod.cash) lines.push('Наличка: '+state.amountByMethod.cash.toLocaleString('ru-RU')+' ₸');
+  if(document.getElementById('pay_ip').checked && state.amountByMethod.ip) lines.push('ИП: '+state.amountByMethod.ip.toLocaleString('ru-RU')+' ₸');
+  return lines;
+}
+
 function toast(msg, ms=2600){
   const t=document.getElementById('toast');
   t.textContent=msg; t.style.display='block';
@@ -473,6 +625,10 @@ function renderStep(){
   back.style.display = state.step===0 ? 'none' : 'inline-flex';
   next.textContent = state.step===5 ? 'Подписать и отправить' : 'Далее';
 
+  if(state.step===1){
+    updatePaymentUIForActType_();
+    if(state.actType==='issue') checkLinkedIntake_();
+  }
   if(state.step===2) buildPhotoGrid();
   if(state.step===3) buildDefectList();
   if(state.step===4) buildReview();
@@ -492,6 +648,20 @@ function normalizePhone(raw){
   return digits ? '+' + digits : '';
 }
 
+/**
+ * ЭТАП 1 (обновлено) — проверка VIN.
+ * Требования из ТЗ: ровно 17 символов, буквы I, O, Q запрещены (в
+ * реальных VIN они не используются во избежание путаницы с 1/0). VIN
+ * по-прежнему необязателен — эта функция вызывается только если
+ * сотрудник вообще что-то ввёл в поле.
+ */
+function isValidVin_(vin){
+  const v = (vin || '').trim().toUpperCase();
+  if(v.length !== 17) return false;
+  if(/[IOQ]/.test(v)) return false;
+  return true;
+}
+
 function validateStep(step){
   if(step===0){
     if(!state.actType){ toast('Выберите тип акта'); return false; }
@@ -506,15 +676,171 @@ function validateStep(step){
     if(iin.length!==12){ toast('ИИН должен содержать 12 цифр'); return false; }
     if(!plate){ toast('Укажите гос. номер'); return false; }
     if(!phoneRaw){ toast('Укажите WhatsApp телефон Заказчика'); return false; }
-    // VIN необязателен: если водитель не смог его найти/сфотографировать,
-    // акт всё равно можно оформить — раньше это блокировало сохранение.
-    if(vin && vin.length<11){ toast('VIN указан не полностью — проверьте или очистите поле'); return false; }
+    // ЭТАП 1 (обновлено): VIN по-прежнему необязателен — акт можно
+    // оформить и без него. Но если сотрудник его ввёл, номер должен быть
+    // валидным: ровно 17 символов, без букв I/O/Q (они в VIN не
+    // используются, обычно это признак опечатки, спутанной с 1/0).
+    if(vin && !isValidVin_(vin)){ toast('❌ Некорректный VIN.'); return false; }
     state.client.fio=fio; state.client.iin=iin;
     state.client.vu=document.getElementById('f_vu').value.trim();
     state.client.phone=normalizePhone(phoneRaw);
     state.vehicle.plate=plate; state.vehicle.vin=vin.toUpperCase();
     state.vehicle.mileage=document.getElementById('f_mileage').value.trim();
     state.vehicle.contract=document.getElementById('f_contract').value.trim();
+
+    // ЭТАП 5 (обновление): обычный сотрудник — мастер = он сам, поле
+    // нередактируемое. Супер-админ печатает имя мастера в свободном
+    // текстовом поле (с подсказками из datalist, см. setupMasterField).
+    let master = GATE_NAME;
+    if(GATE_IS_SUPER){
+      master = document.getElementById('f_master_input').value.trim();
+      if(!master){ toast('Укажите мастера'); return false; }
+    }
+    state.master = master;
+
+    // ЭТАП 3: «Выдача», закрывающая найденный незакрытый акт «Получения»
+    // — сумма и (при задатке) остаток подтягиваются с сервера, повторно
+    // вводить их не нужно (см. checkLinkedIntake_/updatePaymentUIForActType_).
+    // Иначе (Получение, либо Выдача без найденного акта) — обычный ручной
+    // ввод суммы, способа(ов) оплаты и типа оплаты, как и раньше.
+    const isLinkedIssue = state.actType==='issue' && !!state.linkedIntake;
+
+    if(isLinkedIssue){
+      const li = state.linkedIntake;
+      state.linkedActId = li.actId;
+      state.amount = li.cost;
+
+      if(li.paymentType === 'full'){
+        // Акт «Получения» был оплачен полностью — на «Выдаче» ничего
+        // нового вводить и собирать не нужно, шаг чисто информационный.
+        state.paymentType = 'full';
+        state.deposit = 0;
+        state.paid = 0;
+        state.balance = 0;
+        state.paymentMethods = [];
+        state.amountByMethod = {kaspi:0,cash:0,ip:0};
+      } else if(li.balance <= 0){
+        // ЭТАП 5 (исправление): остаток уже списан работами ТО (0) или
+        // ушёл в долг (<0, см. Этап 4 — решение "разрешить"). Поля
+        // способа оплаты принимают только неотрицательные суммы, а
+        // отрицательный/нулевой остаток невозможно корректно в них
+        // ввести — раньше это делало «Выдачу» такой машины несохраняемой.
+        // Новых денег сейчас не собираем, шаг чисто информационный (как
+        // и при paymentType==='full').
+        state.paymentType = 'deposit';
+        state.deposit = li.deposit;
+        state.balance = li.balance;
+        state.paymentMethods = [];
+        state.amountByMethod = {kaspi:0,cash:0,ip:0};
+        state.paid = 0;
+      } else {
+        // Был задаток — сейчас собираем доплату остатка. Способ(ы)
+        // оплаты обязательны и распределяют именно остаток (li.balance),
+        // а не исходную стоимость акта «Получения».
+        state.paymentType = 'deposit';
+        state.deposit = li.deposit;
+        state.balance = li.balance;
+
+        const methods = [];
+        if(document.getElementById('pay_kaspi').checked) methods.push('Kaspi перевод');
+        if(document.getElementById('pay_cash').checked) methods.push('Наличка');
+        if(document.getElementById('pay_ip').checked) methods.push('ИП');
+        if(!methods.length){ toast('Выберите способ оплаты остатка'); return false; }
+        state.paymentMethods = methods;
+
+        const target = li.balance;
+        if(methods.length===1){
+          state.amountByMethod = {
+            kaspi: document.getElementById('pay_kaspi').checked ? target : 0,
+            cash: document.getElementById('pay_cash').checked ? target : 0,
+            ip: document.getElementById('pay_ip').checked ? target : 0
+          };
+        } else {
+          const kaspiVal = document.getElementById('pay_kaspi').checked ? (Number(document.getElementById('f_amount_kaspi').value)||0) : 0;
+          const cashVal = document.getElementById('pay_cash').checked ? (Number(document.getElementById('f_amount_cash').value)||0) : 0;
+          const ipVal = document.getElementById('pay_ip').checked ? (Number(document.getElementById('f_amount_ip').value)||0) : 0;
+          const sumVal = kaspiVal + cashVal + ipVal;
+          if(sumVal !== target){
+            toast('Сумма способов оплаты ('+sumVal.toLocaleString('ru-RU')+' ₸) не совпадает с остатком к оплате ('+target.toLocaleString('ru-RU')+' ₸)');
+            return false;
+          }
+          state.amountByMethod = {kaspi:kaspiVal, cash:cashVal, ip:ipVal};
+        }
+        state.paid = target;
+      }
+    } else {
+      state.linkedActId = '';
+
+      // ЭТАП 6: сумма акта — обязательна и должна быть положительным числом.
+      const amountRaw = document.getElementById('f_amount').value.trim();
+      const amountNum = Number(amountRaw);
+      if(!amountRaw || isNaN(amountNum) || amountNum<=0){ toast('Укажите корректную сумму'); return false; }
+      state.amount = amountNum;
+
+      // ЭТАП 3.1: тип оплаты определяем ДО распределения по способам —
+      // способы распределяют именно уплачиваемую сейчас сумму (paid), а
+      // при задатке она меньше полной суммы акта.
+      const ptFull = document.getElementById('pt_full').checked;
+      const ptDeposit = document.getElementById('pt_deposit').checked;
+      if(!ptFull && !ptDeposit){ toast('Выберите тип оплаты: Полный расчёт или Задаток'); return false; }
+      let paidNum = amountNum;
+      if(ptDeposit){
+        const depositRaw = document.getElementById('f_deposit').value.trim();
+        const depositNum = Number(depositRaw);
+        if(!depositRaw || isNaN(depositNum) || depositNum<=0 || depositNum>amountNum){
+          toast('Сумма задатка должна быть больше 0 и не больше общей суммы'); return false;
+        }
+        if(depositNum === amountNum){
+          // ЭТАП 3.1: задаток, равный полной сумме, — это просто полный
+          // расчёт (меняется только ярлык, без доп. подтверждения).
+          state.paymentType = 'full';
+          state.deposit = 0;
+          paidNum = amountNum;
+        } else {
+          state.paymentType = 'deposit';
+          state.deposit = depositNum;
+          paidNum = depositNum;
+        }
+      } else {
+        state.paymentType = 'full';
+        state.deposit = 0;
+        paidNum = amountNum;
+      }
+      state.paid = paidNum;
+      state.balance = amountNum - paidNum;
+
+      // ЭТАП 7: можно выбрать один, два или все три способа оплаты, но
+      // хотя бы один — обязательно.
+      const methods = [];
+      if(document.getElementById('pay_kaspi').checked) methods.push('Kaspi перевод');
+      if(document.getElementById('pay_cash').checked) methods.push('Наличка');
+      if(document.getElementById('pay_ip').checked) methods.push('ИП');
+      if(!methods.length){ toast('Выберите способ оплаты'); return false; }
+      state.paymentMethods = methods;
+
+      // ЭТАП 2.2/3: при одном способе — вся уплачиваемая сейчас сумма
+      // (paidNum) автоматически считается оплаченной этим способом. При
+      // 2-3 способах — сумма полей разбивки обязана совпадать именно с
+      // paidNum (не с полной суммой акта при задатке) — сервер это тоже
+      // проверит.
+      if(methods.length===1){
+        state.amountByMethod = {
+          kaspi: document.getElementById('pay_kaspi').checked ? paidNum : 0,
+          cash: document.getElementById('pay_cash').checked ? paidNum : 0,
+          ip: document.getElementById('pay_ip').checked ? paidNum : 0
+        };
+      } else {
+        const kaspiVal = document.getElementById('pay_kaspi').checked ? (Number(document.getElementById('f_amount_kaspi').value)||0) : 0;
+        const cashVal = document.getElementById('pay_cash').checked ? (Number(document.getElementById('f_amount_cash').value)||0) : 0;
+        const ipVal = document.getElementById('pay_ip').checked ? (Number(document.getElementById('f_amount_ip').value)||0) : 0;
+        const sumVal = kaspiVal + cashVal + ipVal;
+        if(sumVal !== paidNum){
+          toast('Сумма способов оплаты ('+sumVal.toLocaleString('ru-RU')+' ₸) не совпадает с суммой к оплате ('+paidNum.toLocaleString('ru-RU')+' ₸)');
+          return false;
+        }
+        state.amountByMethod = {kaspi:kaspiVal, cash:cashVal, ip:ipVal};
+      }
+    }
   }
   if(step===2){
     const missing = PHOTO_SLOTS.filter(s=>s.req && !state.photos[s.key]);
@@ -527,6 +853,242 @@ function validateStep(step){
     state.signatureDataUrl = sigCanvas.toDataURL('image/png');
   }
   return true;
+}
+
+/* ЭТАП 2.2 (промт «Мастер / Комбинированная оплата»): показ полей
+   разбивки суммы по способам оплаты и автораспределение остатка между
+   ними — 1 способ отмечен → полей нет, вся сумма = этому способу;
+   2-3 способа → поля только для отмеченных, с автопересчётом. */
+const PAY_METHOD_FIELDS_ = [
+  {cb:'pay_kaspi', wrap:'paySplitKaspiWrap', input:'f_amount_kaspi'},
+  {cb:'pay_cash', wrap:'paySplitCashWrap', input:'f_amount_cash'},
+  {cb:'pay_ip', wrap:'paySplitIpWrap', input:'f_amount_ip'}
+];
+let paySplitEditOrder_ = []; // порядок последнего ручного изменения полей разбивки
+
+function recordPaySplitEdit_(inputId){
+  const idx = paySplitEditOrder_.indexOf(inputId);
+  if(idx!==-1) paySplitEditOrder_.splice(idx,1);
+  paySplitEditOrder_.push(inputId);
+}
+
+function checkedPayMethods_(){
+  return PAY_METHOD_FIELDS_.filter(f=>document.getElementById(f.cb).checked);
+}
+
+/**
+ * ЭТАП 3: сумма, которую сейчас распределяют способы оплаты — это НЕ
+ * всегда полная сумма акта. При «Выдаче», закрывающей найденный акт
+ * «Получения» — это остаток к оплате (0, если было оплачено полностью
+ * при получении, и способы оплаты вообще не нужны). При обычном вводе
+ * (Получение либо Выдача без найденного акта) — либо вся сумма (тип
+ * «Полный расчёт»), либо сумма задатка (тип «Задаток») — именно это
+ * распределяют способы оплаты, а не полная стоимость (см. Часть 3
+ * промта: «разбивка распределяет именно paid, а не cost»).
+ */
+function currentPaySplitTarget_(){
+  if(state.actType==='issue' && state.linkedIntake){
+    return state.linkedIntake.paymentType==='full' ? 0 : state.linkedIntake.balance;
+  }
+  const ptDeposit = document.getElementById('pt_deposit').checked;
+  if(ptDeposit){
+    return Number(document.getElementById('f_deposit').value)||0;
+  }
+  return Number(document.getElementById('f_amount').value)||0;
+}
+
+function updatePaySplitVisibility_(){
+  const checked = checkedPayMethods_();
+  const wrap = document.getElementById('paySplitWrap');
+  PAY_METHOD_FIELDS_.forEach(f=>{
+    document.getElementById(f.wrap).style.display = 'none';
+  });
+  if(checked.length>=2){
+    wrap.style.display = 'flex';
+    checked.forEach(f=>{ document.getElementById(f.wrap).style.display = 'block'; });
+  } else {
+    wrap.style.display = 'none';
+  }
+  updatePaySplitHint_();
+}
+
+function updatePaySplitHint_(){
+  const hint = document.getElementById('paySplitHint');
+  const checked = checkedPayMethods_();
+  if(checked.length<2){ hint.textContent=''; return; }
+  const amount = currentPaySplitTarget_();
+  const sum = checked.reduce((s,f)=> s + (Number(document.getElementById(f.input).value)||0), 0);
+  const diff = amount - sum;
+  hint.textContent = diff===0
+    ? '✅ Сумма способов совпадает с суммой к оплате'
+    : (diff>0 ? 'Осталось распределить: '+diff.toLocaleString('ru-RU')+' ₸' : '❌ Превышение на '+(-diff).toLocaleString('ru-RU')+' ₸');
+  hint.style.color = diff===0 ? 'var(--muted)' : (diff>0 ? 'var(--muted)' : '#e5595f');
+}
+
+function autoDistributePaySplit_(editedInputId){
+  const amount = currentPaySplitTarget_();
+  const checked = checkedPayMethods_();
+  if(checked.length<2) return;
+  const others = checked.filter(f=>f.input!==editedInputId);
+  if(!others.length) return; // способ 1 — нечего распределять
+  // если способов 3 и меняют один — пересчитывается ОДНО из двух
+  // оставшихся (то, что реже/раньше редактировалось вручную), а не оба
+  // сразу — чтобы не затирать то, что пользователь только что поправил.
+  others.sort((a,b)=>{
+    const ia = paySplitEditOrder_.indexOf(a.input);
+    const ib = paySplitEditOrder_.indexOf(b.input);
+    if(ia===-1 && ib===-1) return 0;
+    if(ia===-1) return -1;
+    if(ib===-1) return 1;
+    return ia-ib;
+  });
+  const target = others[0];
+  const fixed = others.slice(1);
+  const editedVal = Number(document.getElementById(editedInputId).value)||0;
+  const fixedSum = fixed.reduce((s,f)=> s + (Number(document.getElementById(f.input).value)||0), 0);
+  const newTargetVal = amount - editedVal - fixedSum;
+  document.getElementById(target.input).value = newTargetVal>0 ? newTargetVal : '';
+}
+
+PAY_METHOD_FIELDS_.forEach(f=>{
+  document.getElementById(f.cb).addEventListener('change', updatePaySplitVisibility_);
+  document.getElementById(f.input).addEventListener('input', ()=>{
+    recordPaySplitEdit_(f.input);
+    autoDistributePaySplit_(f.input);
+    updatePaySplitHint_();
+  });
+});
+document.getElementById('f_amount').addEventListener('input', updatePaySplitVisibility_);
+
+/* ЭТАП 3: тип оплаты (Полный расчёт / Задаток) — переключение поля
+   суммы задатка и пересчёт цели разбивки способов оплаты (см.
+   currentPaySplitTarget_ выше — при задатке распределяется именно его
+   сумма, а не полная стоимость). */
+document.getElementById('pt_full').addEventListener('change', ()=>{
+  document.getElementById('depositWrap').style.display='none';
+  updatePaySplitVisibility_();
+});
+document.getElementById('pt_deposit').addEventListener('change', ()=>{
+  document.getElementById('depositWrap').style.display='block';
+  updatePaySplitVisibility_();
+});
+document.getElementById('f_deposit').addEventListener('input', updatePaySplitVisibility_);
+
+/**
+ * ЭТАП 3.2: при типе акта «Выдача» ищем на сервере незакрытый акт
+ * «Получения» по этому гос. номеру (action:'findopenintake' →
+ * apiFindOpenIntakeAct в apps-script/2_Sheets.gs). Если найден — сумма
+ * и тип оплаты подтягиваются автоматически, ручной ввод скрывается
+ * (см. updatePaymentUIForActType_). Если не найден (или тип акта —
+ * «Получение») — обычный ручной ввод, как раньше.
+ */
+async function checkLinkedIntake_(){
+  if(state.actType !== 'issue'){
+    state.linkedIntake = null;
+    updatePaymentUIForActType_();
+    return;
+  }
+  const plate = document.getElementById('f_plate').value.trim();
+  if(!plate){
+    state.linkedIntake = null;
+    updatePaymentUIForActType_();
+    return;
+  }
+  try{
+    const res = await gateApiPost({ action:'findopenintake', plate: plate, name: GATE_NAME, pw: GATE_PW });
+    if(res && res.ok && res.found){
+      state.linkedIntake = {
+        actId: res.actId,
+        cost: Number(res.cost)||0,
+        paymentType: res.paymentType || 'full',
+        deposit: Number(res.deposit)||0,
+        paid: Number(res.paid)||0,
+        balance: Number(res.balance)||0
+      };
+    } else {
+      state.linkedIntake = null;
+    }
+  } catch(e){
+    state.linkedIntake = null;
+  }
+  updatePaymentUIForActType_();
+}
+document.getElementById('f_plate').addEventListener('blur', checkLinkedIntake_);
+
+/**
+ * ЭТАП 3: показывает нужный вид блока «Тип оплаты»/«Сумма и оплата» в
+ * зависимости от того, найден ли для «Выдачи» незакрытый акт
+ * «Получения» (state.linkedIntake), и как он был оплачен:
+ * - не найден (или тип акта — «Получение»): обычный ручной ввод суммы,
+ *   способа(ов) оплаты и типа оплаты (полный расчёт/задаток) — как и
+ *   было в Этапах 6-7 и в разделе 3.1 этого промта;
+ * - найден, был полный расчёт: акт «Получения» уже закрыт финансово —
+ *   показываем только информационную строку, ни сумма, ни способ
+ *   оплаты повторно не вводятся;
+ * - найден, был задаток: показываем внесённый ранее задаток и остаток
+ *   к оплате, а поля способа(ов) оплаты остаются — но распределяют
+ *   именно этот остаток, а не исходную стоимость.
+ */
+function updatePaymentUIForActType_(){
+  const linked = (state.actType==='issue') ? state.linkedIntake : null;
+  const amountFieldWrap = document.getElementById('amountFieldWrap');
+  const amountPayHeading = document.getElementById('amountPayHeading');
+  const amountPayCard = document.getElementById('amountPayCard');
+  const paymentTypeManual = document.getElementById('paymentTypeManual');
+  const paymentTypeLinked = document.getElementById('paymentTypeLinked');
+  const linkedFullBlock = document.getElementById('linkedFullBlock');
+  const linkedDepositBlock = document.getElementById('linkedDepositBlock');
+
+  if(linked){
+    paymentTypeManual.style.display='none';
+    paymentTypeLinked.style.display='block';
+    document.getElementById('linkedActIdLabel').textContent = linked.actId;
+    if(linked.paymentType === 'full'){
+      linkedFullBlock.style.display='block';
+      linkedDepositBlock.style.display='none';
+      document.getElementById('linkedFullAmount').textContent = linked.cost.toLocaleString('ru-RU')+' ₸';
+      document.getElementById('linkedNote').textContent = '';
+      amountPayHeading.style.display='none';
+      amountPayCard.style.display='none'; // ни сумма, ни способ оплаты повторно не нужны
+    } else if(linked.balance <= 0){
+      // ЭТАП 5 (исправление, найдено при сквозном тестировании): остаток
+      // по задатку уже полностью списан работами ТО (balance===0) либо
+      // ушёл в долг (balance<0, разрешено Этапом 4 — открытый вопрос №1
+      // "разрешить"). В обоих случаях новых денег при выдаче не собираем —
+      // поля способа оплаты принимают только положительные числа (min=0),
+      // поэтому при отрицательном остатке форму было физически невозможно
+      // отправить. Показываем информационный блок, как при полном расчёте.
+      linkedFullBlock.style.display='none';
+      linkedDepositBlock.style.display='block';
+      document.getElementById('linkedDepositAmount').textContent = linked.deposit.toLocaleString('ru-RU')+' ₸';
+      document.getElementById('linkedBalanceAmount').textContent = linked.balance < 0
+        ? '⚠️ Долг ' + Math.abs(linked.balance).toLocaleString('ru-RU') + ' ₸'
+        : '0 ₸ (закрыт работами ТО)';
+      document.getElementById('linkedNote').textContent = linked.balance < 0
+        ? 'Задаток полностью израсходован на работы ТО, у клиента образовался долг. Новых денег при выдаче не собираем — задолженность фиксируется отдельно.'
+        : 'Задаток полностью покрыл стоимость выполненных работ ТО. Новых денег при выдаче собирать не нужно.';
+      amountFieldWrap.style.display='none';
+      amountPayHeading.style.display='none';
+      amountPayCard.style.display='none'; // отрицательный/нулевой остаток нельзя ввести способами оплаты (min=0)
+    } else {
+      linkedFullBlock.style.display='none';
+      linkedDepositBlock.style.display='block';
+      document.getElementById('linkedDepositAmount').textContent = linked.deposit.toLocaleString('ru-RU')+' ₸';
+      document.getElementById('linkedBalanceAmount').textContent = linked.balance.toLocaleString('ru-RU')+' ₸';
+      document.getElementById('linkedNote').textContent =
+        'Сумма, внесённая на дату подписания, не является окончательной — остаток пересчитывается по факту выполненных работ.';
+      amountFieldWrap.style.display='none'; // сумма фиксирована исходным актом «Получения»
+      amountPayHeading.style.display='block';
+      amountPayCard.style.display='block';  // способ(ы) оплаты остатка всё ещё нужны
+    }
+  } else {
+    paymentTypeManual.style.display='block';
+    paymentTypeLinked.style.display='none';
+    amountFieldWrap.style.display='block';
+    amountPayHeading.style.display='block';
+    amountPayCard.style.display='block';
+  }
+  updatePaySplitVisibility_();
 }
 
 document.getElementById('btnNext').addEventListener('click', async ()=>{
@@ -553,6 +1115,10 @@ document.querySelectorAll('.choice-card').forEach(card=>{
     document.querySelectorAll('.choice-card').forEach(c=>c.classList.remove('selected'));
     card.classList.add('selected');
     state.actType = card.dataset.type;
+    // ЭТАП 3: смена типа акта сбрасывает ранее найденный связанный акт
+    // «Получения» — актуальный статус проверяется заново по гос. номеру
+    // при входе на шаг «Данные Заказчика» (см. renderStep) и по blur поля.
+    state.linkedIntake = null;
   });
 });
 
@@ -661,6 +1227,11 @@ function buildReview(){
   const typeLabel = state.actType==='intake' ? 'Получение ТС на СТО (от водителя)' : 'Выдача ТС Заказчику (от СТО)';
   const rows = [
     ['Тип акта', typeLabel],
+    // ЭТАП 4: сотрудник, оформляющий акт, определяется автоматически по
+    // аккаунту, которым он вошёл (GATE_NAME) — отдельного поля для ввода
+    // имени сотрудника нет и не должно быть.
+    ['Сотрудник', GATE_NAME],
+    ['Мастер', state.master||'—'],
     ['ФИО', state.client.fio],
     ['ИИН', state.client.iin],
     ['ВУ', state.client.vu||'—'],
@@ -670,9 +1241,27 @@ function buildReview(){
     ['Пробег', state.vehicle.mileage?state.vehicle.mileage+' км':'—'],
     ['Договор', state.vehicle.contract||'—'],
     ['Топливо/заряд', state.vehicle.fuel||'—'],
-    ['Фото', Object.keys(state.photos).length+' шт.'],
-    ['Дефектов зафиксировано', state.defects.length],
   ];
+  // ЭТАП 3: акт «Получения» найден и закрывается этой «Выдачей».
+  if(state.linkedActId) rows.push(['Акт получения', state.linkedActId]);
+
+  if(state.actType==='issue' && state.linkedIntake && state.linkedIntake.paymentType==='full'){
+    // Информационный случай — деньги уже собраны при получении, новой
+    // оплаты сейчас нет.
+    rows.push(['Оплата', 'Оплачено при получении: '+state.amount.toLocaleString('ru-RU')+' ₸']);
+  } else {
+    rows.push(['Сумма', state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—']);
+    rows.push(['Способ оплаты', state.paymentMethods.join(' + ')||'—']);
+    if(formatPaySplit_()) rows.push(['Разбивка суммы', formatPaySplit_()]);
+    if(state.paymentType) rows.push(['Тип оплаты', state.paymentType==='full' ? 'Полный расчёт' : 'Задаток']);
+    if(state.paymentType==='deposit'){
+      rows.push(['Задаток внесён', state.deposit.toLocaleString('ru-RU')+' ₸']);
+      rows.push(['Остаток к оплате', state.balance.toLocaleString('ru-RU')+' ₸']);
+    }
+  }
+
+  rows.push(['Фото', Object.keys(state.photos).length+' шт.']);
+  rows.push(['Дефектов зафиксировано', state.defects.length]);
   el.innerHTML = rows.map(r=>`<div class="summary-row"><span>${r[0]}</span><span>${r[1]}</span></div>`).join('');
 }
 
@@ -726,7 +1315,11 @@ async function prepSignatureStep(){
 /* ===================== PDF GENERATION ===================== */
 async function buildPDF(){
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({unit:'mm', format:'a4'});
+  // ЭТАП 2: compress:true включает встроенное сжатие потоков jsPDF
+  // (flate для текста/шрифтов) — само по себе не влияет на уже сжатые
+  // JPEG-фото, но заметно уменьшает вес текстовых страниц акта и
+  // встроенных шрифтов DejaVu, без потери качества.
+  const doc = new jsPDF({unit:'mm', format:'a4', compress:true});
   doc.addFileToVFS('DejaVuSans.ttf', ASSET.fontReg);
   doc.addFont('DejaVuSans.ttf','DejaVu','normal');
   doc.addFileToVFS('DejaVuSans-Bold.ttf', ASSET.fontBold);
@@ -757,7 +1350,7 @@ async function buildPDF(){
   hr();
 
   text('1. СТОРОНЫ', M, 11.5, true);
-  text(`Исполнитель (СТО): ${CFG.stoName}, ${CFG.stoIin}, адрес: ${CFG.stoAddr}.`, M, 10);
+  text(`Исполнитель (СТО): ${CFG.stoName}, ${CFG.stoIin}, адрес: ${CFG.stoAddr}. Акт оформил сотрудник: ${GATE_NAME}. Мастер: ${state.master||GATE_NAME}.`, M, 10);
   text(`Заказчик/Водитель: ${state.client.fio}, ИИН ${state.client.iin}, ВУ № ${state.client.vu||'—'}, WhatsApp: ${state.client.phone||'—'}.`, M, 10);
   if(state.vehicle.contract) text(`Основание: Договор подряда ${state.vehicle.contract}.`, M, 10);
   hr();
@@ -786,7 +1379,34 @@ async function buildPDF(){
   }
   hr();
 
-  text('5. СПОРЫ', M, 11.5, true);
+  text('5. ОПЛАТА', M, 11.5, true);
+  if(state.actType==='issue' && state.linkedIntake && state.linkedIntake.paymentType==='full'){
+    // ЭТАП 3.2: полный расчёт был произведён при получении — на выдаче
+    // раздел чисто информационный, новых сумм/способов оплаты нет.
+    text(`Оплачено при получении: ${state.amount.toLocaleString('ru-RU')} ₸ (см. акт приёма-передачи №${state.linkedActId}).`, M, 10);
+  } else {
+    text(`Сумма: ${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}.   Способ оплаты: ${state.paymentMethods.join(' + ')||'—'}.`, M, 10);
+    const paySplitLines = formatPaySplitLines_();
+    if(paySplitLines.length){
+      text('Разбивка суммы по способам оплаты:', M, 10);
+      paySplitLines.forEach(line => text(`— ${line}`, M, 10));
+    }
+    if(state.paymentType){
+      text(`Тип оплаты: ${state.paymentType==='full' ? 'Полный расчёт' : 'Задаток'}.`, M, 10);
+    }
+    if(state.paymentType==='deposit'){
+      text(`Внесён задаток: ${state.deposit.toLocaleString('ru-RU')} ₸.   Остаток к оплате: ${state.balance.toLocaleString('ru-RU')} ₸.`, M, 10);
+      // ЭТАП 3 (Часть 5 исходного ТЗ): пометка о неокончательности суммы —
+      // одной строкой, рядом с остатком, только когда он есть.
+      text('Указанная сумма, внесённая на дату подписания настоящего Акта, не является окончательной и подлежит пересчёту по факту завершения работ и передачи автомобиля Заказчику.', M, 9, false, [140,90,10]);
+    }
+    if(state.linkedActId){
+      text(`Настоящий Акт закрывает Акт приёма-передачи (получения) №${state.linkedActId}.`, M, 10);
+    }
+  }
+  hr();
+
+  text('6. СПОРЫ', M, 11.5, true);
   text('Споры по настоящему Акту разрешаются в соответствии с условиями Договора подряда и действующим законодательством Республики Казахстан.', M, 9.7);
 
   // ---- PHOTOS PAGE ----
@@ -942,9 +1562,34 @@ async function sendSheet(pdfBlob){
       fio: state.client.fio, iin: state.client.iin, vu: state.client.vu, phone: state.client.phone,
       plate: state.vehicle.plate, vin: state.vehicle.vin, mileage: state.vehicle.mileage,
       contract: state.vehicle.contract, defectsCount: state.defects.length, ip: state.ip,
+      // ЭТАП 5-7: мастер, сумма и способ(ы) оплаты. Сервер сам проверяет
+      // и при необходимости подменяет "master" (см. doPost -> checkAdmin_
+      // в 7_WebApp.gs) — обычный сотрудник не может прислать чужое имя.
+      master: state.master, amount: state.amount, paymentMethods: state.paymentMethods.join(', '),
+      // ЭТАП 2.2: разбивка суммы по способам оплаты — при 1 способе вся
+      // сумма приходится на него, при 2-3 сервер повторно проверит, что
+      // kaspiAmount+cashAmount+ipAmount === amount.
+      kaspiAmount: state.amountByMethod.kaspi || 0,
+      cashAmount: state.amountByMethod.cash || 0,
+      ipAmount: state.amountByMethod.ip || 0,
+      // ЭТАП 3: тип оплаты (полный расчёт/задаток) и связь «Выдачи» с
+      // закрываемым ею актом «Получения» — сервер (doPost в 7_WebApp.gs)
+      // повторно всё это проверяет, здесь только передаём то, что уже
+      // посчитано и подтверждено в validateStep().
+      paymentType: state.paymentType || '',
+      deposit: state.deposit || 0,
+      paid: state.paid || 0,
+      balance: state.balance || 0,
+      linkedActId: state.linkedActId || '',
       geo: pos ? `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}` : '',
       pdfName: state.pdfName,
-      pdfBase64: pdfBlob ? await blobToBase64(pdfBlob) : null
+      pdfBase64: pdfBlob ? await blobToBase64(pdfBlob) : null,
+      // ЭТАП 4: сервер сам определяет и проверяет сотрудника по этому
+      // логину/паролю (тот же аккаунт, которым сотрудник вошёл на экране
+      // входа — см. GATE_NAME/GATE_PW) и подставляет проверенное имя в
+      // колонку "staffName" листа "Акты" — присланное здесь имя нигде не
+      // используется напрямую как источник истины, только для проверки.
+      name: GATE_NAME, pw: GATE_PW
     };
     // ЭТАП 7: один автоматический повтор при сетевой ошибке — отправка
     // акта самая "дорогая" операция (несёт PDF в base64), обидно, если
@@ -982,27 +1627,63 @@ function buildWhatsappLink(){
   setStatus('st_wa','done','Ссылка для WhatsApp готова');
 }
 
+/* ЭТАП 2: этапный индикатор прогресса формирования акта. Реального
+   процента внутри buildPDF()/fetch() у нас нет (jsPDF и fetch не отдают
+   промежуточный прогресс постранично), поэтому вместо фальшивой плавной
+   анимации показываем корректные фиксированные этапы, соответствующие
+   реальным шагам конвейера — это честнее, чем выдуманный "бегущий" процент. */
+function setActProgress(percent, label){
+  const bar = document.getElementById('actProgressBar');
+  const lbl = document.getElementById('actProgressLabel');
+  if(bar) bar.style.width = percent + '%';
+  if(lbl) lbl.textContent = label;
+}
+
 async function runSendPipeline(){
   state.actId = 'ACT-'+Date.now().toString(36).toUpperCase();
   state.createdAt = new Date();
   state.pdfName = `Akt_${state.actType}_${state.vehicle.plate.replace(/\s+/g,'')}_${state.actId}.pdf`;
 
+  setActProgress(20, 'Подготовка фотографий…');
+  // Фотографии уже сжаты на этапе съёмки/выбора (см. compressImage/stampPhoto),
+  // здесь просто явно проговариваем этот шаг для пользователя перед тем,
+  // как они будут вставлены в PDF.
+  await new Promise(r=>setTimeout(r, 150));
+
+  setActProgress(50, 'Формирование документа…');
   setStatus('st_pdf','busy','Формирование PDF…');
   const blob = await buildPDF();
   state.pdfBlob = blob;
-  setStatus('st_pdf','done','PDF сформирован');
+  setStatus('st_pdf','done',`PDF сформирован (${(blob.size/1024/1024).toFixed(2)} МБ)`);
 
+  setActProgress(80, 'Загрузка PDF…');
   await sendSheet(blob);
   setStatus('st_tg','done','Отправлено сервером в Telegram');
   buildWhatsappLink();
 
+  setActProgress(100, 'Готово');
   document.getElementById('sendingView').style.display='none';
   const done = document.getElementById('doneView');
   done.style.display='block';
   document.getElementById('doneSummary').innerHTML = `
     <div class="summary-row"><span>Номер акта</span><span>${state.actId}</span></div>
+    <div class="summary-row"><span>Сотрудник</span><span>${GATE_NAME}</span></div>
+    <div class="summary-row"><span>Мастер</span><span>${state.master||'—'}</span></div>
     <div class="summary-row"><span>Автомобиль</span><span>${state.vehicle.plate}${state.vehicle.vin ? ' · '+state.vehicle.vin : ''}</span></div>
     <div class="summary-row"><span>Заказчик</span><span>${state.client.fio}</span></div>
+    ${state.linkedActId ? `<div class="summary-row"><span>Акт получения</span><span>${state.linkedActId}</span></div>` : ''}
+    ${(state.actType==='issue' && state.linkedIntake && state.linkedIntake.paymentType==='full') ? `
+      <div class="summary-row"><span>Оплата</span><span>Оплачено при получении: ${state.amount.toLocaleString('ru-RU')} ₸</span></div>
+    ` : `
+      <div class="summary-row"><span>Сумма</span><span>${state.amount!=null ? state.amount.toLocaleString('ru-RU')+' ₸' : '—'}</span></div>
+      <div class="summary-row"><span>Оплата</span><span>${state.paymentMethods.join(' + ')||'—'}</span></div>
+      ${formatPaySplit_() ? `<div class="summary-row"><span>Разбивка суммы</span><span>${formatPaySplit_()}</span></div>` : ''}
+      ${state.paymentType ? `<div class="summary-row"><span>Тип оплаты</span><span>${state.paymentType==='full'?'Полный расчёт':'Задаток'}</span></div>` : ''}
+      ${state.paymentType==='deposit' ? `
+        <div class="summary-row"><span>Задаток внесён</span><span>${state.deposit.toLocaleString('ru-RU')} ₸</span></div>
+        <div class="summary-row"><span>Остаток к оплате</span><span>${state.balance.toLocaleString('ru-RU')} ₸</span></div>
+      ` : ''}
+    `}
   `;
 }
 
@@ -1049,6 +1730,10 @@ document.getElementById('btnNewAct').addEventListener('click', ()=>location.relo
  */
 var GATE_NAME = sessionStorage.getItem('to_name') || '';
 var GATE_PW = sessionStorage.getItem('to_pw') || '';
+// ЭТАП 5: определяется заново при каждом входе (см. tryGateLogin) — не
+// сохраняем в sessionStorage, чтобы не разойтись с реальным статусом
+// в листе "Админ", если он изменится между визитами.
+var GATE_IS_SUPER = false;
 
 // ЭТАП 7: один автоматический повтор при сетевой ошибке (см. такой же
 // helper в to.html/driver.html) — если fetch() отклонился (обрыв связи),
@@ -1068,10 +1753,46 @@ function gateApiPost(payload) {
   }).then(function (r) { return r.json(); });
 }
 
+/* ЭТАП 5 (обновление, Часть 1 нового ТЗ): показываем нередактируемое
+   поле "Мастер" = сам сотрудник обычным сотрудникам, а супер-админу —
+   обычное текстовое поле, которое сразу принимает любой ввод; список
+   уже существующих мастеров, полученный с сервера, подставляется как
+   подсказки <datalist> — печатать вручную нужно, только если мастера
+   ещё нет в списке. */
+function setupMasterField() {
+  const autoWrap = document.getElementById('masterAutoWrap');
+  const adminWrap = document.getElementById('masterAdminWrap');
+  if (!GATE_IS_SUPER) {
+    autoWrap.style.display = 'block';
+    adminWrap.style.display = 'none';
+    document.getElementById('f_master_auto').value = GATE_NAME;
+    return;
+  }
+  autoWrap.style.display = 'none';
+  adminWrap.style.display = 'block';
+  // По умолчанию предлагаем имя самого вошедшего супер-админа — он
+  // может тоже иногда сам выполнять работу как мастер, но это всего
+  // лишь подсказка по умолчанию, поле остаётся полностью свободным.
+  document.getElementById('f_master_input').value = GATE_NAME;
+  gateApiPost({ action: 'listmasters', name: GATE_NAME, pw: GATE_PW })
+    .then(function (res) {
+      if (!res.ok || !res.masters) return;
+      const list = document.getElementById('masterOptions');
+      list.innerHTML = '';
+      res.masters.forEach(function (n) {
+        const opt = document.createElement('option');
+        opt.value = n;
+        list.appendChild(opt);
+      });
+    })
+    .catch(function () { /* не критично: супер-админ всё ещё может ввести мастера вручную */ });
+}
+
 function showActApp() {
   document.getElementById('gate').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
   fetchIP();
+  setupMasterField();
   renderStep();
 }
 
@@ -1100,6 +1821,7 @@ function tryGateLogin(silent) {
       if (res.ok) {
         GATE_NAME = name;
         GATE_PW = pw;
+        GATE_IS_SUPER = !!res.isSuperAdmin;
         sessionStorage.setItem('to_name', name);
         sessionStorage.setItem('to_pw', pw);
         showActApp();

@@ -41,6 +41,9 @@
   }
   .btn-primary{background:var(--accent); color:#fff;}
   .btn-full{width:100%;}
+  .btn-add-record{
+    margin-top:6px; padding:14px 16px; font-size:16px; border-radius:12px;
+  }
   label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
   .summary{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
   .pill{
@@ -63,6 +66,16 @@
   #gate input{text-align:center; letter-spacing:4px; font-size:20px;}
   .gate-error{color:var(--danger); font-size:13px; min-height:18px; text-align:center; margin-top:4px;}
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
+  .story-admin-item{
+    display:flex; gap:10px; align-items:flex-start; padding:10px 0;
+    border-bottom:1px solid var(--border);
+  }
+  .story-admin-item:last-child{border-bottom:none;}
+  .story-admin-thumb{width:52px; height:52px; border-radius:10px; object-fit:cover; background:#0d141e; flex-shrink:0;}
+  .story-admin-body{flex:1; min-width:0;}
+  .story-admin-text{font-size:13px; margin-bottom:4px; word-break:break-word;}
+  .story-admin-meta{color:var(--muted); font-size:12px;}
+  .story-admin-del{background:var(--danger); color:#fff; padding:8px 12px; font-size:13px; border-radius:8px; flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -110,7 +123,46 @@
       <div id="searchStatus" class="loading"></div>
     </div>
 
+    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 1):
+         общий список выполненных работ, не привязанный к поиску по одной
+         машине выше. Обычный сотрудник видит только свои работы, супер-
+         админ — все (сервер сам решает это в apiGetWorkHistory, фронтенд
+         только показывает то, что пришло). -->
+    <div class="card" id="historyCard">
+      <h1 style="font-size:16px; margin:0 0 4px;">🧾 История выполненных работ</h1>
+      <div class="sub" id="historyScopeNote" style="margin-bottom:12px;">Показаны ваши работы</div>
+
+      <label>Фильтр по гос. номеру (необязательно)</label>
+      <input id="histPlateFilter" placeholder="Например, 123ABC02" autocapitalize="characters">
+
+      <div class="row">
+        <div style="flex:1;">
+          <label>С даты</label>
+          <input type="date" id="histFrom">
+        </div>
+        <div style="flex:1;">
+          <label>По дату</label>
+          <input type="date" id="histTo">
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="btn-primary" style="flex:1;" onclick="loadWorkHistory()">Показать</button>
+        <button class="btn-primary" style="flex:1; background:var(--accent-2);" onclick="downloadWorkHistory()">⬇ Скачать</button>
+      </div>
+      <div class="toggle" onclick="resetHistoryFilters()">Сбросить фильтры</div>
+
+      <div id="historyStatus" class="loading" style="margin-top:8px;"></div>
+      <div id="historyTableWrap"></div>
+    </div>
+
     <div id="resultsCard" class="card" style="display:none;">
+      <!-- ЭТАП 4 (Часть 4.2 промта): короткий блок остатка по открытому
+           акту "Получения" этой машины (если есть) — сумма, тип оплаты,
+           текущий остаток. Заполняется в renderOpenActInfo() из
+           vehicleinfo-ответа (openAct), обновляется при каждом doSearch(),
+           в т.ч. сразу после сохранения новой записи ТО. -->
+      <div id="openActInfo" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:#0d141e; border:1px solid var(--accent); font-size:13px;"></div>
       <div id="summary" class="summary"></div>
       <div id="tableWrap"></div>
       <a id="pdfLink" class="pdf-link" style="display:none;" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
@@ -124,7 +176,7 @@
         <div class="toggle" onclick="resetDateFilter()">Сбросить фильтр по дате</div>
       </div>
 
-      <div class="toggle" onclick="toggleAdd()">➕ Добавить новую запись по этой машине</div>
+      <button type="button" class="btn-primary btn-full btn-add-record" onclick="toggleAdd()">➕ Добавить новую запись по этой машине</button>
       <div id="addForm">
         <div id="newVehicleFields" style="display:none;">
           <div class="empty" style="text-align:left; color:var(--accent-2); padding:0 0 8px;">🆕 Этой машины ещё нет в базе — укажите владельца</div>
@@ -166,33 +218,91 @@
         <label>Стоимость</label>
         <input id="f_cost" type="number" placeholder="15000">
 
+        <!-- ЭТАП 3 (новое ТЗ) + ЭТАП 2.3 (промт «Мастер / Комбинированная
+             оплата»): оплата записи ТО — Kaspi/наличные/ИП, можно
+             заполнить один, два или все три способа. Сумма способов не
+             должна превышать стоимость (проверяется и здесь, и повторно
+             на сервере — см. apiAddRecord). Поле суммы показывается
+             только после того, как отмечен соответствующий чекбокс —
+             тот же принцип явного выбора способа, что и в act.html, для
+             единообразия UX между файлами. В отличие от act.html поле
+             остаётся видимым и при ровно одном отмеченном способе:
+             здесь нет отдельного общего поля "оплачено", сумма способа
+             вводится прямо сюда, а частичная оплата ТО (меньше полной
+             стоимости) — штатный случай. -->
+        <label style="margin-top:2px">Способ(ы) оплаты</label>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:6px">
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="pay_kaspi_cb" style="width:auto;margin:0"> 💳 Kaspi перевод
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="pay_cash_cb" style="width:auto;margin:0"> 💵 Наличные
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
+            <input type="checkbox" id="pay_ip_cb" style="width:auto;margin:0"> 🏢 ИП
+          </label>
+        </div>
+
+        <div id="payKaspiWrap" style="display:none">
+          <label>Kaspi перевод</label>
+          <input id="f_pay_kaspi" type="number" placeholder="0" min="0">
+        </div>
+        <div id="payCashWrap" style="display:none">
+          <label>Наличные</label>
+          <input id="f_pay_cash" type="number" placeholder="0" min="0">
+        </div>
+        <div id="payIpWrap" style="display:none">
+          <label>ИП</label>
+          <input id="f_pay_ip" type="number" placeholder="0" min="0">
+        </div>
+
+        <div class="pill" style="margin-bottom:14px;">
+          Оплачено<b id="payPaidLine">0 ₸</b>
+          <span id="payBalanceLine" style="display:block; font-size:12px; color:var(--muted); margin-top:2px;"></span>
+        </div>
+
+        <!-- ЭТАП 4: "Мастер" — это сам вошедший сотрудник (он же заносит
+             запись о том, что заменил/сделал), а не отдельный человек,
+             которого нужно вписывать вручную. Поле теперь не редактируется
+             и подставляется автоматически из аккаунта; фактическое имя,
+             которое попадёт в запись, в любом случае проверяется и
+             подставляется на сервере (см. apiAddRecord в 6_WebApi.gs) —
+             это только для наглядности на экране. -->
         <label>Мастер</label>
-        <input id="f_master" placeholder="Имя мастера">
+        <input id="f_master" readonly>
 
         <button class="btn-primary btn-full" onclick="submitAdd(this)">Сохранить запись</button>
         <div id="addStatus" class="loading"></div>
       </div>
     </div>
 
-    <!-- ОБЪЯВЛЕНИЕ ДЛЯ ВОДИТЕЛЕЙ: показывается только супер-админам —
-         статус определяется сразу при входе (см. tryLogin -> IS_SUPER),
-         никакого отдельного экрана/пароля для этого не нужно. -->
-    <div class="card" id="announceCard" style="display:none;">
-      <h1 style="font-size:16px; margin:0 0 4px;">📢 Объявление для водителей</h1>
-      <div class="sub" style="margin-bottom:12px;">Показывается всем водителям в кабинете. Оставьте текст пустым, чтобы убрать объявление.</div>
+    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
+         временная доска объявлений Stories — публикация фото/текста,
+         которая живёт ровно 24 часа и потом сама пропадает. Управление —
+         только здесь, только для супер-админа (см. IS_SUPER выше).
+         Старое постоянное "Объявление" убрано целиком — Stories его
+         полностью заменяют. Показ водителям — в driver.html, никакой
+         отдельной страницы для этого нет. -->
+    <div class="card" id="storiesCard" style="display:none;">
+      <h1 style="font-size:16px; margin:0 0 4px;">📢 Stories (временные объявления, 24 часа)</h1>
+      <div class="sub" style="margin-bottom:12px;">Публикация видна водителям ровно 24 часа с момента публикации, потом исчезает сама. Можно удалить раньше вручную.</div>
 
-      <label>Текст объявления</label>
-      <textarea id="announceText" rows="4" placeholder="Например: 10 сентября СТО закрыто, обращайтесь по WhatsApp"></textarea>
+      <label>Фото (необязательно)</label>
+      <input id="storyImageInput" type="file" accept="image/*">
+      <div id="storyImagePreview" style="margin-bottom:10px;"></div>
 
-      <label>Фото или видео (необязательно)</label>
-      <input id="announceMediaInput" type="file" accept="image/*,video/*">
-      <div id="announceMediaPreview" style="margin-bottom:10px;"></div>
+      <label>Текст (необязательно, но фото или текст — хоть что-то одно обязательно)</label>
+      <textarea id="storyText" rows="3" placeholder="Например: Завтра технический осмотр с 10:00"></textarea>
 
-      <div id="announceMeta" class="sub" style="margin:0 0 8px;"></div>
-      <button class="btn-primary btn-full" onclick="saveAnnouncement(this)">Сохранить объявление</button>
-      <button class="btn-primary btn-full" style="background:#0d141e; border:1px solid var(--border); margin-top:8px;" onclick="clearAnnouncement()">Очистить (убрать объявление)</button>
-      <div class="gate-error" id="announceError"></div>
-      <div class="loading" id="announceStatus"></div>
+      <button class="btn-primary btn-full" onclick="publishStory(this)">Опубликовать</button>
+      <div class="sub" style="margin:6px 0 0;">Удалится автоматически через 24 часа</div>
+      <div class="gate-error" id="storyError"></div>
+      <div class="loading" id="storyStatus"></div>
+
+      <div style="border-top:1px solid var(--border); margin-top:14px; padding-top:12px;">
+        <label style="margin-bottom:8px;">Активные публикации</label>
+        <div id="storiesAdminList"></div>
+      </div>
     </div>
   </div>
 
@@ -209,7 +319,7 @@
   // Если сессия уже сохранена в этой вкладке — не открываем приложение
   // вслепую, а сразу заново проверяем логин/пароль на сервере. Это же
   // сразу говорит нам, супер-админ этот сотрудник или нет (IS_SUPER),
-  // от чего зависит, показывать ли ниже окно редактирования объявления.
+  // от чего зависит, показывать ли ниже раздел Stories.
   if (ADMIN_NAME && PW) tryLogin(true);
 
   // ЭТАП 7: один автоматический повтор при сетевой ошибке (обрыв связи,
@@ -329,10 +439,20 @@
   function showApp() {
     document.getElementById('gate').style.display = 'none';
     document.getElementById('mainApp').style.display = 'block';
-    // Окно редактирования объявления показываем только супер-админам —
-    // это известно сразу при входе (IS_SUPER выше), без отдельного экрана.
-    document.getElementById('announceCard').style.display = IS_SUPER ? 'block' : 'none';
-    if (IS_SUPER) loadAnnouncement();
+    // ЭТАП 4: поле "Мастер" в форме записи сразу показывает имя вошедшего
+    // сотрудника — вводить его вручную больше не нужно.
+    var masterInput = document.getElementById('f_master');
+    if (masterInput) masterInput.value = ADMIN_NAME;
+    // ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4): управление
+    // Stories доступно только супер-админу — это известно сразу при входе
+    // (IS_SUPER выше), без отдельного экрана. Старое "Объявление" убрано.
+    document.getElementById('storiesCard').style.display = IS_SUPER ? 'block' : 'none';
+    if (IS_SUPER) loadStoriesAdmin();
+
+    document.getElementById('historyScopeNote').innerText = IS_SUPER
+      ? 'Вы супер-админ: показаны работы всех сотрудников'
+      : 'Показаны только ваши работы';
+    loadWorkHistory();
   }
 
   function logout() {
@@ -341,10 +461,104 @@
     location.reload();
   }
 
+  /* ===================== ИСТОРИЯ ВЫПОЛНЕННЫХ РАБОТ (Этап 6) =====================
+     Общий список работ под строкой поиска машины (не путать с блоком
+     resultsCard — там история конкретной уже найденной машины). Сервер
+     сам фильтрует по правам (свои / все для супер-админа), фронтенд
+     дополнительно передаёт необязательные фильтры по номеру и дате. */
+  var lastHistoryRows = [];
+
+  function loadWorkHistory() {
+    var statusEl = document.getElementById('historyStatus');
+    var wrap = document.getElementById('historyTableWrap');
+    statusEl.innerText = 'Загружаю...';
+    wrap.innerHTML = '';
+
+    var filters = {
+      plate: document.getElementById('histPlateFilter').value.trim(),
+      dateFrom: document.getElementById('histFrom').value,
+      dateTo: document.getElementById('histTo').value
+    };
+
+    apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
+      .then(function (res) {
+        if (!res.ok) { statusEl.innerText = 'Ошибка: ' + res.error; return; }
+        statusEl.innerText = '';
+        lastHistoryRows = res.rows;
+        document.getElementById('historyScopeNote').innerText = res.isSuperAdmin
+          ? 'Вы супер-админ: показаны работы всех сотрудников'
+          : 'Показаны только ваши работы';
+        renderHistoryTable_(res.rows, res.total, res.isSuperAdmin);
+      })
+      .catch(function () { statusEl.innerText = 'Ошибка сети'; });
+  }
+
+  function resetHistoryFilters() {
+    document.getElementById('histPlateFilter').value = '';
+    document.getElementById('histFrom').value = '';
+    document.getElementById('histTo').value = '';
+    loadWorkHistory();
+  }
+
+  function renderHistoryTable_(rows, total, isSuperAdmin) {
+    var wrap = document.getElementById('historyTableWrap');
+    if (!rows || !rows.length) {
+      wrap.innerHTML = '<div class="empty">Работ пока нет или ничего не найдено по этому фильтру</div>';
+      return;
+    }
+    var html = '<table><thead><tr>' +
+      '<th>Дата</th><th>Гос. номер</th><th>Работа</th>' +
+      (isSuperAdmin ? '<th>Сотрудник</th>' : '') +
+      '<th>Сумма</th>' +
+      '</tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr>' +
+        '<td>' + escapeHtml(r.date) + '</td>' +
+        '<td>' + escapeHtml(r.plate) + '</td>' +
+        '<td>' + escapeHtml(r.type) + '</td>' +
+        (isSuperAdmin ? '<td>' + escapeHtml(r.master) + '</td>' : '') +
+        '<td>' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>' +
+      '<div class="pill" style="margin-top:10px; min-width:100%;"><b>Итого: ' +
+      (Number(total) || 0).toLocaleString('ru-RU') + ' ₸</b></div>';
+    wrap.innerHTML = html;
+  }
+
+  // Скачивание CSV — по уже загруженным (с учётом текущих фильтров и
+  // прав доступа) строкам; если список ещё не загружен, сначала грузим.
+  function downloadWorkHistory() {
+    if (!lastHistoryRows.length) {
+      loadWorkHistory();
+      setTimeout(function () { if (lastHistoryRows.length) downloadWorkHistory(); }, 900);
+      return;
+    }
+    var csvRows = [['Дата', 'Гос. номер', 'Работа', 'Сотрудник', 'Сумма']];
+    lastHistoryRows.forEach(function (r) {
+      csvRows.push([r.date, r.plate, r.type, r.master, r.cost]);
+    });
+    var csv = csvRows.map(function (row) {
+      return row.map(function (v) {
+        return '"' + String(v === null || v === undefined ? '' : v).replace(/"/g, '""') + '"';
+      }).join(';');
+    }).join('\n');
+
+    var blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'история_работ_' + new Date().toISOString().slice(0, 10) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
+  }
+
   var lastRows = [];
   var isKnownVehicle = true; // по умолчанию считаем машину известной, пока не проверили
 
-  function doSearch() {
+  function doSearch(keepFormOpen) {
     var plate = document.getElementById('plateInput').value.trim();
     if (!plate) return;
     currentPlate = plate;
@@ -368,8 +582,9 @@
       document.getElementById('f_phone').value = (vehRes.ok && vehRes.phone) || '';
       document.getElementById('f_vin').value = (vehRes.ok && vehRes.vin) || '';
       document.getElementById('f_model').value = (vehRes.ok && vehRes.model) || '';
+      renderOpenActInfo(vehRes.ok ? vehRes.openAct : null);
 
-      renderResults(searchRes.rows);
+      renderResults(searchRes.rows, keepFormOpen);
     }).catch(function () {
       handleAuthError({ message: 'Ошибка сети' });
     });
@@ -385,7 +600,36 @@
     }
   }
 
-  function renderResults(rows) {
+  // ЭТАП 4 (Часть 4.2 промта): показывает короткий блок с суммой, типом
+  // оплаты и текущим остатком по открытому акту "Получения" этой машины
+  // (если такой акт есть) — тот же смысл, что и в PDF/act.html, одной
+  // строкой из Части 5 исходного ТЗ. Остаток может быть отрицательным
+  // (долг), если работы ТО за время нахождения машины на СТО превысили
+  // остаток — это не ошибка, см. открытый вопрос №1 промта.
+  function renderOpenActInfo(openAct) {
+    var el = document.getElementById('openActInfo');
+    if (!openAct) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    var typeLabel = openAct.paymentType === 'deposit' ? 'Задаток' : 'Полный расчёт';
+    var balance = Number(openAct.balance) || 0;
+    var balanceLine = balance > 0
+      ? 'Остаток к оплате: <b>' + balance.toLocaleString('ru-RU') + ' ₸</b>'
+      : (balance < 0
+          ? '⚠️ Долг: <b style="color:var(--danger)">' + Math.abs(balance).toLocaleString('ru-RU') + ' ₸</b>'
+          : 'Оплачено полностью');
+    el.innerHTML =
+      '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) +
+      ' · Сумма: ' + Number(openAct.cost || 0).toLocaleString('ru-RU') + ' ₸' +
+      ' · ' + typeLabel + '<br>' + balanceLine +
+      '<div style="color:var(--muted); font-size:12px; margin-top:4px;">Сумма, внесённая на дату получения, не является окончательной — окончательный расчёт производится при выдаче.</div>';
+    el.style.display = 'block';
+  }
+
+  // keepFormOpen: true сразу после сохранения записи ТО (submitAdd) —
+  // форма "Добавить новую запись" не сворачивается, чтобы можно было
+  // сразу вписать следующий вид работы по той же машине, не нажимая
+  // кнопку заново и не теряя уже введённые владельца/телефон/VIN/модель
+  // (они и так подтягиваются заново из vehicleinfo выше).
+  function renderResults(rows, keepFormOpen) {
     lastRows = rows;
     document.getElementById('fromDate').value = '';
     document.getElementById('searchStatus').innerText = '';
@@ -394,7 +638,7 @@
 
     var pdfLink = document.getElementById('pdfLink');
     pdfLink.style.display = 'inline-block';
-    document.getElementById('addForm').style.display = 'none';
+    document.getElementById('addForm').style.display = keepFormOpen ? 'block' : 'none';
   }
 
   function applyDateFilter() {
@@ -423,12 +667,21 @@
     var filter = rows.find(r => r.type === 'Замена фильтра');
     var repairs = rows.filter(r => (r.type || '').toLowerCase().indexOf('ремонт') !== -1);
     var totalCost = rows.reduce(function (sum, r) { return sum + (parseFloat(r.cost) || 0); }, 0);
+    // ЭТАП 3 (новое ТЗ): суммы по способам оплаты за отфильтрованный период.
+    var totalKaspi = rows.reduce(function (sum, r) { return sum + (parseFloat(r.kaspiAmount) || 0); }, 0);
+    var totalCash = rows.reduce(function (sum, r) { return sum + (parseFloat(r.cashAmount) || 0); }, 0);
+    var totalIp = rows.reduce(function (sum, r) { return sum + (parseFloat(r.ipAmount) || 0); }, 0);
 
     var summaryHtml = '';
     summaryHtml += '<div class="pill">Масло<b>' + (oil ? escapeHtml(oil.date) + ' · ' + escapeHtml(oil.mileage) + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? escapeHtml(filter.date) + ' · ' + escapeHtml(filter.mileage) + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Ремонтов<b>' + repairs.length + '</b></div>';
     summaryHtml += '<div class="pill">Сумма за период<b>' + totalCost.toLocaleString('ru-RU') + '</b></div>';
+    if (totalKaspi || totalCash || totalIp) {
+      summaryHtml += '<div class="pill">💳 Kaspi<b>' + totalKaspi.toLocaleString('ru-RU') + '</b></div>';
+      summaryHtml += '<div class="pill">💵 Наличные<b>' + totalCash.toLocaleString('ru-RU') + '</b></div>';
+      summaryHtml += '<div class="pill">🏢 ИП<b>' + totalIp.toLocaleString('ru-RU') + '</b></div>';
+    }
     document.getElementById('summary').innerHTML = summaryHtml;
 
     var wrap = document.getElementById('tableWrap');
@@ -437,9 +690,16 @@
     } else {
       var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
       rows.forEach(function(r) {
+        // ЭТАП 3 (новое ТЗ): показываем разбивку оплаты под суммой, если
+        // хотя бы один способ был заполнен при сохранении записи.
+        var payParts = [];
+        if (r.kaspiAmount) payParts.push('Kaspi ' + escapeHtml(r.kaspiAmount));
+        if (r.cashAmount) payParts.push('нал. ' + escapeHtml(r.cashAmount));
+        if (r.ipAmount) payParts.push('ИП ' + escapeHtml(r.ipAmount));
+        var payLine = payParts.length ? '<br><span style="color:var(--muted); font-size:11px;">' + payParts.join(' + ') + '</span>' : '';
         html += '<tr><td>' + escapeHtml(r.date) + '</td><td>' + escapeHtml(r.mileage) + '</td><td>' + escapeHtml(r.type) +
                 (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml(r.description) + '</span>' : '') +
-                '</td><td>' + escapeHtml(r.cost) + '</td></tr>';
+                '</td><td>' + escapeHtml(r.cost) + payLine + '</td></tr>';
       });
       html += '</table>';
       wrap.innerHTML = html;
@@ -491,6 +751,134 @@
     f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
   }
 
+  // ЭТАП 3 (новое ТЗ) + обновление (Часть 2.3 промта — автораспределение):
+  // живой пересчёт "Оплачено"/"Остаток", и автоматическое распределение
+  // остатка между способами оплаты, чтобы сотрудник не считал сумму
+  // одного из полей вручную. Логика:
+  //  - при изменении стоимости, если ровно 2 из 3 полей оплаты уже
+  //    заполнены — третье (незаполненное) пересчитывается само;
+  //  - при изменении одного из полей оплаты — автоматически
+  //    пересчитывается то из двух ОСТАЛЬНЫХ полей, которое реже/раньше
+  //    редактировалось вручную (чтобы не затирать то, что пользователь
+  //    только что сам поправил, — как и предписано исходным ТЗ);
+  //  - для ТО это только удобство ввода, не жёсткое ограничение: если
+  //    заполнено 0 или 1 поле, ничего не подставляется само — частичная
+  //    оплата (или её отсутствие) по-прежнему разрешена.
+  var payFieldIds_ = ['f_pay_kaspi', 'f_pay_cash', 'f_pay_ip'];
+  // ЭТАП 2.3: карта чекбокс → обёртка поля → само поле, для явного
+  // выбора способа оплаты перед показом поля суммы (единообразно с
+  // act.html).
+  var PAY_METHOD_MAP_ = [
+    { cb: 'pay_kaspi_cb', wrap: 'payKaspiWrap', input: 'f_pay_kaspi' },
+    { cb: 'pay_cash_cb', wrap: 'payCashWrap', input: 'f_pay_cash' },
+    { cb: 'pay_ip_cb', wrap: 'payIpWrap', input: 'f_pay_ip' }
+  ];
+  var payEditOrder_ = []; // id полей в порядке последнего РУЧНОГО изменения
+
+  function checkedPayFieldIds_() {
+    return PAY_METHOD_MAP_.filter(function (m) {
+      return document.getElementById(m.cb).checked;
+    }).map(function (m) { return m.input; });
+  }
+
+  // ЭТАП 2.3: показываем поле суммы только для отмеченных чекбоксов.
+  // В отличие от act.html поле не скрывается даже при ровно одном
+  // отмеченном способе — здесь нет отдельного общего поля "оплачено",
+  // сумма вводится прямо в это поле, и оплата может быть частичной.
+  function updatePayFieldVisibility_() {
+    PAY_METHOD_MAP_.forEach(function (m) {
+      var checked = document.getElementById(m.cb).checked;
+      document.getElementById(m.wrap).style.display = checked ? 'block' : 'none';
+      if (!checked) {
+        // Снятый чекбокс — сумма по этому способу больше не участвует
+        // ни в подсчёте "Оплачено/Остаток", ни в автораспределении, ни
+        // в данных, отправляемых на сервер.
+        document.getElementById(m.input).value = '';
+        var idx = payEditOrder_.indexOf(m.input);
+        if (idx !== -1) payEditOrder_.splice(idx, 1);
+      }
+    });
+    updatePayLine_();
+  }
+
+  function recordManualPayEdit_(id) {
+    var idx = payEditOrder_.indexOf(id);
+    if (idx !== -1) payEditOrder_.splice(idx, 1);
+    payEditOrder_.push(id);
+  }
+
+  function autoDistributePay_(editedId) {
+    var cost = Number(document.getElementById('f_cost').value) || 0;
+    if (cost <= 0) return;
+    var checked = checkedPayFieldIds_();
+    if (checked.length < 2) return; // нечего распределять при 0-1 отмеченном способе
+    var others = checked.filter(function (id) { return id !== editedId; });
+    if (!others.length) return;
+    others.sort(function (a, b) {
+      var ia = payEditOrder_.indexOf(a);
+      var ib = payEditOrder_.indexOf(b);
+      if (ia === -1 && ib === -1) return 0;
+      if (ia === -1) return -1; // ни разу не редактированное — самое "старое"
+      if (ib === -1) return 1;
+      return ia - ib;
+    });
+    var target = others[0];
+    var fixed = others.slice(1);
+    var editedVal = Number(document.getElementById(editedId).value) || 0;
+    var fixedVal = fixed.reduce(function (s, id) { return s + (Number(document.getElementById(id).value) || 0); }, 0);
+    var newTargetVal = cost - editedVal - fixedVal;
+    document.getElementById(target).value = newTargetVal > 0 ? newTargetVal : '';
+  }
+
+  function handleCostInput_() {
+    var cost = Number(document.getElementById('f_cost').value) || 0;
+    var checked = checkedPayFieldIds_();
+    if (cost > 0 && checked.length === 2) {
+      var filled = checked.filter(function (id) {
+        return Number(document.getElementById(id).value) > 0;
+      });
+      if (filled.length === 1) {
+        var target = checked.filter(function (id) { return id !== filled[0]; })[0];
+        var sum = Number(document.getElementById(filled[0]).value) || 0;
+        var newVal = cost - sum;
+        document.getElementById(target).value = newVal > 0 ? newVal : '';
+      }
+    }
+    updatePayLine_();
+  }
+
+  function updatePayLine_() {
+    var cost = Number(document.getElementById('f_cost').value) || 0;
+    var checked = checkedPayFieldIds_();
+    var paid = checked.reduce(function (s, id) { return s + (Number(document.getElementById(id).value) || 0); }, 0);
+    document.getElementById('payPaidLine').textContent = paid.toLocaleString('ru-RU') + ' ₸';
+    var balanceEl = document.getElementById('payBalanceLine');
+    if (cost > 0) {
+      var balance = cost - paid;
+      balanceEl.textContent = balance > 0
+        ? 'Остаток: ' + balance.toLocaleString('ru-RU') + ' ₸'
+        : (balance < 0 ? '❌ Превышает стоимость на ' + (-balance).toLocaleString('ru-RU') + ' ₸' : '✅ Оплачено полностью');
+      balanceEl.style.color = balance < 0 ? '#e5595f' : 'var(--muted)';
+    } else {
+      balanceEl.textContent = '';
+    }
+  }
+
+  var costEl_ = document.getElementById('f_cost');
+  if (costEl_) costEl_.addEventListener('input', handleCostInput_);
+  PAY_METHOD_MAP_.forEach(function (m) {
+    document.getElementById(m.cb).addEventListener('change', updatePayFieldVisibility_);
+  });
+  payFieldIds_.forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', function () {
+      recordManualPayEdit_(id);
+      autoDistributePay_(id);
+      updatePayLine_();
+    });
+  });
+
   function submitAdd(btn) {
     if (!isKnownVehicle) {
       var owner = document.getElementById('f_owner').value.trim();
@@ -499,6 +887,19 @@
         document.getElementById('addStatus').innerText = '⚠️ Для новой машины укажите владельца и телефон';
         return;
       }
+    }
+
+    // ЭТАП 3 (новое ТЗ): сумма способов оплаты не должна превышать
+    // стоимость — та же проверка повторяется на сервере (apiAddRecord),
+    // но лучше показать понятную ошибку сразу, не дожидаясь ответа сети.
+    var costVal = Number(document.getElementById('f_cost').value) || 0;
+    var kaspiVal = Number(document.getElementById('f_pay_kaspi').value) || 0;
+    var cashVal = Number(document.getElementById('f_pay_cash').value) || 0;
+    var ipVal = Number(document.getElementById('f_pay_ip').value) || 0;
+    var paidVal = kaspiVal + cashVal + ipVal;
+    if (costVal > 0 && paidVal > costVal) {
+      document.getElementById('addStatus').innerText = '❌ Сумма оплаты превышает стоимость';
+      return;
     }
 
     var data = {
@@ -512,7 +913,10 @@
       owner: document.getElementById('f_owner').value,
       phone: document.getElementById('f_phone').value,
       vin: document.getElementById('f_vin').value,
-      model: document.getElementById('f_model').value
+      model: document.getElementById('f_model').value,
+      kaspiAmount: kaspiVal,
+      cashAmount: cashVal,
+      ipAmount: ipVal
     };
     document.getElementById('addStatus').innerText = 'Сохраняю...';
 
@@ -520,8 +924,39 @@
       return apiPost({ action: 'addRecord', name: ADMIN_NAME, pw: PW, data: data })
         .then(function (res) {
           if (res.ok) {
-            document.getElementById('addStatus').innerText = '✅ Сохранено';
-            setTimeout(function(){ doSearch(); }, 400);
+            // ЭТАП 4: если запись привязалась к открытому акту "Получения"
+            // и остаток ушёл в минус — сервер прислал предупреждение
+            // (debtWarning) одной строкой, показываем его вместо обычного
+            // "Сохранено", чтобы сотрудник сразу видел долг клиента.
+            document.getElementById('addStatus').innerText = res.debtWarning
+              ? ('✅ Сохранено. ' + res.debtWarning)
+              : '✅ Сохранено. Можно сразу добавить следующий вид работы по этой машине.';
+            // Если у машины за один визит несколько работ (масло + фильтр +
+            // тормозные колодки и т.п.) — раньше после каждой сохранённой
+            // записи форма сворачивалась и приходилось заново нажимать
+            // "Добавить новую запись" и заново искать машину. Теперь форма
+            // остаётся открытой (см. doSearch(true) ниже), сбрасываются
+            // только поля самой работы (тип/описание/запчасти/стоимость/
+            // способы оплаты) — пробег и данные владельца оставляем как
+            // есть, чтобы вписать следующий вид работы по этой же машине
+            // за пару секунд, без повторного ввода всего заново.
+            document.getElementById('f_type').selectedIndex = 0;
+            document.getElementById('f_description').value = '';
+            document.getElementById('f_parts').value = '';
+            document.getElementById('f_cost').value = '';
+            PAY_METHOD_MAP_.forEach(function (m) {
+              document.getElementById(m.cb).checked = false;
+            });
+            updatePayFieldVisibility_();
+            // doSearch(true) заново запросит vehicleinfo, обновит таблицу и
+            // блок остатка (renderOpenActInfo) с учётом только что
+            // сохранённой записи, но НЕ сворачивает форму добавления.
+            setTimeout(function(){
+              doSearch(true);
+              loadWorkHistory(); // ЭТАП 6: сразу подтягиваем новую запись в общий список работ
+              var typeEl = document.getElementById('f_type');
+              if (typeEl) typeEl.focus();
+            }, 400);
           } else {
             document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error;
           }
@@ -536,100 +971,107 @@
     if (e.key === 'Enter') doSearch();
   });
 
-  /* ===================== ОБЪЯВЛЕНИЕ ДЛЯ ВОДИТЕЛЕЙ (только супер-админ) =====================
-     Раньше это был отдельный файл announce.html с ещё одним экраном
-     входа. Теперь статус супер-админа известен сразу при входе в
-     "Учёт ТО" (см. IS_SUPER выше), поэтому окно редактирования просто
-     показывается или скрывается прямо здесь, без отдельной страницы.
-     Добавлена возможность приложить фото или видео. */
-  var pendingMedia = null;   // {base64, mimeType, fileName} выбранного, но ещё не сохранённого файла
-  var removeMediaFlag = false;
+  /* ===================== STORIES — временная доска объявлений (Этап 6, Часть 4) =====================
+     Старое постоянное "Объявление для водителей" (announceCard,
+     apiGetAnnouncement/apiSetAnnouncement) убрано полностью — Stories
+     закрывают тот же сценарий информирования водителей, но с авто-сроком
+     жизни 24 часа, поэтому держать оба механизма параллельно избыточно.
+     Управление доступно только супер-админу, прямо здесь, без отдельной
+     страницы. Показ водителям — в driver.html. Публикация живёт ровно
+     24 часа и потом пропадает сама (сервер сам фильтрует по expiresAt). */
+  var pendingStoryImage = null; // { base64, mimeType, fileName } выбранного, но ещё не опубликованного фото
 
-  function loadAnnouncement() {
-    document.getElementById('announceStatus').innerText = 'Загружаю...';
-    apiGet({ action: 'announcement' }).then(function (res) {
-      document.getElementById('announceStatus').innerText = '';
-      if (!res.ok) return;
-      document.getElementById('announceText').value = res.text || '';
-      document.getElementById('announceMeta').innerText = res.updatedAt
-        ? 'Обновлено: ' + new Date(res.updatedAt).toLocaleString('ru-RU')
-        : 'Объявление ещё не устанавливали';
-      renderAnnounceMediaPreview(res.mediaUrl, res.mediaType);
-    }).catch(function () {
-      document.getElementById('announceStatus').innerText = '';
-    });
-  }
+  document.getElementById('storyImageInput').addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    var preview = document.getElementById('storyImagePreview');
+    if (!file) { pendingStoryImage = null; preview.innerHTML = ''; return; }
 
-  function renderAnnounceMediaPreview(mediaUrl, mediaType) {
-    var wrap = document.getElementById('announceMediaPreview');
-    pendingMedia = null;
-    removeMediaFlag = false;
-    document.getElementById('announceMediaInput').value = '';
-    if (!mediaUrl) { wrap.innerHTML = ''; return; }
-    if (mediaType === 'image') {
-      wrap.innerHTML = '<img src="' + mediaUrl + '" style="max-width:100%; border-radius:10px; margin-top:6px;">' +
-        '<div class="toggle" onclick="removeAnnounceMedia()">✕ Убрать текущее фото</div>';
-    } else if (mediaType === 'video') {
-      wrap.innerHTML = '<a href="' + mediaUrl + '" target="_blank" style="color:var(--accent); font-weight:600;">🎥 Текущее видео</a>' +
-        '<div class="toggle" onclick="removeAnnounceMedia()">✕ Убрать текущее видео</div>';
-    } else {
-      wrap.innerHTML = '';
-    }
-  }
-
-  function removeAnnounceMedia() {
-    removeMediaFlag = true;
-    pendingMedia = null;
-    document.getElementById('announceMediaPreview').innerHTML = '<div class="sub">Текущий файл будет удалён при сохранении</div>';
-  }
-
-  document.getElementById('announceMediaInput').addEventListener('change', function (e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    removeMediaFlag = false;
     var reader = new FileReader();
     reader.onload = function () {
       var base64 = reader.result.split(',')[1];
-      pendingMedia = { base64: base64, mimeType: file.type, fileName: file.name };
-      var wrap = document.getElementById('announceMediaPreview');
-      if (file.type.indexOf('video') === 0) {
-        wrap.innerHTML = '<div class="sub">Выбрано видео: ' + file.name + '</div>';
-      } else {
-        wrap.innerHTML = '<img src="' + reader.result + '" style="max-width:100%; border-radius:10px; margin-top:6px;">';
-      }
+      pendingStoryImage = { base64: base64, mimeType: file.type, fileName: file.name };
+      preview.innerHTML = '<img src="' + reader.result + '" style="max-width:160px; border-radius:10px; display:block;">';
     };
     reader.readAsDataURL(file);
   });
 
-  function saveAnnouncement(btn) {
-    var text = document.getElementById('announceText').value;
-    document.getElementById('announceError').innerText = '';
-    document.getElementById('announceStatus').innerText = 'Сохраняю...';
+  function publishStory(btn) {
+    var text = document.getElementById('storyText').value.trim();
+    var errEl = document.getElementById('storyError');
+    var statusEl = document.getElementById('storyStatus');
+    errEl.innerText = '';
 
-    withButtonBusy_(btn, 'Сохраняю...', function () {
+    if (!text && !pendingStoryImage) {
+      errEl.innerText = 'Добавьте фото или текст — пустую публикацию создать нельзя.';
+      return;
+    }
+
+    withButtonBusy_(btn, 'Публикую...', function () {
+      statusEl.innerText = 'Публикую...';
       return apiPost({
-        action: 'setAnnouncement', name: ADMIN_NAME, pw: PW, text: text,
-        media: pendingMedia, removeMedia: removeMediaFlag
+        action: 'createStory', name: ADMIN_NAME, pw: PW,
+        text: text, media: pendingStoryImage
       }).then(function (res) {
-        document.getElementById('announceStatus').innerText = '';
         if (res.ok) {
-          document.getElementById('announceStatus').innerText = '✅ Сохранено';
-          loadAnnouncement();
+          statusEl.innerText = '✅ Опубликовано. Удалится автоматически через 24 часа.';
+          document.getElementById('storyText').value = '';
+          document.getElementById('storyImageInput').value = '';
+          document.getElementById('storyImagePreview').innerHTML = '';
+          pendingStoryImage = null;
+          loadStoriesAdmin();
         } else {
-          document.getElementById('announceError').innerText = res.error || 'Не удалось сохранить';
+          errEl.innerText = res.error || 'Не удалось опубликовать';
+          statusEl.innerText = '';
         }
       }).catch(function () {
-        document.getElementById('announceStatus').innerText = '';
-        document.getElementById('announceError').innerText = 'Ошибка сети';
+        statusEl.innerText = '';
+        errEl.innerText = 'Ошибка сети';
       });
     });
   }
 
-  function clearAnnouncement() {
-    document.getElementById('announceText').value = '';
-    removeMediaFlag = true;
-    pendingMedia = null;
-    saveAnnouncement();
+  function loadStoriesAdmin() {
+    var wrap = document.getElementById('storiesAdminList');
+    apiPost({ action: 'listStoriesAdmin', name: ADMIN_NAME, pw: PW }).then(function (res) {
+      if (!res.ok) { wrap.innerHTML = '<div class="empty">' + escapeHtml(res.error || 'Ошибка загрузки') + '</div>'; return; }
+      renderStoriesAdminList_(res.stories);
+    }).catch(function () {
+      wrap.innerHTML = '<div class="empty">Ошибка сети</div>';
+    });
+  }
+
+  function renderStoriesAdminList_(stories) {
+    var wrap = document.getElementById('storiesAdminList');
+    if (!stories || !stories.length) {
+      wrap.innerHTML = '<div class="empty">Активных публикаций нет</div>';
+      return;
+    }
+    wrap.innerHTML = stories.map(function (s) {
+      var thumb = s.imageUrl
+        ? '<img class="story-admin-thumb" src="' + s.imageUrl + '" alt="">'
+        : '<div class="story-admin-thumb" style="display:flex;align-items:center;justify-content:center;">📢</div>';
+      var hoursLeft = Math.max(0, Math.ceil((new Date(s.expiresAt) - new Date()) / 3600000));
+      return '<div class="story-admin-item">' + thumb +
+        '<div class="story-admin-body">' +
+        (s.text ? '<div class="story-admin-text">' + escapeHtml(s.text) + '</div>' : '') +
+        '<div class="story-admin-meta">' + escapeHtml(s.author) + ' · осталось ~' + hoursLeft + ' ч.</div>' +
+        '</div>' +
+        '<button class="story-admin-del" onclick="deleteStoryAdmin(\'' + s.id + '\')">Удалить</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function deleteStoryAdmin(id) {
+    if (!confirm('Удалить эту публикацию прямо сейчас?')) return;
+    apiPost({ action: 'deleteStory', name: ADMIN_NAME, pw: PW, id: id }).then(function (res) {
+      if (res.ok) {
+        loadStoriesAdmin();
+      } else {
+        alert(res.error || 'Не удалось удалить');
+      }
+    }).catch(function () {
+      alert('Ошибка сети');
+    });
   }
 
   if ('serviceWorker' in navigator) {

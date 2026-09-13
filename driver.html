@@ -62,8 +62,6 @@
   }
   a.act-link{color:var(--accent); text-decoration:none; font-weight:600;}
   .toggle{color:var(--accent); font-size:14px; cursor:pointer; user-select:none; margin-top:8px;}
-  .announce-media{max-width:100%; border-radius:10px; margin-top:8px; display:block;}
-  a.announce-video-link{color:var(--accent); font-weight:600; text-decoration:none; display:inline-block; margin-top:8px;}
   #gate{max-width:340px; margin:40px auto 0;}
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
   .rec{
@@ -73,10 +71,6 @@
   .rec-soon{ background:#241a0d; border:1px solid #4a3a1f; color:#f0c674; }
   .rec-due{ background:#2a1414; border:1px solid #4a1f1f; color:#f08a8a; }
   .rec-unknown{ background:#0d141e; border:1px solid var(--border); color:var(--muted); }
-  .announce{
-    background:#0d1f33; border:1px solid #1f3a5c; color:#8ec8f0; border-radius:12px;
-    padding:12px 14px; font-size:14px; margin-bottom:16px; line-height:1.4;
-  }
   .veh-title{font-size:18px; font-weight:700; margin-bottom:2px;}
   .veh-sub{color:var(--muted); font-size:13px; margin-bottom:12px;}
   .scan-row{display:flex; gap:8px;}
@@ -91,6 +85,35 @@
   }
   .wa-master svg{width:20px; height:20px; flex-shrink:0;}
   body{padding-bottom:78px;}
+
+  /* ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
+     лента временных публикаций (24 часа) — простой корпоративный вид,
+     без копирования интерфейса Instagram/WhatsApp один в один. */
+  .stories-reel{
+    display:flex; gap:12px; overflow-x:auto; padding:2px 2px 10px;
+    margin-bottom:6px; -webkit-overflow-scrolling:touch;
+  }
+  .story-card{flex:0 0 auto; width:76px; text-align:center; cursor:pointer;}
+  .story-thumb{
+    width:68px; height:68px; border-radius:50%; object-fit:cover;
+    border:2px solid var(--accent); background:#0d141e; display:block; margin:0 auto;
+  }
+  .story-thumb.text-only{display:flex; align-items:center; justify-content:center; font-size:24px;}
+  .story-label{
+    font-size:11px; color:var(--muted); margin-top:5px; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  .story-modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.8); z-index:200;
+    display:flex; align-items:center; justify-content:center; padding:16px;
+  }
+  .story-modal{
+    background:var(--card); border:1px solid var(--border); border-radius:16px;
+    max-width:420px; width:100%; max-height:88vh; overflow-y:auto; padding:16px;
+  }
+  .story-modal img{width:100%; border-radius:12px; margin-bottom:12px; display:block;}
+  .story-modal-text{white-space:pre-wrap; font-size:15px; margin-bottom:10px; line-height:1.4;}
+  .story-modal-meta{color:var(--muted); font-size:12px; margin-bottom:14px;}
 </style>
 </head>
 <body>
@@ -111,10 +134,6 @@
       <div class="error" id="gateError"></div>
       <div class="loading" id="gateStatus"></div>
     </div>
-    <!-- Объявление показывается уже на экране входа, ещё до ввода гос.
-         номера — водитель видит его, даже если пока не собирается
-         заходить в кабинет. Тот же текст/фото/видео, что и в кабинете. -->
-    <div id="gateAnnounceWrap"></div>
     <div style="text-align:center;"><a href="index.html" style="color:var(--muted); font-size:13px;">← Назад к выбору роли</a></div>
   </div>
 
@@ -133,12 +152,12 @@
         <option value="Частная">Частная</option>
       </select>
 
-      <label>VIN</label>
-      <div class="scan-row">
-        <input id="r_vin" placeholder="Введите VIN вручную">
-        <button class="btn-secondary" onclick="scanVin()">📷 Скан</button>
-      </div>
-      <input id="r_vinPhoto" type="file" accept="image/*" capture="environment" style="display:none;">
+      <label>VIN (необязательно)</label>
+      <!-- ЭТАП 1 (обновлено): автоматическое распознавание VIN по фото
+           (Tesseract OCR) полностью убрано из системы — VIN вводится
+           только вручную. Раньше здесь была кнопка "📷 Скан", которая
+           прогоняла сфотканную табличку через OCR прямо в браузере. -->
+      <input id="r_vin" maxlength="17" placeholder="17 символов, можно ввести вручную">
       <div class="loading" id="scanStatus"></div>
 
       <label>WhatsApp номер</label>
@@ -192,7 +211,13 @@
   <!-- КАБИНЕТ ВОДИТЕЛЯ -->
   <div id="cabinet" style="display:none;">
     <span class="logout" onclick="logoutDevice()">Это не моё устройство / Выйти</span>
-    <div id="announceWrap"></div>
+
+    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
+         временные публикации (24 часа) от супер-админа. Управляются
+         только из to.html, здесь только показ. Пусто, если активных
+         публикаций сейчас нет — блок просто не отображается. -->
+    <div id="storiesWrap"></div>
+
     <h1>🚕 Мой автомобиль</h1>
     <div class="sub" id="cabPlateSub"></div>
 
@@ -200,6 +225,11 @@
       <div class="veh-title" id="vehModel">—</div>
       <div class="veh-sub" id="vehVin">VIN: —</div>
       <div class="veh-sub" id="vehDriver">—</div>
+
+      <!-- ЭТАП 4 (Часть 4.3 промта): тот же блок остатка по открытому
+           акту "Получения", что и в to.html — заполняется в showCabinet()
+           из data.openAct, скрыт, если у машины сейчас нет открытого акта. -->
+      <div id="openActInfo" style="display:none; margin-bottom:10px; padding:10px 12px; border-radius:10px; background:#0d141e; border:1px solid var(--accent); font-size:13px;"></div>
 
       <div id="recsWrap"></div>
 
@@ -298,10 +328,6 @@
     localStorage.removeItem('driver_plate');
     location.reload();
   }
-
-  // Показываем объявление сразу на экране входа, не дожидаясь логина
-  // (гос. номер ещё не введён — объявление общее для всех).
-  loadAnnouncement('gateAnnounceWrap');
 
   // ЭТАП 7: один автоматический повтор при сетевой ошибке перед тем, как
   // показать пользователю "Ошибка сети" (см. такой же helper в to.html).
@@ -486,52 +512,15 @@
     document.getElementById('regPlate').innerText = plate;
   }
 
-  function scanVin() {
-    document.getElementById('r_vinPhoto').click();
-  }
-
-  document.getElementById('r_vinPhoto').addEventListener('change', function (e) {
-    var file = e.target.files[0];
-    if (!file) return;
-    var statusEl = document.getElementById('scanStatus');
-    statusEl.innerText = 'Загружаю распознавание...';
-
-    var reader = new FileReader();
-    reader.onload = function () {
-      var imageDataUrl = reader.result;
-      loadTesseract().then(function (Tesseract) {
-        statusEl.innerText = 'Распознаю VIN...';
-        return Tesseract.recognize(imageDataUrl, 'eng');
-      }).then(function (result) {
-        var raw = (result.data.text || '').toUpperCase();
-        var cleaned = raw.replace(/[^A-HJ-NPR-Z0-9]/g, ''); // VIN не содержит I,O,Q
-        if (cleaned.length >= 11) {
-          // берём наиболее правдоподобный отрезок длиной 17, если он есть
-          var match = cleaned.match(/[A-HJ-NPR-Z0-9]{17}/);
-          document.getElementById('r_vin').value = match ? match[0] : cleaned.slice(0, 17);
-          statusEl.innerText = '✅ Распознано — проверьте и поправьте при необходимости';
-        } else {
-          statusEl.innerText = '⚠️ Не удалось распознать чётко — введите VIN вручную';
-        }
-      }).catch(function () {
-        statusEl.innerText = '⚠️ Распознавание недоступно — введите VIN вручную';
-      });
-    };
-    reader.readAsDataURL(file);
-  });
-
-  var tesseractPromise = null;
-  function loadTesseract() {
-    if (tesseractPromise) return tesseractPromise;
-    tesseractPromise = new Promise(function (resolve, reject) {
-      if (window.Tesseract) { resolve(window.Tesseract); return; }
-      var script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-      script.onload = function () { resolve(window.Tesseract); };
-      script.onerror = function () { reject(new Error('load failed')); };
-      document.head.appendChild(script);
-    });
-    return tesseractPromise;
+  /**
+   * ЭТАП 1 (обновлено): проверка VIN — ровно 17 символов, без I/O/Q.
+   * Поле по-прежнему необязательно; проверяем только если что-то введено.
+   */
+  function isValidVin_(vin) {
+    const v = (vin || '').trim().toUpperCase();
+    if (v.length !== 17) return false;
+    if (/[IOQ]/.test(v)) return false;
+    return true;
   }
 
   /**
@@ -558,6 +547,10 @@
 
     if (!fio || !whatsapp) {
       errEl.innerText = 'Заполните ФИО и WhatsApp';
+      return;
+    }
+    if (vin && !isValidVin_(vin)) {
+      errEl.innerText = '❌ Некорректный VIN.';
       return;
     }
     if (!password || password.length < 6) {
@@ -612,6 +605,10 @@
       (data.driverFio || '—') + (data.taxiOrPrivate ? ' · ' + data.taxiOrPrivate : '') +
       (data.whatsapp ? ' · WhatsApp: ' + data.whatsapp : '');
 
+    // ЭТАП 4: блок остатка по открытому акту "Получения" (если есть) —
+    // тот же смысл, что и в to.html/act.html.
+    renderOpenActInfo(data.openAct);
+
     // Рекомендации теперь приходят всегда (по маслу и фильтру, если по ним
     // есть хоть одна запись), с полем status: 'ok' | 'soon' | 'due' | 'unknown'.
     renderRecommendations(data.recommendations, document.getElementById('recsWrap'));
@@ -636,7 +633,31 @@
 
     renderHistory(rows);
     loadActs();
-    loadAnnouncement('announceWrap');
+    loadStories();
+  }
+
+  // ЭТАП 4 (Часть 4.3 промта): показывает водителю короткий блок с
+  // суммой, типом оплаты и текущим остатком по открытому акту "Получения"
+  // его машины (если он есть) — тот же смысл, что и в to.html. Остаток
+  // может быть отрицательным (долг), если работы ТО за время нахождения
+  // машины на СТО превысили остаток — это не ошибка, см. открытый вопрос
+  // №1 промта.
+  function renderOpenActInfo(openAct) {
+    var el = document.getElementById('openActInfo');
+    if (!openAct) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    var typeLabel = openAct.paymentType === 'deposit' ? 'Задаток' : 'Полный расчёт';
+    var balance = Number(openAct.balance) || 0;
+    var balanceLine = balance > 0
+      ? 'Остаток к оплате: <b>' + balance.toLocaleString('ru-RU') + ' ₸</b>'
+      : (balance < 0
+          ? '⚠️ Долг: <b style="color:var(--danger)">' + Math.abs(balance).toLocaleString('ru-RU') + ' ₸</b>'
+          : 'Оплачено полностью');
+    el.innerHTML =
+      '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) +
+      ' · Сумма: ' + Number(openAct.cost || 0).toLocaleString('ru-RU') + ' ₸' +
+      ' · ' + typeLabel + '<br>' + balanceLine +
+      '<div style="color:var(--muted); font-size:12px; margin-top:4px;">Сумма, внесённая на дату получения, не является окончательной — окончательный расчёт производится при выдаче.</div>';
+    el.style.display = 'block';
   }
 
   function escapeHtml(s) {
@@ -698,32 +719,74 @@
     });
   }
 
-  // Общее объявление для всех водителей — не зависит от гос. номера,
-  // поэтому грузим его и на экране входа (gateAnnounceWrap), и в кабинете
-  // (announceWrap) — targetId выбирает, куда именно вставить разметку.
-  // Может содержать фото или видео, которое прикрепил супер-админ в
-  // разделе "Учёт ТО" (см. to.html — там же теперь и загрузка фото/видео,
-  // отдельный announce.html для этого больше не используется).
-  function loadAnnouncement(targetId) {
-    var wrap = document.getElementById(targetId);
+  /* ===================== STORIES — временная доска объявлений (Этап 6, Часть 4) =====================
+     Показ для водителя: горизонтальная лента карточек на главном экране
+     кабинета, нажатие открывает публикацию полностью. Управление — только
+     в to.html (супер-админ), здесь только чтение через action:'stories'. */
+  var STORIES_DATA_ = [];
+
+  function loadStories() {
+    var wrap = document.getElementById('storiesWrap');
     if (!wrap) return;
-    apiGet({ action: 'announcement' }).then(function (res) {
-      if (!res.ok || (!res.text && !res.mediaUrl)) {
+    apiGet({ action: 'stories' }).then(function (res) {
+      if (!res.ok || !res.stories || !res.stories.length) {
         wrap.innerHTML = '';
+        STORIES_DATA_ = [];
         return;
       }
-      var html = '<div class="announce">';
-      if (res.text) html += '📢 ' + escapeHtml(res.text).replace(/\n/g, '<br>');
-      if (res.mediaUrl && res.mediaType === 'image') {
-        html += '<img class="announce-media" src="' + res.mediaUrl + '" alt="Объявление">';
-      } else if (res.mediaUrl && res.mediaType === 'video') {
-        html += '<a class="announce-video-link" href="' + res.mediaUrl + '" target="_blank" rel="noopener">🎥 Смотреть видео</a>';
-      }
-      html += '</div>';
-      wrap.innerHTML = html;
+      renderStoriesReel_(res.stories, wrap);
     }).catch(function () {
       wrap.innerHTML = '';
     });
+  }
+
+  function renderStoriesReel_(stories, wrap) {
+    STORIES_DATA_ = stories;
+    var html = '<div class="sub" style="margin-bottom:6px;">📢 Объявления</div><div class="stories-reel">';
+    stories.forEach(function (s, idx) {
+      var thumb = s.imageUrl
+        ? '<img class="story-thumb" src="' + s.imageUrl + '" alt="">'
+        : '<div class="story-thumb text-only">📢</div>';
+      var label = s.text ? s.text : 'Объявление';
+      html += '<div class="story-card" onclick="openStory_(' + idx + ')">' + thumb +
+        '<div class="story-label">' + escapeHtml(label) + '</div></div>';
+    });
+    html += '</div>';
+    wrap.innerHTML = html;
+  }
+
+  // "Опубликовано N часов назад" / "Осталось N часов" — пункт 7 ТЗ Stories.
+  function formatStoryTimeAgo_(iso) {
+    var hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
+    if (hours <= 0) return 'Опубликовано только что';
+    return 'Опубликовано ' + hours + ' ч. назад';
+  }
+  function formatStoryTimeLeft_(iso) {
+    var hours = Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 3600000));
+    return 'Осталось ~' + hours + ' ч.';
+  }
+
+  function openStory_(idx) {
+    var s = STORIES_DATA_[idx];
+    if (!s) return;
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'story-modal-backdrop';
+    backdrop.onclick = function (e) { if (e.target === backdrop) backdrop.remove(); };
+
+    var modal = document.createElement('div');
+    modal.className = 'story-modal';
+
+    var html = '';
+    if (s.imageUrl) html += '<img src="' + s.imageUrl + '" alt="">';
+    if (s.text) html += '<div class="story-modal-text">' + escapeHtml(s.text) + '</div>';
+    html += '<div class="story-modal-meta">' + escapeHtml(s.author || '') +
+      ' · ' + formatStoryTimeAgo_(s.createdAt) + ' · ' + formatStoryTimeLeft_(s.expiresAt) + '</div>';
+    html += '<button class="btn-primary btn-full" onclick="this.closest(\'.story-modal-backdrop\').remove()">Закрыть</button>';
+
+    modal.innerHTML = html;
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
   }
 
   function renderHistory(rows) {
