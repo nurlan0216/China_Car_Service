@@ -235,8 +235,23 @@
              которое попадёт в запись, в любом случае проверяется и
              подставляется на сервере (см. apiAddRecord в 6_WebApi.gs) —
              это только для наглядности на экране. -->
-        <label>Мастер</label>
-        <input id="f_master" readonly>
+        <!-- ЭТАП 7 (пункт 3 промта фиксов): перенесено из act.html —
+             обычный сотрудник видит нередактируемое поле со своим именем
+             (masterAutoWrap), супер-админ — свободный текстовый ввод с
+             подсказками из уже существующих мастеров (masterAdminWrap +
+             <datalist>), чтобы иметь возможность занести запись за
+             другого сотрудника. Сервер (apiAddRecord, 6_WebApi.gs)
+             всё равно сам решает, чьё имя реально попадёт в запись —
+             см. пункт 3.2 промта. -->
+        <div id="masterAutoWrap">
+          <label>Мастер</label>
+          <input type="text" id="f_master_auto" disabled>
+        </div>
+        <div id="masterAdminWrap" style="display:none">
+          <label>Мастер</label>
+          <input type="text" id="f_master_input" list="masterOptions" placeholder="Введите имя мастера">
+          <datalist id="masterOptions"></datalist>
+        </div>
 
         <button class="btn-primary btn-full" onclick="submitAdd(this)">Сохранить запись</button>
         <div id="addStatus" class="loading"></div>
@@ -447,10 +462,10 @@
   function showApp() {
     document.getElementById('gate').style.display = 'none';
     document.getElementById('mainApp').style.display = 'block';
-    // ЭТАП 4: поле "Мастер" в форме записи сразу показывает имя вошедшего
-    // сотрудника — вводить его вручную больше не нужно.
-    var masterInput = document.getElementById('f_master');
-    if (masterInput) masterInput.value = ADMIN_NAME;
+    // ЭТАП 7 (пункт 3 промта фиксов): раньше здесь просто подставлялось
+    // ADMIN_NAME в единственное нередактируемое поле f_master — теперь
+    // сотрудник и супер-админ видят разные поля, см. setupMasterField_().
+    setupMasterField_();
     // ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4): управление
     // Stories доступно только супер-админу — это известно сразу при входе
     // (IS_SUPER выше), без отдельного экрана. Старое "Объявление" убрано.
@@ -461,6 +476,45 @@
       ? 'Вы супер-админ: показаны работы всех сотрудников'
       : 'Показаны только ваши работы';
     loadWorkHistory();
+  }
+
+  /**
+   * ЭТАП 7 (пункт 3 промта фиксов): перенесено из act.html
+   * (setupMasterField) один в один, только под id полей формы
+   * добавления записи ТО в этом файле. Обычному сотруднику показывает
+   * нередактируемое поле с его собственным именем; супер-админу —
+   * обычное текстовое поле с подсказками (<datalist>) по именам всех
+   * уже существующих мастеров, полученным через уже готовый метод
+   * apiListMasters (action:'listmasters', 6_WebApi.gs) — эти серверные
+   * функции не менялись, они уже общие и не привязаны к act.html.
+   */
+  function setupMasterField_() {
+    var autoWrap = document.getElementById('masterAutoWrap');
+    var adminWrap = document.getElementById('masterAdminWrap');
+    if (!IS_SUPER) {
+      autoWrap.style.display = 'block';
+      adminWrap.style.display = 'none';
+      document.getElementById('f_master_auto').value = ADMIN_NAME;
+      return;
+    }
+    autoWrap.style.display = 'none';
+    adminWrap.style.display = 'block';
+    // По умолчанию предлагаем имя самого вошедшего супер-админа — он
+    // тоже может сам выполнять работу как мастер, но это лишь подсказка
+    // по умолчанию, поле остаётся полностью свободным для ввода.
+    document.getElementById('f_master_input').value = ADMIN_NAME;
+    apiPost({ action: 'listmasters', name: ADMIN_NAME, pw: PW })
+      .then(function (res) {
+        if (!res.ok || !res.masters) return;
+        var list = document.getElementById('masterOptions');
+        list.innerHTML = '';
+        res.masters.forEach(function (n) {
+          var opt = document.createElement('option');
+          opt.value = n;
+          list.appendChild(opt);
+        });
+      })
+      .catch(function () { /* не критично: супер-админ всё ещё может ввести мастера вручную */ });
   }
 
   function logout() {
@@ -888,6 +942,20 @@
   });
 
   function submitAdd(btn) {
+    // ЭТАП 7 (пункт 3 промта фиксов): супер-админ печатает имя мастера в
+    // свободном текстовом поле f_master_input (с подсказками из
+    // <datalist>, см. setupMasterField_); обычный сотрудник по-прежнему
+    // видит только собственное имя в нередактируемом f_master_auto.
+    // Сервер (apiAddRecord) в любом случае сам решает, чьё имя реально
+    // попадёт в запись — обычному сотруднику подделать чужое имя нельзя.
+    var masterName = ADMIN_NAME;
+    if (IS_SUPER) {
+      masterName = document.getElementById('f_master_input').value.trim();
+      if (!masterName) {
+        document.getElementById('addStatus').innerText = '⚠️ Укажите мастера';
+        return;
+      }
+    }
     if (!isKnownVehicle) {
       var owner = document.getElementById('f_owner').value.trim();
       var phone = document.getElementById('f_phone').value.trim();
@@ -917,7 +985,7 @@
       description: document.getElementById('f_description').value,
       parts: document.getElementById('f_parts').value,
       cost: document.getElementById('f_cost').value,
-      master: document.getElementById('f_master').value,
+      master: masterName,
       owner: document.getElementById('f_owner').value,
       phone: document.getElementById('f_phone').value,
       vin: document.getElementById('f_vin').value,
