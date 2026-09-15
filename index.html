@@ -174,9 +174,14 @@
           document.body.appendChild(bar);
         }
 
+        // ЭТАП 13.9: на самом старте страницы (до любого ввода) баннер не
+        // нужен — сразу активируем уже готовый воркер, перезагрузку
+        // сделает обработчик controllerchange ниже (ровно один раз).
         if (reg.waiting && navigator.serviceWorker.controller) {
-          showUpdateBanner(reg.waiting);
+          reg.waiting.postMessage('SKIP_WAITING');
         }
+        // Обновление появилось прямо сейчас, пока вкладка открыта — здесь
+        // поведение не меняем: по-прежнему только баннер с ручной кнопкой.
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
           if (!newWorker) return;
@@ -188,6 +193,11 @@
         });
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState === 'visible') reg.update();
+        });
+        // ЭТАП 13.9: то же самое сразу при восстановлении сети, не
+        // дожидаясь следующего visibilitychange.
+        window.addEventListener('online', function () {
+          reg.update();
         });
       }).catch(function (err) {
         console.log('SW registration failed:', err);

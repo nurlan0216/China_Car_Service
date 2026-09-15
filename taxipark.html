@@ -121,7 +121,26 @@
          СТО — виден сразу в шапке кабинета, скрыт, если номер не задан в
          настройках (SERVICE_PHONE, см. 1_Config.gs / apiGetServicePhone). -->
     <div class="card" id="servicePhoneCard" style="display:none; padding:12px 16px;">
-      📞 Телефон СТО (мастер): <a id="servicePhoneLink" href="#" style="color:var(--accent); font-weight:700; text-decoration:none;"></a>
+      <div>📞 Телефон СТО (мастер): <a id="servicePhoneLink" href="#" style="color:var(--accent); font-weight:700; text-decoration:none;"></a></div>
+      <!-- ЭТАП 13.1 (промт «WhatsApp-кнопки для таксопарка»): та же самая
+           контактная карточка, вторая ссылка — сразу открывает WhatsApp
+           с готовым текстом, чтобы не набирать вручную. -->
+      <a id="servicePhoneWaLink" href="#" target="_blank" rel="noopener"
+         style="display:none; margin-top:8px; align-items:center; gap:6px; color:#25D366; font-weight:600; text-decoration:none; font-size:14px;">
+        💬 Написать в WhatsApp
+      </a>
+    </div>
+
+    <!-- ЭТАП 13.4 (промт «Отказ от WhatsApp-рассылки, подключение к
+         Telegram-боту через уникальную ссылку»): вместо звонка/сообщения
+         директору — одним нажатием подключаем уведомления в Telegram
+         лично этому таксопарку. Текст/кнопка меняются в зависимости от
+         payload.telegramConnected (см. renderTelegramLinkCard_ ниже). -->
+    <div class="card" id="tgLinkCard" style="padding:12px 16px;">
+      <div id="tgLinkStatus" style="margin-bottom:8px;"></div>
+      <button class="btn-primary btn-full" id="tgLinkBtn" onclick="generateTelegramLink_(this)">Подключить уведомления в Telegram</button>
+      <div class="loading" id="tgLinkLoading"></div>
+      <div class="error" id="tgLinkError"></div>
     </div>
 
     <div class="card">
@@ -138,6 +157,36 @@
       </div>
       <button class="btn-primary btn-full" onclick="reloadTaxiparkData()">Применить фильтры</button>
       <div class="loading" id="dataStatus"></div>
+    </div>
+
+    <!-- ЭТАП 13.10 (промт «Таксопарк может добавлять свои машины», версия с
+         правкой «сделать шторкой»): таксопарк не знает пароль будущего
+         водителя, поэтому машина заводится без пароля — точно так же, как
+         уже происходит, когда сотрудник СТО первым заносит запись работ по
+         новому гос. номеру (findOrCreateVehicle, 2_Sheets.gs). Пароль
+         появится позже, когда сам водитель зайдёт в driver.html и увидит
+         экран «Гос. номер уже в базе, но пароль ещё не задан»
+         (apiDriverSetPassword) — здесь ничего заново не придумывается.
+         Раздел сворачиваемый — тот же принцип, что уже используется для
+         карточек машин ниже (veh-head/veh-body + класс open,
+         toggleVehicle_), по умолчанию свёрнут, чтобы не занимать место на
+         экране, когда таксопарк просто хочет посмотреть список машин. -->
+    <div class="card">
+      <div class="veh-head" onclick="toggleAddVehicle_()">
+        <div class="veh-title">➕ Добавить машину</div>
+        <span class="chev" id="addVehicleChev">▼</span>
+      </div>
+      <div class="veh-body" id="addVehicleBody">
+      <label>Гос. номер</label>
+      <input id="avPlate" placeholder="Например, 123ABC02" autocapitalize="characters">
+      <label>Модель (необязательно)</label>
+      <input id="avModel" placeholder="Например, Hongqi H5">
+      <label>VIN (необязательно)</label>
+      <input id="avVin" placeholder="VIN-номер">
+      <button class="btn-primary btn-full" onclick="addTaxiparkVehicle(this)">Добавить машину</button>
+      <div class="error" id="addVehicleError"></div>
+      <div class="loading" id="addVehicleStatus"></div>
+      </div>
     </div>
 
     <div id="vehiclesWrap"></div>
@@ -168,7 +217,7 @@
       <label>Адрес офиса</label>
       <input id="pf_address" placeholder="Город, улица, дом">
       <label>Телефон для связи</label>
-      <input id="pf_phone" placeholder="+996...">
+      <input id="pf_phone" placeholder="+7 777 777 77 77">
       <button class="btn-primary btn-full" onclick="saveTaxiparkProfile(this)">Сохранить и продолжить</button>
       <div class="error" id="profileError"></div>
       <div class="loading" id="profileStatus"></div>
@@ -199,6 +248,27 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+
+  // ЭТАП 13.7/13.10: autocapitalize="characters" — только подсказка
+  // виртуальной клавиатуре телефона, ничего не гарантирует и не работает
+  // на компьютере. Принудительно переводим значение поля гос. номера в
+  // верхний регистр по событию 'input', сохраняя позицию курсора (тот же
+  // код, что уже используется в to.html/driver.html/act.html).
+  function forceUppercasePlate_(input) {
+    if (!input) return;
+    input.addEventListener('input', function () {
+      var start = input.selectionStart;
+      var end = input.selectionEnd;
+      var upper = input.value.toUpperCase();
+      if (upper !== input.value) {
+        input.value = upper;
+        if (start !== null && end !== null) {
+          input.setSelectionRange(start, end);
+        }
+      }
+    });
+  }
+  forceUppercasePlate_(document.getElementById('avPlate'));
 
   function withButtonBusy_(btn, busyText, fn) {
     var orig = btn.innerText;
@@ -282,21 +352,76 @@
     document.getElementById('profileScreen').style.display = 'none';
     document.getElementById('cabinet').style.display = 'block';
     document.getElementById('tpTitle').innerText = '🚖 ' + payload.taxiparkName;
-    renderServicePhone_(payload.servicePhone);
+    renderServicePhone_(payload.servicePhone, payload.taxiparkName);
     renderTaxiparkData_(payload);
     scheduleTaxiparkAutoRefresh_();
+  }
+
+  // ЭТАП 13.4: карточка перерисовывается при каждом показе кабинета И при
+  // каждом тихом автообновлении (см. renderTaxiparkData_ ниже), поэтому
+  // как только чат реально подключится (пользователь перейдёт по ссылке
+  // и напишет боту /start), статус в кабинете обновится сам, без
+  // перезахода — в течение ближайших 20 секунд, как и остальные данные.
+  function renderTelegramLinkCard_(payload) {
+    var statusEl = document.getElementById('tgLinkStatus');
+    var btn = document.getElementById('tgLinkBtn');
+    if (payload.telegramConnected) {
+      statusEl.innerHTML = '✅ Telegram уже подключён — сюда приходят история и акты по вашим машинам.';
+      btn.textContent = '🔄 Выдать новую ссылку';
+    } else {
+      statusEl.innerHTML = '📲 Подключите уведомления в Telegram — сюда будут приходить история обслуживания и акты по вашим машинам.';
+      btn.textContent = 'Подключить уведомления в Telegram';
+    }
+  }
+
+  function generateTelegramLink_(btn) {
+    var errEl = document.getElementById('tgLinkError');
+    var loadingEl = document.getElementById('tgLinkLoading');
+    errEl.innerText = '';
+    loadingEl.innerText = 'Получаю ссылку...';
+    withButtonBusy_(btn, 'Получаю ссылку...', function () {
+      return apiPost({ action: 'taxiparkGenerateTelegramLink', name: TP_NAME, code: TP_CODE })
+        .then(function (res) {
+          loadingEl.innerText = '';
+          if (!res.ok) { errEl.innerText = res.error || 'Не удалось получить ссылку'; return; }
+          window.open(res.link, '_blank', 'noopener');
+        })
+        .catch(function () {
+          loadingEl.innerText = '';
+          errEl.innerText = 'Ошибка сети — попробуйте ещё раз.';
+        });
+    });
   }
 
   // ЭТАП 11 (промт «Номер мастера для таксопарков»): показываем блок,
   // только если номер вообще задан в настройках СТО — иначе он просто
   // не заполнен, показывать пустую строку незачем.
-  function renderServicePhone_(phone) {
+  function renderServicePhone_(phone, taxiparkName) {
     var card = document.getElementById('servicePhoneCard');
-    if (!phone) { card.style.display = 'none'; return; }
+    // ЭТАП 13.1 (доработка): если в SERVICE_PHONE всё ещё стоит заглушка
+    // из шаблона setupConfig() (например, "+7 (___) ___-__-__" — с
+    // подчёркиваниями вместо цифр) — это НЕ настоящий номер. Раньше в
+    // этом случае карточка всё равно показывалась с "номером"-заглушкой
+    // и ссылка на WhatsApp получалась битой (набиралась всего 1 цифра).
+    // Теперь считаем это тем же самым, что и пустой SERVICE_PHONE —
+    // просто не показываем блок вовсе, пока не впишут реальный номер.
+    var digitsOnly = String(phone || '').replace(/[^0-9]/g, '');
+    if (!phone || phone.indexOf('_') !== -1 || digitsOnly.length < 10) {
+      card.style.display = 'none';
+      return;
+    }
     var link = document.getElementById('servicePhoneLink');
     link.innerText = phone;
     link.href = 'tel:' + phone.replace(/[^0-9+]/g, '');
     card.style.display = 'block';
+
+    // Та же цифровая часть номера, что и у tel:-ссылки выше, только без
+    // "+" — таков формат wa.me. Готовый текст подставляет название
+    // таксопарка, чтобы мастеру сразу было понятно, кто пишет.
+    var waLink = document.getElementById('servicePhoneWaLink');
+    var text = 'Здравствуйте, Куаныш, я с таксопарка «' + (taxiparkName || '') + '», пишу вам.';
+    waLink.href = 'https://wa.me/' + digitsOnly + '?text=' + encodeURIComponent(text);
+    waLink.style.display = 'inline-flex';
   }
 
   // ЭТАП 10 (п.7 промта — автообновление у всех): пока кабинет открыт,
@@ -343,6 +468,56 @@
       });
   }
 
+  // ЭТАП 13.10 (правка «шторка»): тот же принцип, что и toggleVehicle_
+  // ниже — просто переключает класс open на теле раздела и стрелку.
+  function toggleAddVehicle_() {
+    var body = document.getElementById('addVehicleBody');
+    var chev = document.getElementById('addVehicleChev');
+    var isOpen = body.classList.toggle('open');
+    chev.textContent = isOpen ? '▲' : '▼';
+  }
+
+  // ЭТАП 13.10 (промт «Таксопарк может добавлять свои машины»): серверный
+  // метод сам проверяет verifyTaxiparkLogin_ и подставляет название
+  // таксопарка из уже проверенной сессии — форма его никуда не передаёт.
+  // Машина заводится без пароля (см. apiTaxiparkAddVehicle, 6_WebApi.gs);
+  // при успехе просто перерисовываем список тем же payload, который уже
+  // содержит новую машину.
+  function addTaxiparkVehicle(btn) {
+    var plate = document.getElementById('avPlate').value.trim();
+    var model = document.getElementById('avModel').value.trim();
+    var vin = document.getElementById('avVin').value.trim();
+    var errEl = document.getElementById('addVehicleError');
+    var statusEl = document.getElementById('addVehicleStatus');
+    errEl.innerText = '';
+
+    if (!plate) {
+      errEl.innerText = 'Укажите гос. номер';
+      return;
+    }
+
+    statusEl.innerText = 'Добавляю...';
+    withButtonBusy_(btn, 'Добавляю...', function () {
+      return apiPost({ action: 'taxiparkAddVehicle', name: TP_NAME, code: TP_CODE, plate: plate, model: model, vin: vin })
+        .then(function (res) {
+          statusEl.innerText = '';
+          if (!res.ok) { errEl.innerText = res.error || 'Не удалось добавить машину'; return; }
+          document.getElementById('avPlate').value = '';
+          document.getElementById('avModel').value = '';
+          document.getElementById('avVin').value = '';
+          renderTaxiparkData_(res);
+          scheduleTaxiparkAutoRefresh_();
+          // ЭТАП 13.10 (правка «шторка»): после успеха сворачиваем форму
+          // обратно, как будто пользователь сам ещё раз кликнул по
+          // заголовку — не оставляем открытую форму поверх обновившегося
+          // списка машин.
+          var body = document.getElementById('addVehicleBody');
+          if (body.classList.contains('open')) toggleAddVehicle_();
+        })
+        .catch(function () { statusEl.innerText = ''; errEl.innerText = 'Ошибка сети — попробуйте ещё раз.'; });
+    });
+  }
+
   function toggleVehicle_(plate) {
     openVehiclePlates_[plate] = !openVehiclePlates_[plate];
     var body = document.getElementById('vbody_' + cssId_(plate));
@@ -354,6 +529,7 @@
   }
 
   function renderTaxiparkData_(payload) {
+    renderTelegramLinkCard_(payload);
     document.getElementById('sumVehicles').innerText = payload.vehicles.length;
     document.getElementById('sumTotal').innerText = (Number(payload.total) || 0).toLocaleString('ru-RU') + ' ₸';
     document.getElementById('tpSubStatus').innerText = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
@@ -364,10 +540,24 @@
       return;
     }
 
+    // ЭТАП 13.2: номер мастера и название таксопарка уже приходят в этом
+    // же payload (buildTaxiparkCabinetPayload_, 6_WebApi.gs) — новый
+    // API-метод не нужен, только используем то, что уже есть, для кнопки
+    // "Спросить у мастера про эту машину" в каждой карточке.
+    var digitsOnly = String(payload.servicePhone || '').replace(/[^0-9]/g, '');
+    var hasServicePhone = !!payload.servicePhone && payload.servicePhone.indexOf('_') === -1 && digitsOnly.length >= 10;
+
     var html = '';
     payload.vehicles.forEach(function (v) {
       var id = cssId_(v.plate);
       var isOpen = !!openVehiclePlates_[v.plate];
+      var askWaLink = '';
+      if (hasServicePhone) {
+        var askText = 'Здравствуйте, Куаныш, таксопарк «' + (payload.taxiparkName || '') + '», гос. номер ' + v.plate + ', хочу узнать про эту машину.';
+        askWaLink = '<a class="ask-wa-link" href="https://wa.me/' + digitsOnly + '?text=' + encodeURIComponent(askText) + '" target="_blank" rel="noopener" ' +
+          'style="display:inline-flex; align-items:center; gap:6px; margin-bottom:10px; color:#25D366; font-weight:600; text-decoration:none; font-size:14px;">' +
+          '💬 Спросить у мастера про эту машину</a><br>';
+      }
       html += '<div class="veh-card">' +
         '<div class="veh-head" onclick="toggleVehicle_(\'' + escapeHtml(v.plate).replace(/'/g, "\\'") + '\')">' +
           '<div><div class="veh-title">' + escapeHtml(v.plate) + '</div>' +
@@ -375,6 +565,7 @@
           '<div><span class="chev">' + (isOpen ? '▲' : '▼') + '</span></div>' +
         '</div>' +
         '<div class="veh-body' + (isOpen ? ' open' : '') + '" id="vbody_' + id + '">' +
+          askWaLink +
           '<div class="pill" style="margin-bottom:10px;"><b>Итого по машине: ' + (Number(v.total) || 0).toLocaleString('ru-RU') + ' ₸</b></div>' +
           renderVehicleHistoryTable_(v.rows) +
         '</div>' +

@@ -29,6 +29,15 @@
     background:var(--card); border:1px solid var(--border); border-radius:14px;
     padding:16px; margin-bottom:16px;
   }
+  /* ЭТАП 13.3: аккордеон для сворачиваемых разделов кабинета — тот же
+     принцип, что уже работает в taxipark.html (veh-head/veh-body + класс
+     open, стрелка ▲/▼), только применён к заголовкам целых карточек
+     вместо карточек машин. Логика внутри разделов не менялась — только
+     эта обёртка (клик по заголовку сворачивает/разворачивает тело). */
+  .sec-head{display:flex; justify-content:space-between; align-items:center; cursor:pointer;}
+  .sec-body{display:none; margin-top:12px;}
+  .sec-body.open{display:block;}
+  .chev{color:var(--muted); font-size:13px;}
   .row{display:flex; gap:8px;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
@@ -152,7 +161,7 @@
           <input id="f_owner" placeholder="Иванов Иван">
 
           <label>Телефон владельца</label>
-          <input id="f_phone" placeholder="+996...">
+          <input id="f_phone" placeholder="+7 777 777 77 77">
 
           <label>VIN (необязательно)</label>
           <input id="f_vin" placeholder="VIN номер">
@@ -170,7 +179,7 @@
           <label>Тип машины</label>
           <select id="f_cartype" onchange="onCarTypeChangeTo_()">
             <option value="Частная">Частная</option>
-            <option value="Такси">Такси (таксопарк)</option>
+            <option value="Такси">Таксопарк</option>
           </select>
           <div id="f_taxiparkBlock" style="display:none;">
             <label>Таксопарк</label>
@@ -325,7 +334,14 @@
          админ — все (сервер сам решает это в apiGetWorkHistory, фронтенд
          только показывает то, что пришло). -->
     <div class="card" id="historyCard">
-      <h1 style="font-size:16px; margin:0 0 4px;">🧾 История выполненных работ</h1>
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <div>
+          <h1 style="font-size:16px; margin:0 0 4px;">🧾 История выполненных работ</h1>
+          <div class="sub" id="historySubStatus" style="margin:0;"></div>
+        </div>
+        <span class="chev">▲</span>
+      </div>
+      <div class="sec-body open">
       <div class="sub" id="historyScopeNote" style="margin-bottom:12px;">Показаны ваши работы</div>
 
       <label>Фильтр по гос. номеру (необязательно)</label>
@@ -356,6 +372,65 @@
 
       <div id="historyStatus" class="loading" style="margin-top:8px;"></div>
       <div id="historyTableWrap"></div>
+      </div>
+    </div>
+
+    <!-- ЭТАП 13.3: новый порядок разделов — "Заявки на согласование" сразу
+         под историей (было ниже, после Stories/сброса пароля/диагностики).
+         Логика раздела (loadPendingApprovals и т.д.) не менялась. -->
+    <!-- ЭТАП 12.3 (промт «По этой записи уже есть заявка на согласовании»),
+         п.1: супер-админ раньше видел зависшие заявки только открыв лист
+         "ApprovalRequests" в самой Google Таблице. Теперь список виден
+         прямо здесь, с возможностью разрешить/отклонить без Telegram —
+         полезно, если кнопки в Telegram по какой-то причине не работают
+         (см. Этап 12.2) или директор временно недоступен. Видно и
+         работает только для супер-админа (IS_SUPER выше). -->
+    <div class="card" id="pendingApprovalsCard" style="display:none;">
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <h1 style="font-size:16px; margin:0 0 4px;">⏳ Заявки на согласование</h1>
+        <span class="chev">▼</span>
+      </div>
+      <div class="sec-body">
+      <div class="sub" style="margin-bottom:12px;">Заявки сотрудников на изменение/удаление записей, ожидающие решения. Можно решить прямо здесь, не заходя в Telegram. Заявка, провисевшая без решения дольше 48 часов, отклоняется автоматически.</div>
+
+      <button class="btn-primary btn-full" onclick="loadPendingApprovals(this)" style="margin-bottom:10px;">Обновить список</button>
+      <div class="loading" id="pendingApprovalsStatus"></div>
+      <div class="gate-error" id="pendingApprovalsError"></div>
+      <div id="pendingApprovalsList"></div>
+      </div>
+    </div>
+
+    <!-- ЭТАП 13.12 (промт «Доступы таксопарков»): пароль (код доступа)
+         таксопарка нигде не хранится в читаемом виде — только SHA-256-
+         хэш (см. hashTaxiparkCode_/findTaxiparkRow_, 2_Sheets.gs).
+         Показать уже заданный код технически невозможно, поэтому здесь
+         не "посмотреть старый", а выпустить новый на замену — тот же
+         принцип, что уже реализован для сотрудников в Этапе 12.1.
+         Видно и работает только для супер-админа (IS_SUPER выше). -->
+    <div class="card" id="taxiparkAccessCard" style="display:none;">
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <h1 style="font-size:16px; margin:0 0 4px;">🔑 Доступы таксопарков</h1>
+        <span class="chev">▼</span>
+      </div>
+      <div class="sec-body">
+      <div class="sub" style="margin-bottom:12px;">Старый код нигде не сохраняется в открытом виде, поэтому посмотреть его нельзя — только выдать новый взамен. Старый код сразу перестаёт работать.</div>
+
+      <button class="btn-primary btn-full" onclick="loadTaxiparkAccessList_(this)" style="margin-bottom:10px;">Обновить список</button>
+      <div class="loading" id="taxiparkAccessStatus"></div>
+      <div class="gate-error" id="taxiparkAccessError"></div>
+      <div id="taxiparkAccessList"></div>
+
+      <!-- Показывается один раз сразу после успешной выдачи нового кода —
+           дальше нигде не хранится, ровно как при первой выдаче кода. -->
+      <div id="taxiparkNewCodeBox" style="display:none; margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:10px; background:#0d141e;">
+        <div class="sub" style="margin-bottom:6px;">Новый код доступа для «<span id="taxiparkNewCodeName"></span>»:</div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div id="taxiparkNewCodeValue" style="font-size:22px; font-weight:800; letter-spacing:2px;"></div>
+          <button class="btn-primary" onclick="copyTaxiparkNewCode_(this)">Скопировать</button>
+        </div>
+        <div class="sub" style="margin:8px 0 0; color:var(--danger);">Старый код перестал работать — сообщите новый таксопарку.</div>
+      </div>
+      </div>
     </div>
 
     <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
@@ -366,7 +441,11 @@
          полностью заменяют. Показ водителям — в driver.html, никакой
          отдельной страницы для этого нет. -->
     <div class="card" id="storiesCard" style="display:none;">
-      <h1 style="font-size:16px; margin:0 0 4px;">📢 Stories (временные объявления, 24 часа)</h1>
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <h1 style="font-size:16px; margin:0 0 4px;">📢 Stories (временные объявления, 24 часа)</h1>
+        <span class="chev">▼</span>
+      </div>
+      <div class="sec-body">
       <div class="sub" style="margin-bottom:12px;">Публикация видна водителям ровно 24 часа с момента публикации, потом исчезает сама. Можно удалить раньше вручную.</div>
 
       <label>Фото (необязательно)</label>
@@ -385,8 +464,33 @@
         <label style="margin-bottom:8px;">Активные публикации</label>
         <div id="storiesAdminList"></div>
       </div>
+      </div>
     </div>
 
+    <!-- ЭТАП 12.2 (промт «Кнопка "Разрешить" в Telegram ничего не меняет»):
+         супер-админ раньше мог только просить программиста зайти в
+         редактор Apps Script и проверить getWebhookInfo/токен руками.
+         Теперь то же самое видно прямо здесь, одной кнопкой. Видно и
+         работает только для супер-админа (IS_SUPER выше). -->
+    <div class="card" id="tgDiagCard" style="display:none;">
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <h1 style="font-size:16px; margin:0 0 4px;">📡 Диагностика Telegram-уведомлений</h1>
+        <span class="chev">▼</span>
+      </div>
+      <div class="sec-body">
+      <div class="sub" style="margin-bottom:12px;">Используйте, если кнопки «Разрешить»/«Запретить» под заявками в Telegram не работают, или если директор не получает уведомления вовсе.</div>
+
+      <button class="btn-primary btn-full" onclick="checkTelegramDiag(this)">Проверить</button>
+      <div class="gate-error" id="tgDiagError"></div>
+      <div class="loading" id="tgDiagStatus"></div>
+      <div id="tgDiagResult" style="margin-top:10px;"></div>
+
+      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook на текущий URL</button>
+      </div>
+    </div>
+
+    <!-- ЭТАП 13.3: "Сброс пароля" перенесён в самый низ страницы (был
+         сразу после Stories) — используется реже остальных разделов. -->
     <!-- ЭТАП 12 (промт «Неверный пароль» / сброс пароля сотрудника):
          супер-админ мог только смотреть на ошибку в логах и просить
          поправить пароль сотрудника вручную в таблице. Теперь можно
@@ -395,7 +499,11 @@
          работать (см. apiAdminResetPassword, 6_WebApi.gs). Видно и
          работает только для супер-админа (IS_SUPER выше). -->
     <div class="card" id="pwResetCard" style="display:none;">
-      <h1 style="font-size:16px; margin:0 0 4px;">🔑 Сброс пароля сотрудника</h1>
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <h1 style="font-size:16px; margin:0 0 4px;">🔑 Сброс пароля сотрудника</h1>
+        <span class="chev">▼</span>
+      </div>
+      <div class="sec-body">
       <div class="sub" style="margin-bottom:12px;">Используйте, если сотрудник забыл пароль или видит ошибку «Неверный пароль». После сброса все его запомненные устройства разлогинятся — войти нужно будет новым паролем.</div>
 
       <label>Сотрудник</label>
@@ -407,40 +515,57 @@
       <button class="btn-primary btn-full" onclick="resetStaffPassword(this)">Сбросить пароль</button>
       <div class="gate-error" id="pwResetError"></div>
       <div class="loading" id="pwResetStatus"></div>
+      </div>
     </div>
 
-    <!-- ЭТАП 12.2 (промт «Кнопка "Разрешить" в Telegram ничего не меняет»):
-         супер-админ раньше мог только просить программиста зайти в
-         редактор Apps Script и проверить getWebhookInfo/токен руками.
-         Теперь то же самое видно прямо здесь, одной кнопкой. Видно и
-         работает только для супер-админа (IS_SUPER выше). -->
-    <div class="card" id="tgDiagCard" style="display:none;">
-      <h1 style="font-size:16px; margin:0 0 4px;">📡 Диагностика Telegram-уведомлений</h1>
-      <div class="sub" style="margin-bottom:12px;">Используйте, если кнопки «Разрешить»/«Запретить» под заявками в Telegram не работают, или если директор не получает уведомления вовсе.</div>
+    <!-- ЭТАП 13.13 (промт «Рассылка в Telegram»): последний раздел на
+         странице — ещё ниже, чем перенесённый вниз «Сброс пароля».
+         Ручная рассылка сообщением/фото/видео подключённым через Этап
+         13.4 таксопаркам и/или водителям (например: «сервис не работает
+         завтра», акция, ссылка на инструкцию) — то, что не привязано к
+         конкретному акту/машине и не должно идти автоматически. Видно и
+         работает только для супер-админа (IS_SUPER выше), как и
+         «Диагностика Telegram»/«Доступы таксопарков». Файл (если
+         прикреплён) никогда не кладётся на Google Диск — превращается в
+         blob прямо на сервере и уходит в Telegram напрямую, поэтому
+         никакого отдельного «автоудаления после отправки» не требуется
+         (см. комментарий у apiTelegramBroadcast, 6_WebApi.gs). -->
+    <div class="card" id="broadcastCard" style="display:none;">
+      <div class="sec-head" onclick="toggleSection_(this)">
+        <h1 style="font-size:16px; margin:0 0 4px;">📣 Рассылка в Telegram</h1>
+        <span class="chev">▼</span>
+      </div>
+      <div class="sec-body">
+      <div class="sub" style="margin-bottom:12px;">Уходит только тем, кто уже подключил уведомления в Telegram (Этап 13.4) — остальным всё равно нечего слать. Не привязано к конкретной машине/акту, для этого используется обычная отправка истории/актов.</div>
 
-      <button class="btn-primary btn-full" onclick="checkTelegramDiag(this)">Проверить</button>
-      <div class="gate-error" id="tgDiagError"></div>
-      <div class="loading" id="tgDiagStatus"></div>
-      <div id="tgDiagResult" style="margin-top:10px;"></div>
+      <button class="btn-primary btn-full" onclick="loadTelegramRecipients_(this)" style="margin-bottom:10px;">Обновить список получателей</button>
+      <div class="loading" id="broadcastRecipientsStatus"></div>
+      <div class="gate-error" id="broadcastRecipientsError"></div>
 
-      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook на текущий URL</button>
-    </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:flex; align-items:center; gap:8px; font-weight:400;">
+          <input type="checkbox" id="bcAllTaxiparks" style="width:auto;margin:0" onchange="toggleBroadcastGroup_('taxipark')"> Все подключённые таксопарки
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:6px;">
+          <input type="checkbox" id="bcAllDrivers" style="width:auto;margin:0" onchange="toggleBroadcastGroup_('driver')"> Все подключённые водители
+        </label>
+      </div>
 
-    <!-- ЭТАП 12.3 (промт «По этой записи уже есть заявка на согласовании»),
-         п.1: супер-админ раньше видел зависшие заявки только открыв лист
-         "ApprovalRequests" в самой Google Таблице. Теперь список виден
-         прямо здесь, с возможностью разрешить/отклонить без Telegram —
-         полезно, если кнопки в Telegram по какой-то причине не работают
-         (см. Этап 12.2) или директор временно недоступен. Видно и
-         работает только для супер-админа (IS_SUPER выше). -->
-    <div class="card" id="pendingApprovalsCard" style="display:none;">
-      <h1 style="font-size:16px; margin:0 0 4px;">⏳ Заявки на согласование</h1>
-      <div class="sub" style="margin-bottom:12px;">Заявки сотрудников на изменение/удаление записей, ожидающие решения. Можно решить прямо здесь, не заходя в Telegram. Заявка, провисевшая без решения дольше 48 часов, отклоняется автоматически.</div>
+      <div id="broadcastTaxiparkList" style="margin-bottom:8px;"></div>
+      <div id="broadcastDriverList" style="margin-bottom:10px;"></div>
 
-      <button class="btn-primary btn-full" onclick="loadPendingApprovals(this)" style="margin-bottom:10px;">Обновить список</button>
-      <div class="loading" id="pendingApprovalsStatus"></div>
-      <div class="gate-error" id="pendingApprovalsError"></div>
-      <div id="pendingApprovalsList"></div>
+      <label>Текст сообщения</label>
+      <textarea id="broadcastText" rows="3" placeholder="Например: завтра, 12 июня, сервис не работает"></textarea>
+
+      <label>Фото или видео (необязательно)</label>
+      <input id="broadcastMediaInput" type="file" accept="image/*,video/*">
+      <div id="broadcastMediaPreview" style="margin-bottom:10px;"></div>
+
+      <button class="btn-primary btn-full" onclick="sendTelegramBroadcast_(this)">Отправить</button>
+      <div class="gate-error" id="broadcastError"></div>
+      <div class="loading" id="broadcastStatus"></div>
+      <div id="broadcastResult" style="margin-top:10px;"></div>
+      </div>
     </div>
   </div>
 
@@ -448,6 +573,28 @@
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App, полученный при
   // Deploy -> Manage deployments -> Web app (заканчивается на /exec).
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
+
+  // ЭТАП 13.7: autocapitalize="characters" — это лишь подсказка виртуальной
+  // клавиатуре телефона, ничего не гарантирует и не работает на компьютере.
+  // forceUppercasePlate_ по событию 'input' принудительно переводит значение
+  // поля гос. номера в верхний регистр, сохраняя позицию курсора, чтобы он
+  // не прыгал при вводе/правке с середины строки. normalizePlate на сервере
+  // (2_Sheets.gs) уже регистронезависима — это чисто про то, что видит и
+  // печатает пользователь.
+  function forceUppercasePlate_(input) {
+    if (!input) return;
+    input.addEventListener('input', function () {
+      var start = input.selectionStart;
+      var end = input.selectionEnd;
+      var upper = input.value.toUpperCase();
+      if (upper !== input.value) {
+        input.value = upper;
+        if (start !== null && end !== null) {
+          input.setSelectionRange(start, end);
+        }
+      }
+    });
+  }
 
   var currentPlate = '';
   var ADMIN_NAME = '';
@@ -787,10 +934,19 @@
     document.getElementById('pendingApprovalsCard').style.display = IS_SUPER ? 'block' : 'none';
     if (IS_SUPER) loadPendingApprovals();
 
+    // ЭТАП 13.12: карточка «Доступы таксопарков» — тоже только супер-админу.
+    document.getElementById('taxiparkAccessCard').style.display = IS_SUPER ? 'block' : 'none';
+    if (IS_SUPER) loadTaxiparkAccessList_();
+
+    // ЭТАП 13.13: карточка «Рассылка в Telegram» — тоже только супер-админу.
+    document.getElementById('broadcastCard').style.display = IS_SUPER ? 'block' : 'none';
+    if (IS_SUPER) loadTelegramRecipients_();
+
     document.getElementById('historyScopeNote').innerText = IS_SUPER
       ? 'Вы супер-админ: показаны работы всех сотрудников'
       : 'Показаны только ваши работы';
     loadWorkHistory();
+    scheduleHistoryAutoRefresh_(); // ЭТАП 13.8: тихое автообновление раз в 20 сек, пока вкладка открыта
     loadTaxiparkOptionsTo_(); // ЭТАП 11: список таксопарков для формы новой машины
   }
 
@@ -880,9 +1036,38 @@
     }
     document.getElementById('historyScopeNote').innerText = scopeNote;
     renderHistoryTable_(res.rows, res.total, res.isSuperAdmin);
+    // ЭТАП 13.8: та же отметка времени, что уже есть у таксопарка
+    // (tpSubStatus/renderTaxiparkData_ в taxipark.html) — обновляется
+    // при каждом показе данных, и по ручному клику "Показать", и по
+    // тихому автообновлению в фоне.
+    document.getElementById('historySubStatus').innerText =
+      'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
   }
 
-  function loadWorkHistory(showAll) {
+  // ЭТАП 13.8: тот же паттерн, что scheduleTaxiparkAutoRefresh_ в
+  // taxipark.html, только дополнительно проверяем document.visibilityState —
+  // не дёргаем apiPost, пока вкладка свёрнута (в taxipark.html это тоже
+  // было бы уместно, но задание просило перенести именно с этой проверкой
+  // сюда). Пока вкладка скрыта, просто планируем повторную проверку на
+  // тот же интервал, не выполняя запрос.
+  var historyAutoRefreshTimer_ = null;
+  function scheduleHistoryAutoRefresh_() {
+    if (historyAutoRefreshTimer_) clearTimeout(historyAutoRefreshTimer_);
+    historyAutoRefreshTimer_ = setTimeout(function () {
+      if (document.visibilityState === 'visible') {
+        loadWorkHistory(historyShowAll_, true);
+      } else {
+        scheduleHistoryAutoRefresh_();
+      }
+    }, 20000);
+  }
+
+  // ЭТАП 13.8: параметр silent=true — тихое фоновое обновление. В этом
+  // режиме не трогаем статус-строку/список во время загрузки и, как и в
+  // taxipark.html (п.9 промта ЭТАПА 10), при ошибке/отсутствии ответа не
+  // сбрасываем экран — просто оставляем последние успешно загруженные
+  // данные и пробуем снова через тот же интервал.
+  function loadWorkHistory(showAll, silent) {
     if (showAll !== undefined) historyShowAll_ = showAll;
     var statusEl = document.getElementById('historyStatus');
     var wrap = document.getElementById('historyTableWrap');
@@ -906,21 +1091,29 @@
     var cacheKey = 'history_' + ADMIN_NAME + '_' + IS_SUPER + '_' + JSON.stringify(filters);
     var cached = clientCacheGet_(cacheKey);
     if (cached) {
-      statusEl.innerText = '';
+      if (!silent) statusEl.innerText = '';
       applyHistoryResult_(cached, dateFrom, dateTo, filters.showAll);
-    } else {
+    } else if (!silent) {
       statusEl.innerText = 'Загружаю...';
       wrap.innerHTML = '';
     }
 
     apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
       .then(function (res) {
-        if (!res.ok) { if (!cached) handleAuthError({ message: res.error }, 'historyStatus'); return; }
-        statusEl.innerText = '';
+        if (!res.ok) {
+          if (!silent && !cached) handleAuthError({ message: res.error }, 'historyStatus');
+          if (silent) scheduleHistoryAutoRefresh_();
+          return;
+        }
+        if (!silent) statusEl.innerText = '';
         clientCacheSet_(cacheKey, res);
         applyHistoryResult_(res, dateFrom, dateTo, filters.showAll);
+        if (silent) scheduleHistoryAutoRefresh_();
       })
-      .catch(function () { if (!cached) statusEl.innerText = 'Ошибка сети'; });
+      .catch(function () {
+        if (!silent && !cached) statusEl.innerText = 'Ошибка сети';
+        if (silent) scheduleHistoryAutoRefresh_();
+      });
   }
 
   function showAllHistory() {
@@ -1944,6 +2137,18 @@
   document.getElementById('plateInput').addEventListener('keydown', function(e){
     if (e.key === 'Enter') doSearch();
   });
+  forceUppercasePlate_(document.getElementById('plateInput'));
+
+  // ЭТАП 13.3: аккордеон для разделов кабинета — тот же принцип, что и
+  // toggleVehicle_ в taxipark.html. headEl — это сам .sec-head, на
+  // который повешен onclick; следующий соседний элемент — .sec-body.
+  function toggleSection_(headEl) {
+    var body = headEl.nextElementSibling;
+    if (!body) return;
+    var isOpen = body.classList.toggle('open');
+    var chev = headEl.querySelector('.chev');
+    if (chev) chev.textContent = isOpen ? '▲' : '▼';
+  }
 
   /* ===================== STORIES — временная доска объявлений (Этап 6, Часть 4) =====================
      Старое постоянное "Объявление для водителей" (announceCard,
@@ -2068,6 +2273,224 @@
     }
     el.innerHTML = lines.map(function (l) { return '<div style="margin-bottom:6px; font-size:14px;">' + l + '</div>'; }).join('');
     document.getElementById('tgDiagReinstallBtn').style.display = (res.ok && !res.urlMatchesDeploy) ? 'block' : 'none';
+  }
+
+  /**
+   * ЭТАП 13.12 (промт «Доступы таксопарков»): список таксопарков — та же
+   * ручка apiListTaxiparks/getAllTaxiparkNames_, что уже используется в
+   * форме новой машины (loadTaxiparkOptionsTo_), никакого нового
+   * серверного метода для самого списка не нужно.
+   */
+  function loadTaxiparkAccessList_(btn) {
+    var errEl = document.getElementById('taxiparkAccessError');
+    var statusEl = document.getElementById('taxiparkAccessStatus');
+    errEl.innerText = '';
+    statusEl.innerText = 'Загружаю...';
+    document.getElementById('taxiparkNewCodeBox').style.display = 'none';
+
+    return apiGet({ action: 'taxiparks' }).then(function (res) {
+      statusEl.innerText = '';
+      if (!res.ok) { errEl.innerText = res.error || 'Не удалось загрузить список'; return; }
+      renderTaxiparkAccessList_(res.names || []);
+    }).catch(function () {
+      statusEl.innerText = '';
+      errEl.innerText = 'Ошибка сети';
+    });
+  }
+
+  // data-name (не подстановка имени прямо в onclick) — название
+  // таксопарка это свободный текст сотрудника/директора и может
+  // содержать кавычки/апострофы, которые сломали бы встроенный onclick.
+  function renderTaxiparkAccessList_(names) {
+    var wrap = document.getElementById('taxiparkAccessList');
+    if (!names.length) {
+      wrap.innerHTML = '<div class="empty">Таксопарков пока нет</div>';
+      return;
+    }
+    wrap.innerHTML = names.map(function (n) {
+      return '<div class="row" style="align-items:center; margin-bottom:8px;">' +
+        '<div style="flex:1; font-size:14px;">' + escapeHtml(n) + '</div>' +
+        '<button class="btn-primary" style="flex-shrink:0;" data-name="' + escapeHtml(n) + '" onclick="taxiparkIssueNewCode_(this)">Выдать новый код доступа</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function taxiparkIssueNewCode_(btn) {
+    var name = btn.getAttribute('data-name');
+    var errEl = document.getElementById('taxiparkAccessError');
+    errEl.innerText = '';
+    document.getElementById('taxiparkNewCodeBox').style.display = 'none';
+    if (!confirm('Выдать новый код доступа таксопарку «' + name + '»? Старый код сразу перестанет работать.')) return;
+
+    withButtonBusy_(btn, 'Выдаю...', function () {
+      return apiPost({ action: 'taxiparkResetCode', name: ADMIN_NAME, pw: PW, taxiparkName: name }).then(function (res) {
+        if (!res.ok) { errEl.innerText = res.error || 'Не удалось выдать новый код'; return; }
+        document.getElementById('taxiparkNewCodeName').innerText = name;
+        document.getElementById('taxiparkNewCodeValue').innerText = res.code;
+        document.getElementById('taxiparkNewCodeBox').style.display = 'block';
+      }).catch(function () {
+        errEl.innerText = 'Ошибка сети';
+      });
+    });
+  }
+
+  function copyTaxiparkNewCode_(btn) {
+    var code = document.getElementById('taxiparkNewCodeValue').innerText;
+    if (!code) return;
+    navigator.clipboard.writeText(code).then(function () {
+      var orig = btn.innerText;
+      btn.innerText = 'Скопировано!';
+      setTimeout(function () { btn.innerText = orig; }, 1500);
+    }).catch(function () { /* буфер обмена недоступен (например, http без TLS) — код всё равно виден на экране */ });
+  }
+
+  /**
+   * ЭТАП 13.13 (промт «Рассылка в Telegram»): список подключённых
+   * таксопарков/водителей — рендерится чекбоксами (тот же визуальный
+   * паттерн, что и у payParts выше: input[type=checkbox] +
+   * style="width:auto;margin:0"). data-* атрибуты вместо подстановки
+   * названия/номера прямо в код чекбокса — название таксопарка/гос.
+   * номер это данные из таблицы и не должны ломать разметку, если в них
+   * вдруг окажутся кавычки.
+   */
+  var telegramRecipients_ = { taxiparks: [], drivers: [] };
+
+  function loadTelegramRecipients_(btn) {
+    var errEl = document.getElementById('broadcastRecipientsError');
+    var statusEl = document.getElementById('broadcastRecipientsStatus');
+    errEl.innerText = '';
+    statusEl.innerText = 'Загружаю...';
+
+    return apiPost({ action: 'listTelegramRecipients', name: ADMIN_NAME, pw: PW }).then(function (res) {
+      statusEl.innerText = '';
+      if (!res.ok) { errEl.innerText = res.error || 'Не удалось загрузить список получателей'; return; }
+      telegramRecipients_ = { taxiparks: res.taxiparks || [], drivers: res.drivers || [] };
+      renderTelegramRecipientLists_();
+    }).catch(function () {
+      statusEl.innerText = '';
+      errEl.innerText = 'Ошибка сети';
+    });
+  }
+
+  function renderTelegramRecipientLists_() {
+    var tpWrap = document.getElementById('broadcastTaxiparkList');
+    var drWrap = document.getElementById('broadcastDriverList');
+
+    if (!telegramRecipients_.taxiparks.length) {
+      tpWrap.innerHTML = '<div class="empty">Ни один таксопарк ещё не подключил уведомления в Telegram</div>';
+    } else {
+      tpWrap.innerHTML = '<div class="sub" style="margin-bottom:4px;">Конкретные таксопарки:</div>' +
+        telegramRecipients_.taxiparks.map(function (tp) {
+          return '<label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:4px;">' +
+            '<input type="checkbox" class="bc-taxipark-cb" data-name="' + escapeHtml(tp.name) + '" style="width:auto;margin:0"> ' +
+            escapeHtml(tp.name) + '</label>';
+        }).join('');
+    }
+
+    if (!telegramRecipients_.drivers.length) {
+      drWrap.innerHTML = '<div class="empty">Ни один водитель ещё не подключил уведомления в Telegram</div>';
+    } else {
+      drWrap.innerHTML = '<div class="sub" style="margin-bottom:4px;">Конкретные водители:</div>' +
+        telegramRecipients_.drivers.map(function (d) {
+          var label = d.plate + (d.ownerName ? ' (' + d.ownerName + ')' : '');
+          return '<label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:4px;">' +
+            '<input type="checkbox" class="bc-driver-cb" data-plate="' + escapeHtml(d.plate) + '" style="width:auto;margin:0"> ' +
+            escapeHtml(label) + '</label>';
+        }).join('');
+    }
+
+    toggleBroadcastGroup_('taxipark');
+    toggleBroadcastGroup_('driver');
+  }
+
+  // «Все подключённые таксопарки/водители» — при отметке галочки
+  // отдельные чекбоксы конкретных получателей той же группы блокируются
+  // и снимаются, чтобы не путать (выбор либо «все», либо конкретные, не
+  // одновременно — на сервере это и так не задваивается за счёт
+  // дедупликации по chat_id, но в интерфейсе так честнее и понятнее).
+  function toggleBroadcastGroup_(group) {
+    var allCb = document.getElementById(group === 'taxipark' ? 'bcAllTaxiparks' : 'bcAllDrivers');
+    var itemCbs = document.querySelectorAll(group === 'taxipark' ? '.bc-taxipark-cb' : '.bc-driver-cb');
+    itemCbs.forEach(function (cb) {
+      cb.disabled = allCb.checked;
+      if (allCb.checked) cb.checked = false;
+    });
+  }
+
+  var pendingBroadcastMedia = null; // { base64, mimeType, fileName } выбранного, но ещё не отправленного вложения
+
+  document.getElementById('broadcastMediaInput').addEventListener('change', function (e) {
+    var file = e.target.files && e.target.files[0];
+    var preview = document.getElementById('broadcastMediaPreview');
+    if (!file) { pendingBroadcastMedia = null; preview.innerHTML = ''; return; }
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      var base64 = reader.result.split(',')[1];
+      pendingBroadcastMedia = { base64: base64, mimeType: file.type, fileName: file.name };
+      preview.innerHTML = file.type.indexOf('video/') === 0
+        ? '<video src="' + reader.result + '" controls style="max-width:220px; border-radius:10px; display:block;"></video>'
+        : '<img src="' + reader.result + '" style="max-width:160px; border-radius:10px; display:block;">';
+    };
+    reader.readAsDataURL(file);
+  });
+
+  function sendTelegramBroadcast_(btn) {
+    var errEl = document.getElementById('broadcastError');
+    var statusEl = document.getElementById('broadcastStatus');
+    var resultEl = document.getElementById('broadcastResult');
+    errEl.innerText = '';
+    resultEl.innerHTML = '';
+
+    var text = document.getElementById('broadcastText').value.trim();
+    if (!text && !pendingBroadcastMedia) {
+      errEl.innerText = 'Добавьте текст сообщения или прикрепите фото/видео.';
+      return;
+    }
+
+    var recipients = {
+      allTaxiparks: document.getElementById('bcAllTaxiparks').checked,
+      allDrivers: document.getElementById('bcAllDrivers').checked,
+      taxiparkNames: Array.prototype.map.call(document.querySelectorAll('.bc-taxipark-cb:checked'), function (cb) { return cb.getAttribute('data-name'); }),
+      plates: Array.prototype.map.call(document.querySelectorAll('.bc-driver-cb:checked'), function (cb) { return cb.getAttribute('data-plate'); })
+    };
+
+    var nothingSelected = !recipients.allTaxiparks && !recipients.allDrivers &&
+      !recipients.taxiparkNames.length && !recipients.plates.length;
+    if (nothingSelected) {
+      errEl.innerText = 'Выберите хотя бы одного получателя.';
+      return;
+    }
+
+    if (!confirm('Отправить сообщение выбранным получателям в Telegram?')) return;
+
+    withButtonBusy_(btn, 'Отправляю...', function () {
+      statusEl.innerText = 'Отправляю...';
+      return apiPost({
+        action: 'telegramBroadcast', name: ADMIN_NAME, pw: PW,
+        recipients: recipients, text: text, media: pendingBroadcastMedia
+      }).then(function (res) {
+        statusEl.innerText = '';
+        if (!res.ok) { errEl.innerText = res.error || 'Не удалось отправить рассылку'; return; }
+
+        resultEl.innerHTML = '<div style="font-weight:600;">✅ Отправлено успешно: ' + res.sentCount + ' из ' + res.total + '</div>' +
+          (res.failed && res.failed.length
+            ? '<div class="sub" style="margin-top:6px; color:var(--danger);">Не удалось отправить: ' + res.failed.map(escapeHtml).join(', ') + '</div>'
+            : '');
+
+        document.getElementById('broadcastText').value = '';
+        document.getElementById('broadcastMediaInput').value = '';
+        document.getElementById('broadcastMediaPreview').innerHTML = '';
+        pendingBroadcastMedia = null;
+        document.getElementById('bcAllTaxiparks').checked = false;
+        document.getElementById('bcAllDrivers').checked = false;
+        toggleBroadcastGroup_('taxipark');
+        toggleBroadcastGroup_('driver');
+      }).catch(function () {
+        statusEl.innerText = '';
+        errEl.innerText = 'Ошибка сети';
+      });
+    });
   }
 
   function checkTelegramDiag(btn) {
@@ -2253,11 +2676,19 @@
           document.body.appendChild(bar);
         }
 
-        // Обновление уже готово (воркер ждал ещё до открытия этой вкладки).
+        // ЭТАП 13.9: обновление уже готово (воркер ждал ещё до открытия
+        // этой вкладки) — раньше в этом случае тоже показывался баннер,
+        // хотя пользователь ещё ничего не успел ввести. Теперь на самом
+        // старте страницы (до любого ввода) баннер не нужен — сразу
+        // активируем новый воркер, а перезагрузку сделает уже имеющийся
+        // ниже обработчик controllerchange (ровно один раз).
         if (reg.waiting && navigator.serviceWorker.controller) {
-          showUpdateBanner(reg.waiting);
+          reg.waiting.postMessage('SKIP_WAITING');
         }
-        // Обновление появилось прямо сейчас, пока вкладка открыта.
+        // Обновление появилось прямо сейчас, пока вкладка открыта —
+        // здесь поведение НЕ меняем: пользователь мог уже начать
+        // заполнять форму, поэтому по-прежнему только баннер с ручной
+        // кнопкой «Обновить» (см. ЭТАП 8.1).
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
           if (!newWorker) return;
@@ -2272,6 +2703,12 @@
         // на вкладку.
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState === 'visible') reg.update();
+        });
+        // ЭТАП 13.9: то же самое — сразу при восстановлении сети, не
+        // дожидаясь следующего visibilitychange. Актуально в СТО и в
+        // дороге, где связь то пропадает, то появляется.
+        window.addEventListener('online', function () {
+          reg.update();
         });
       }).catch(function (err) {
         console.log('SW registration failed:', err);

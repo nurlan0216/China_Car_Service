@@ -132,7 +132,13 @@
 </head>
 <body>
 
-  <a class="wa-master" href="https://wa.me/77026743123" target="_blank" rel="noopener">
+  <!-- ЭТАП 13.11-Б: номер мастера — единственный источник правды это
+       SERVICE_PHONE (1_Config.gs) через apiGetServicePhone/action=servicephone.
+       Раньше здесь был захардкожен номер отдельной строкой — если бы номер
+       поменяли в настройках, эта ссылка так и осталась бы со старым
+       значением. Ссылка скрыта, пока номер не подгружен (см. initWaMaster_
+       ниже), чтобы не мелькать битой ссылкой на заглушку. -->
+  <a class="wa-master" id="waMasterLink" href="#" target="_blank" rel="noopener" style="display:none;">
     <svg viewBox="0 0 32 32" fill="currentColor"><path d="M16.02 3C9.4 3 4 8.37 4 15c0 2.36.68 4.56 1.86 6.42L4 29l7.77-2.04A11.9 11.9 0 0 0 16.02 27C22.63 27 28 21.63 28 15S22.63 3 16.02 3zm0 21.8c-2 0-3.87-.55-5.47-1.51l-.39-.23-4.6 1.21 1.23-4.48-.25-.46A9.7 9.7 0 0 1 5.2 15c0-5.96 4.86-10.8 10.82-10.8S26.84 9.04 26.84 15 21.98 24.8 16.02 24.8zm5.94-8.1c-.33-.16-1.92-.95-2.22-1.06-.3-.11-.51-.16-.73.17-.22.33-.84 1.06-1.03 1.27-.19.22-.38.24-.71.08-.33-.17-1.38-.51-2.63-1.63-.97-.87-1.63-1.94-1.82-2.27-.19-.33-.02-.5.14-.67.15-.15.33-.38.5-.57.16-.19.22-.33.33-.55.11-.22.05-.41-.03-.57-.08-.17-.73-1.76-1-2.4-.26-.63-.53-.55-.73-.56h-.62c-.22 0-.57.08-.87.41-.3.33-1.14 1.11-1.14 2.71 0 1.6 1.17 3.15 1.33 3.37.16.22 2.3 3.51 5.58 4.92.78.34 1.39.54 1.87.69.79.25 1.5.22 2.07.13.63-.1 1.92-.79 2.19-1.55.27-.76.27-1.42.19-1.55-.08-.14-.3-.22-.63-.38z"/></svg>
     Ваш мастер — связаться
   </a>
@@ -174,7 +180,7 @@
 
       <label>Тип авто</label>
       <select id="r_type" onchange="onDriverTypeChange_()">
-        <option value="Такси">Такси</option>
+        <option value="Такси">Таксопарк</option>
         <option value="Частная">Частная</option>
       </select>
 
@@ -210,7 +216,7 @@
       <div class="loading" id="scanStatus"></div>
 
       <label>WhatsApp номер</label>
-      <input id="r_whatsapp" placeholder="+996...">
+      <input id="r_whatsapp" placeholder="+7 777 777 77 77">
 
       <label>Модель автомобиля</label>
       <input id="r_model" placeholder="Например, Chevrolet Cobalt">
@@ -269,6 +275,17 @@
 
     <h1>🚕 Мой автомобиль</h1>
     <div class="sub" id="cabPlateSub"></div>
+
+    <!-- ЭТАП 13.4 (промт «Отказ от WhatsApp-рассылки, подключение к
+         Telegram-боту через уникальную ссылку»): та же кнопка, что и в
+         taxipark.html — одним нажатием подключаем уведомления в Telegram
+         лично этому водителю. -->
+    <div class="card" id="tgLinkCard" style="padding:12px 16px;">
+      <div id="tgLinkStatus" style="margin-bottom:8px;"></div>
+      <button class="btn-primary btn-full" id="tgLinkBtn" onclick="generateTelegramLink_(this)">Подключить уведомления в Telegram</button>
+      <div class="loading" id="tgLinkLoading"></div>
+      <div class="error" id="tgLinkError"></div>
+    </div>
 
     <div class="card">
       <div class="veh-title" id="vehModel">—</div>
@@ -337,6 +354,26 @@
 <script>
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App (тот же, что в to.html/act.html).
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
+
+  // ЭТАП 13.7: см. подробный комментарий к этой же функции в to.html —
+  // autocapitalize="characters" не гарантирует верхний регистр (особенно на
+  // компьютере), поэтому принудительно переводим value в верхний регистр по
+  // событию 'input', сохраняя позицию курсора.
+  function forceUppercasePlate_(input) {
+    if (!input) return;
+    input.addEventListener('input', function () {
+      var start = input.selectionStart;
+      var end = input.selectionEnd;
+      var upper = input.value.toUpperCase();
+      if (upper !== input.value) {
+        input.value = upper;
+        if (start !== null && end !== null) {
+          input.setSelectionRange(start, end);
+        }
+      }
+    });
+  }
+  forceUppercasePlate_(document.getElementById('plateInput'));
 
   var currentPlate = localStorage.getItem('driver_plate') || '';
   var deviceToken = localStorage.getItem('driver_device_token') || '';
@@ -520,6 +557,24 @@
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
     return fetchWithRetry_(url).then(function (r) { return r.json(); });
   }
+
+  // ЭТАП 13.11-Б: подтягиваем номер мастера из SERVICE_PHONE (единый
+  // источник правды, тот же apiGetServicePhone, что и в taxipark.html) и
+  // заполняем ссылку "Ваш мастер — связаться" наверху страницы. Та же
+  // защита от заглушки "+7 (___) ___-__-__", что и в
+  // taxipark.html/renderServicePhone_ — пока не вписан реальный номер,
+  // ссылка остаётся скрытой, а не ведёт на битый wa.me/___.
+  function initWaMaster_() {
+    apiGet({ action: 'servicephone' }).then(function (res) {
+      var phone = res && res.ok ? res.phone : '';
+      var digitsOnly = String(phone || '').replace(/[^0-9]/g, '');
+      if (!phone || phone.indexOf('_') !== -1 || digitsOnly.length < 10) return;
+      var link = document.getElementById('waMasterLink');
+      link.href = 'https://wa.me/' + digitsOnly;
+      link.style.display = 'inline-flex';
+    }).catch(function () { /* нет сети — просто оставляем ссылку скрытой */ });
+  }
+  initWaMaster_();
 
   // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
   function apiPost(payload) {
@@ -892,6 +947,7 @@
     if (!fromCache) clientCacheSet_('cabinet_' + currentPlate, data);
 
     document.getElementById('cabPlateSub').innerText = 'Гос. номер: ' + currentPlate;
+    renderTelegramLinkCard_(data);
     document.getElementById('vehModel').innerText = data.model || 'Модель не указана';
     document.getElementById('vehVin').innerText = 'VIN: ' + (data.vin || '—');
     document.getElementById('vehDriver').innerText =
@@ -928,6 +984,52 @@
     renderHistory(rows);
     loadActs();
     loadStories();
+  }
+
+  // ЭТАП 13.4: карточка перерисовывается при каждом показе кабинета — как
+  // только чат реально подключится (пользователь перейдёт по ссылке и
+  // напишет боту /start), статус обновится сам при следующем открытии
+  // кабинета/входе.
+  function renderTelegramLinkCard_(data) {
+    var statusEl = document.getElementById('tgLinkStatus');
+    var btn = document.getElementById('tgLinkBtn');
+    if (data.telegramConnected) {
+      statusEl.innerHTML = '✅ Telegram уже подключён — сюда приходят история и акты по вашей машине.';
+      btn.textContent = '🔄 Выдать новую ссылку';
+    } else {
+      statusEl.innerHTML = '📲 Подключите уведомления в Telegram — сюда будут приходить история обслуживания и акты по вашей машине.';
+      btn.textContent = 'Подключить уведомления в Telegram';
+    }
+  }
+
+  // ЭТАП 13.4: проверка та же, что и вход (пароль), но если водитель зашёл
+  // по "запомненному устройству" (Этап 4), пароль на клиенте не хранится —
+  // используем deviceToken из localStorage как равноценное доказательство
+  // (см. комментарий у apiDriverGenerateTelegramLink, 6_WebApi.gs). Если
+  // ни пароля, ни deviceToken нет (крайне редкий случай) — просим ввести
+  // пароль ещё раз тем же простым способом, что и в других местах кабинета.
+  function generateTelegramLink_(btn) {
+    var errEl = document.getElementById('tgLinkError');
+    var loadingEl = document.getElementById('tgLinkLoading');
+    errEl.innerText = '';
+
+    var savedToken = localStorage.getItem('driver_device_token');
+    var password = savedToken ? '' : window.prompt('Введите пароль от кабинета, чтобы подключить Telegram:') || '';
+    if (!savedToken && !password) return;
+
+    loadingEl.innerText = 'Получаю ссылку...';
+    withButtonBusy_(btn, 'Получаю ссылку...', function () {
+      return apiPost({ action: 'driverGenerateTelegramLink', plate: currentPlate, password: password, deviceToken: savedToken || '' })
+        .then(function (res) {
+          loadingEl.innerText = '';
+          if (!res.ok) { errEl.innerText = res.error || 'Не удалось получить ссылку'; return; }
+          window.open(res.link, '_blank', 'noopener');
+        })
+        .catch(function () {
+          loadingEl.innerText = '';
+          errEl.innerText = 'Ошибка сети — попробуйте ещё раз.';
+        });
+    });
   }
 
   // ЭТАП 4 (Часть 4.3 промта): показывает водителю короткий блок с
@@ -1212,9 +1314,15 @@
           document.body.appendChild(bar);
         }
 
+        // ЭТАП 13.9: на самом старте страницы (до любого ввода) баннер не
+        // нужен — сразу активируем уже готовый воркер, перезагрузку
+        // сделает обработчик controllerchange ниже (ровно один раз).
         if (reg.waiting && navigator.serviceWorker.controller) {
-          showUpdateBanner(reg.waiting);
+          reg.waiting.postMessage('SKIP_WAITING');
         }
+        // Обновление появилось прямо сейчас, пока вкладка открыта —
+        // здесь поведение не меняем: пользователь мог начать заполнять
+        // форму, поэтому по-прежнему только баннер с ручной кнопкой.
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
           if (!newWorker) return;
@@ -1226,6 +1334,11 @@
         });
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState === 'visible') reg.update();
+        });
+        // ЭТАП 13.9: то же самое сразу при восстановлении сети, не
+        // дожидаясь следующего visibilitychange.
+        window.addEventListener('online', function () {
+          reg.update();
         });
       }).catch(function (err) {
         console.log('SW registration failed:', err);
