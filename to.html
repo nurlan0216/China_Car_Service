@@ -39,6 +39,17 @@
   .sec-body.open{display:block;}
   .chev{color:var(--muted); font-size:13px;}
   .row{display:flex; gap:8px;}
+  /* ЭТАП 13.13-fix («реальный прогресс-бар»): визуальный индикатор
+     реальной загрузки (upload) больших вложений (фото/видео в Stories и
+     в рассылке) — раньше вместо него был просто статичный текст
+     «Отправляю...», который никак не показывал, сколько уже ушло и жив
+     ли вообще запрос. Полоса скрыта, пока не идёт загрузка (см.
+     showUploadProgress_/hideUploadProgress_). */
+  .progress-wrap{display:none; margin:8px 0;}
+  .progress-wrap.active{display:block;}
+  .progress-track{width:100%; height:8px; background:#0d141e; border:1px solid var(--border); border-radius:6px; overflow:hidden;}
+  .progress-fill{height:100%; width:0%; background:var(--accent); transition:width .12s linear;}
+  .progress-pct{font-size:12px; color:var(--muted); margin-top:4px;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
     background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
@@ -459,6 +470,10 @@
       <div class="sub" style="margin:6px 0 0;">Удалится автоматически через 24 часа</div>
       <div class="gate-error" id="storyError"></div>
       <div class="loading" id="storyStatus"></div>
+      <div class="progress-wrap" id="storyProgressWrap">
+        <div class="progress-track"><div class="progress-fill" id="storyProgressFill"></div></div>
+        <div class="progress-pct" id="storyProgressPct">0%</div>
+      </div>
 
       <div style="border-top:1px solid var(--border); margin-top:14px; padding-top:12px;">
         <label style="margin-bottom:8px;">Активные публикации</label>
@@ -564,6 +579,10 @@
       <button class="btn-primary btn-full" onclick="sendTelegramBroadcast_(this)">Отправить</button>
       <div class="gate-error" id="broadcastError"></div>
       <div class="loading" id="broadcastStatus"></div>
+      <div class="progress-wrap" id="broadcastProgressWrap">
+        <div class="progress-track"><div class="progress-fill" id="broadcastProgressFill"></div></div>
+        <div class="progress-pct" id="broadcastProgressPct">0%</div>
+      </div>
       <div id="broadcastResult" style="margin-top:10px;"></div>
       </div>
     </div>
@@ -651,6 +670,105 @@
       return new Promise(function (resolve) { setTimeout(resolve, pause); })
         .then(function () { return fetchWithRetry_(url, options, attempt + 1); });
     });
+  }
+
+  /**
+   * ЭТАП 13.13-fix («реальный прогресс-бар»): обычный apiPost/fetchWithRetry_
+   * выше не годится для больших вложений (фото/видео в Stories и в
+   * рассылке) по двум причинам сразу:
+   *   1) fetch() в браузере не умеет отдавать прогресс ЗАГРУЗКИ (upload) —
+   *      только скачивания ответа, а для нас как раз важна именно
+   *      загрузка (тело запроса — база64 фото/видео, может быть много
+   *      мегабайт), поэтому нечем было бы рисовать реальную полосу.
+   *   2) FETCH_TIMEOUT_MS = 15с у fetchWithRetry_ рассчитан на обычные
+   *      короткие запросы без вложений — большое видео на медленном
+   *      интернете вполне может грузиться дольше 15 секунд, и запрос
+   *      обрывался посреди загрузки (это и была причина «Ошибка сети»
+   *      при отправке видео в рассылке).
+   * Решение — XMLHttpRequest (у него есть xhr.upload.onprogress) и
+   * таймаут «по бездействию»: обрывается не через фиксированное время
+   * на весь запрос, а только если дольше UPLOAD_INACTIVITY_MS вообще нет
+   * никакой активности (ни события прогресса, ни ответа) — то есть
+   * реально зависший запрос всё равно обрывается, а медленный, но живой,
+   * докачивается сколько нужно.
+   */
+  var UPLOAD_INACTIVITY_MS = 30000;
+
+  function apiPostWithProgress_(payload, onProgress) {
+    return new Promise(function (resolve, reject) {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', SCRIPT_URL, true);
+      xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+
+      var inactivityTimer = null;
+      function bumpInactivityTimer_() {
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(function () { xhr.abort(); }, UPLOAD_INACTIVITY_MS);
+      }
+      bumpInactivityTimer_();
+
+      xhr.upload.onprogress = function (e) {
+        bumpInactivityTimer_();
+        if (onProgress && e.lengthComputable) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+      // Само скачивание ответа обычно занимает доли секунды (ответ —
+      // маленький JSON), но событие тоже сбрасывает таймер бездействия,
+      // на случай медленного соединения на обратном пути.
+      xhr.onprogress = function () { bumpInactivityTimer_(); };
+
+      xhr.onload = function () {
+        clearTimeout(inactivityTimer);
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            reject(new Error('Некорректный ответ сервера'));
+          }
+        } else {
+          reject(new Error('HTTP ' + xhr.status));
+        }
+      };
+      xhr.onerror = function () { clearTimeout(inactivityTimer); reject(new Error('Ошибка сети')); };
+      xhr.onabort = function () { reject(new Error('Нет ответа слишком долго — попробуйте ещё раз')); };
+
+      xhr.send(JSON.stringify(payload));
+    });
+  }
+
+  function showUploadProgress_(prefix) {
+    document.getElementById(prefix + 'ProgressWrap').classList.add('active');
+    updateUploadProgress_(prefix, 0);
+  }
+  function updateUploadProgress_(prefix, pct) {
+    document.getElementById(prefix + 'ProgressFill').style.width = pct + '%';
+    document.getElementById(prefix + 'ProgressPct').innerText = pct + '%';
+  }
+  function hideUploadProgress_(prefix) {
+    document.getElementById(prefix + 'ProgressWrap').classList.remove('active');
+    updateUploadProgress_(prefix, 0);
+  }
+
+  // Ограничения на размер вложения — не столько ради самого запроса
+  // (XHR выше и так корректно докачает что угодно, было бы время), сколько
+  // ради двух реальных потолков дальше по цепочке: Telegram-боты могут
+  // ЗАГРУЖАТЬ файлы весом не больше 50 МБ, а тело запроса к Apps Script
+  // (то, что реально уходит по сети) — это файл, перекодированный в
+  // base64, который занимает примерно в 1.33 раза больше места, чем
+  // исходный файл, и у Apps Script тоже есть свой практический потолок
+  // на размер входящего запроса. 20 МБ файла ≈ 27 МБ base64 — заметный
+  // запас с обеих сторон. Если прикрепить файл больше — он всё равно не
+  // дойдёт до получателя, лучше сказать об этом сразу, а не после
+  // многоминутной загрузки на слабом интернете.
+  var MAX_ATTACHMENT_MB = 20;
+  function checkAttachmentSize_(file, errEl) {
+    var maxBytes = MAX_ATTACHMENT_MB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      errEl.innerText = 'Файл слишком большой (' + Math.round(file.size / 1024 / 1024) + ' МБ) — максимум ' + MAX_ATTACHMENT_MB + ' МБ (ограничение Telegram на загрузку файлов ботом).';
+      return false;
+    }
+    return true;
   }
 
   // ---- Очередь исходящих запросов (retry-queue), ЭТАП 10, п.6 -------
@@ -2163,7 +2281,16 @@
   document.getElementById('storyImageInput').addEventListener('change', function (e) {
     var file = e.target.files && e.target.files[0];
     var preview = document.getElementById('storyImagePreview');
+    var errEl = document.getElementById('storyError');
+    errEl.innerText = '';
     if (!file) { pendingStoryImage = null; preview.innerHTML = ''; return; }
+
+    if (!checkAttachmentSize_(file, errEl)) {
+      e.target.value = '';
+      pendingStoryImage = null;
+      preview.innerHTML = '';
+      return;
+    }
 
     var reader = new FileReader();
     reader.onload = function () {
@@ -2186,11 +2313,13 @@
     }
 
     withButtonBusy_(btn, 'Публикую...', function () {
-      statusEl.innerText = 'Публикую...';
-      return apiPost({
+      statusEl.innerText = pendingStoryImage ? 'Загружаю...' : 'Публикую...';
+      if (pendingStoryImage) showUploadProgress_('story');
+      return apiPostWithProgress_({
         action: 'createStory', name: ADMIN_NAME, pw: PW,
         text: text, media: pendingStoryImage
-      }).then(function (res) {
+      }, function (pct) { updateUploadProgress_('story', pct); }).then(function (res) {
+        hideUploadProgress_('story');
         if (res.ok) {
           statusEl.innerText = '✅ Опубликовано. Удалится автоматически через 24 часа.';
           document.getElementById('storyText').value = '';
@@ -2202,9 +2331,10 @@
           errEl.innerText = res.error || 'Не удалось опубликовать';
           statusEl.innerText = '';
         }
-      }).catch(function () {
+      }).catch(function (err) {
+        hideUploadProgress_('story');
         statusEl.innerText = '';
-        errEl.innerText = 'Ошибка сети';
+        errEl.innerText = (err && err.message) || 'Ошибка сети';
       });
     });
   }
@@ -2422,7 +2552,16 @@
   document.getElementById('broadcastMediaInput').addEventListener('change', function (e) {
     var file = e.target.files && e.target.files[0];
     var preview = document.getElementById('broadcastMediaPreview');
+    var errEl = document.getElementById('broadcastError');
+    errEl.innerText = '';
     if (!file) { pendingBroadcastMedia = null; preview.innerHTML = ''; return; }
+
+    if (!checkAttachmentSize_(file, errEl)) {
+      e.target.value = '';
+      pendingBroadcastMedia = null;
+      preview.innerHTML = '';
+      return;
+    }
 
     var reader = new FileReader();
     reader.onload = function () {
@@ -2465,11 +2604,16 @@
     if (!confirm('Отправить сообщение выбранным получателям в Telegram?')) return;
 
     withButtonBusy_(btn, 'Отправляю...', function () {
-      statusEl.innerText = 'Отправляю...';
-      return apiPost({
+      statusEl.innerText = pendingBroadcastMedia ? 'Загружаю вложение...' : 'Отправляю...';
+      if (pendingBroadcastMedia) showUploadProgress_('broadcast');
+      return apiPostWithProgress_({
         action: 'telegramBroadcast', name: ADMIN_NAME, pw: PW,
         recipients: recipients, text: text, media: pendingBroadcastMedia
+      }, function (pct) {
+        updateUploadProgress_('broadcast', pct);
+        if (pct >= 100) statusEl.innerText = 'Файл загружен, рассылаю получателям...';
       }).then(function (res) {
+        hideUploadProgress_('broadcast');
         statusEl.innerText = '';
         if (!res.ok) { errEl.innerText = res.error || 'Не удалось отправить рассылку'; return; }
 
@@ -2486,9 +2630,10 @@
         document.getElementById('bcAllDrivers').checked = false;
         toggleBroadcastGroup_('taxipark');
         toggleBroadcastGroup_('driver');
-      }).catch(function () {
+      }).catch(function (err) {
+        hideUploadProgress_('broadcast');
         statusEl.innerText = '';
-        errEl.innerText = 'Ошибка сети';
+        errEl.innerText = (err && err.message) || 'Ошибка сети';
       });
     });
   }

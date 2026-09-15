@@ -419,15 +419,17 @@
       <div id="sendingView">
         <h2>Формирование и отправка акта…</h2>
         <div class="card">
-          <!-- ЭТАП 2: отдельный прогресс-бар формирования АКТА (не путать с
-               прогресс-баром навигации по шагам сверху экрана и с прогрессом
-               загрузки отдельных фото). Показывает этапный процент, а не
-               имитацию бесконечной загрузки: 20% — подготовка фотографий
-               (сжатие уже загруженных снимков перед вставкой в PDF), 50% —
-               формирование самого PDF-документа, 80% — загрузка готового
-               файла на сервер (Google Drive + запись в Таблицу), 100% —
+          <!-- ЭТАП 2 (было) / ЭТАП 13.14 (реальный прогресс-бар): отдельный
+               прогресс-бар формирования АКТА (не путать с прогресс-баром
+               навигации по шагам сверху экрана и с прогрессом загрузки
+               отдельных фото). 0→80% — этапный процент по быстрым локальным
+               шагам без сети (20% — подготовка/сжатие фотографий, 50% —
+               формирование самого PDF-документа); 80→98% — РЕАЛЬНЫЙ процент
+               отправки готового файла на сервер (Google Drive + запись в
+               Таблицу), основанный на факте отправленных байт
+               (xhr.upload.onprogress, см. sendSheet), а не имитация; 100% —
                акт полностью готов. -->
-          <div class="progress" style="margin-bottom:12px">
+          <div class="progress" style="margin-bottom:6px">
             <div id="actProgressBar" style="width:0%"></div>
           </div>
           <div class="small" id="actProgressLabel" style="margin-bottom:12px;color:var(--muted)">Подготовка фотографий…</div>
@@ -1996,11 +1998,18 @@ async function sendSheet(pdfBlob){
       // используется напрямую как источник истины, только для проверки.
       name: GATE_NAME, pw: GATE_PW
     };
-    // ЭТАП 7: один автоматический повтор при сетевой ошибке — отправка
-    // акта самая "дорогая" операция (несёт PDF в base64), обидно, если
-    // именно она сорвётся из-за одного случайного обрыва сети.
-    const r = await fetchWithRetry_(CFG.sheetUrl, {method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(payload)});
-    const res = await r.json();
+    // ЭТАП 13.14: реальный прогресс-бар — 80→98% двигается по факту
+    // отправленных байт (xhr.upload.onprogress), 98→100% зарезервированы
+    // под обработку ответа сервера (запись в Таблицу, сохранение на
+    // Диск), которая уже не показывает процент, но занимает заметное
+    // время. Один автоматический повтор при сетевой ошибке остаётся
+    // (см. sheetApiPostWithProgress_) — отправка акта самая "дорогая"
+    // операция (несёт PDF в base64), обидно, если именно она сорвётся
+    // из-за одного случайного обрыва сети.
+    const res = await sheetApiPostWithProgress_(payload, function (pct) {
+      setActProgress(80 + Math.round(pct * 0.18), 'Загрузка PDF… ' + pct + '%');
+    });
+    setActProgress(98, 'Сервер обрабатывает акт…');
     state.driveUrl = (res && res.driveUrl) || '';
     // ЭТАП 2: сервер теперь возвращает pdfSaveError, если сама запись в
     // таблицу прошла успешно, а вот PDF на Диск сохранить не удалось —
@@ -2043,11 +2052,21 @@ function buildWhatsappLink(){
   setStatus('st_wa','done','Ссылка для WhatsApp готова');
 }
 
-/* ЭТАП 2: этапный индикатор прогресса формирования акта. Реального
-   процента внутри buildPDF()/fetch() у нас нет (jsPDF и fetch не отдают
-   промежуточный прогресс постранично), поэтому вместо фальшивой плавной
-   анимации показываем корректные фиксированные этапы, соответствующие
-   реальным шагам конвейера — это честнее, чем выдуманный "бегущий" процент. */
+/* ЭТАП 2 (было): этапный индикатор прогресса формирования акта —
+   фиксированные этапы (20/50/80/100%), потому что реального процента у
+   fetch() при загрузке нет (fetch не отдаёт промежуточный прогресс
+   ОТПРАВКИ тела запроса, только скачивания ответа).
+   ЭТАП 13.14 («реальный прогресс-бар везде»): сама отправка акта
+   (sendSheet) — это как раз самый тяжёлый апload во всём приложении:
+   PDF в base64 (обычно 1-3 МБ, а с несколькими фото — заметно больше)
+   уходит одним POST-телом. Раньше этот шаг просто прыгал с 80% на 100%
+   без обратной связи, и на слабом мобильном интернете человек не мог
+   понять, реально ли что-то происходит, или страница зависла. Отрезки
+   0→80% остаются этапными (сжатие фото и сборка PDF — быстрые локальные
+   шаги без сети, честного процента там взять неоткуда), а сам сетевой
+   этап 80→100% теперь двигает actProgress по-настоящему, на основе
+   xhr.upload.onprogress (см. sendSheet ниже) — ровно тот же приём, что и
+   в to.html для Историй и рассылок. */
 function setActProgress(percent, label){
   const bar = document.getElementById('actProgressBar');
   const lbl = document.getElementById('actProgressLabel');
@@ -2196,6 +2215,68 @@ function gateApiPost(payload) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(payload)
   }).then(function (r) { return r.json(); });
+}
+
+/* ЭТАП 13.14 («реальный прогресс-бар везде»): та же идея, что и
+   apiPostWithProgress_ в to.html — обычный fetch() не умеет отдавать
+   прогресс ЗАГРУЗКИ (upload) тела запроса, только скачивания ответа, а
+   тело здесь как раз самое тяжёлое место (PDF в base64). Используем
+   XMLHttpRequest (у него есть xhr.upload.onprogress) и таймаут «по
+   бездействию»: обрывается не через фиксированное время на весь запрос
+   (как раньше, ACT_FETCH_TIMEOUT_MS=45с — маловато для медленной
+   загрузки многостраничного PDF на плохом интернете), а только если
+   дольше ACT_UPLOAD_INACTIVITY_MS вообще нет никакой активности (ни
+   события прогресса, ни ответа). Плюс один автоматический повтор при
+   сетевой ошибке — как и раньше (ЭТАП 7). */
+var ACT_UPLOAD_INACTIVITY_MS = 45000;
+
+function sheetApiPostOnce_(payload, onProgress) {
+  return new Promise(function (resolve, reject) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', CFG.sheetUrl, true);
+    xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
+
+    var inactivityTimer = null;
+    function bumpInactivityTimer_() {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(function () { xhr.abort(); }, ACT_UPLOAD_INACTIVITY_MS);
+    }
+    bumpInactivityTimer_();
+
+    xhr.upload.onprogress = function (e) {
+      bumpInactivityTimer_();
+      if (onProgress && e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
+    xhr.onprogress = function () { bumpInactivityTimer_(); };
+
+    xhr.onload = function () {
+      clearTimeout(inactivityTimer);
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { resolve(JSON.parse(xhr.responseText)); }
+        catch (e) { reject(new Error('Некорректный ответ сервера')); }
+      } else {
+        reject(new Error('HTTP ' + xhr.status));
+      }
+    };
+    xhr.onerror = function () { clearTimeout(inactivityTimer); reject(new Error('Ошибка сети')); };
+    xhr.onabort = function () { reject(new Error('Нет ответа слишком долго — попробуйте ещё раз')); };
+
+    xhr.send(JSON.stringify(payload));
+  });
+}
+
+function sheetApiPostWithProgress_(payload, onProgress) {
+  return sheetApiPostOnce_(payload, onProgress).catch(function (err) {
+    // Один автоматический повтор при сетевой ошибке (как и раньше в
+    // fetchWithRetry_) — заново гоняет прогресс с 0%, но это лучше, чем
+    // заставлять сотрудника нажимать "Повторить отправку" вручную из-за
+    // одного случайного обрыва.
+    return new Promise(function (resolve) { setTimeout(resolve, 2000); })
+      .then(function () { return sheetApiPostOnce_(payload, onProgress); })
+      .catch(function () { throw err; });
+  });
 }
 
 /* ЭТАП 5 (обновление, Часть 1 нового ТЗ): показываем нередактируемое
