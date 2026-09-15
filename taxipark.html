@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Кабинет таксопарка — China Car Service</title>
+<link rel="manifest" href="manifest-driver.json">
+<meta name="theme-color" content="#0e1318">
+<link rel="icon" href="icons/icon-192-driver.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="CCS Таксопарк">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root{
+    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
+    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text); padding:16px;
+  }
+  h1{font-size:20px; margin:0 0 4px;}
+  h2{font-size:16px; margin:0 0 4px;}
+  .sub{color:var(--muted); font-size:13px; margin-bottom:20px;}
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:16px;
+  }
+  .row{display:flex; gap:8px;}
+  input, select{
+    width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
+    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
+  }
+  input:focus, select:focus{outline:1px solid var(--accent);}
+  button{
+    padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
+    cursor:pointer;
+  }
+  .btn-primary{background:var(--accent); color:#fff;}
+  .btn-full{width:100%;}
+  label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
+  .pill{
+    background:#0d141e; border:1px solid var(--border); border-radius:10px;
+    padding:8px 12px; font-size:13px; flex:1; min-width:120px;
+  }
+  .pill b{display:block; color:var(--text); font-size:14px;}
+  .summary{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  th, td{text-align:left; padding:7px 6px; border-bottom:1px solid var(--border);}
+  th{color:var(--muted); font-weight:600;}
+  .empty{color:var(--muted); text-align:center; padding:14px 0;}
+  .loading{color:var(--muted); font-size:13px;}
+  .error{color:var(--danger); font-size:13px; margin-top:4px;}
+  .toggle{color:var(--accent); font-size:14px; cursor:pointer; user-select:none; margin-top:8px;}
+  #gate{max-width:340px; margin:40px auto 0;}
+  .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
+  .veh-card{background:#0d141e; border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px;}
+  .veh-head{display:flex; justify-content:space-between; align-items:center; cursor:pointer;}
+  .veh-title{font-size:15px; font-weight:700;}
+  .veh-sub{color:var(--muted); font-size:12px;}
+  .veh-body{display:none; margin-top:10px;}
+  .veh-body.open{display:block;}
+  .chev{color:var(--muted); font-size:13px;}
+
+  /* ЭТАП 10, п.5: соцсети — тот же стиль, что и в index.html/driver.html. */
+  .social-footer{
+    display:flex; justify-content:center; gap:14px; margin:22px 0 10px;
+    padding-top:16px; border-top:1px solid var(--border);
+  }
+  .social-footer a{
+    display:flex; align-items:center; justify-content:center;
+    width:42px; height:42px; border-radius:50%;
+    background:var(--card); border:1px solid var(--border);
+    color:var(--text); text-decoration:none;
+  }
+  .social-footer a:active{border-color:var(--accent);}
+  .social-footer svg{width:20px; height:20px;}
+</style>
+</head>
+<body>
+
+  <!-- ЭКРАН ВХОДА: название таксопарка + код доступа -->
+  <div id="gate">
+    <div style="text-align:center; color:var(--muted); font-weight:800; letter-spacing:1px; font-size:13px; margin-bottom:6px;">
+      <img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">CHINA CAR SERVICE
+    </div>
+    <h1 style="text-align:center">🚖 Кабинет таксопарка</h1>
+    <div class="sub" style="text-align:center">Все ваши машины и история работ по ним — вход по названию и коду доступа</div>
+    <div class="card">
+      <label>Название таксопарка</label>
+      <input id="tpName" placeholder="Например, Яндекс Такси">
+      <label>Код доступа</label>
+      <input id="tpCode" placeholder="Код, выданный директором СТО">
+      <button class="btn-primary btn-full" onclick="doTaxiparkLogin(this)">Войти</button>
+      <div class="error" id="gateError"></div>
+      <div class="loading" id="gateStatus"></div>
+      <div class="sub" style="margin-top:10px; margin-bottom:0;">Код доступа выдаётся автоматически при первой регистрации машины вашего таксопарка в кабинете водителя и приходит директору СТО в Telegram — обратитесь к нему, если код ещё не получен.</div>
+    </div>
+    <div style="text-align:center;"><a href="index.html" style="color:var(--muted); font-size:13px;">← Назад к выбору роли</a></div>
+
+    <!-- ЭТАП 10, п.5: соцсети. -->
+    <div class="social-footer">
+      <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>
+      </a>
+      <a href="https://www.tiktok.com/@hongqi29" target="_blank" rel="noopener" aria-label="TikTok">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c.4 2.2 1.9 3.8 4 4.1v3.1c-1.5 0-2.9-.5-4-1.3v6.4c0 3.4-2.8 6.2-6.2 6.2S4.1 18.7 4.1 15.3c0-3.3 2.6-6 5.9-6.2v3.2c-1.6.2-2.8 1.5-2.8 3 0 1.7 1.4 3.1 3.1 3.1s3.1-1.4 3.1-3.1V3h3.1z"/></svg>
+      </a>
+    </div>
+  </div>
+
+  <!-- КАБИНЕТ ТАКСОПАРКА -->
+  <div id="cabinet" style="display:none;">
+    <span class="logout" onclick="logout()">Выйти</span>
+    <h1 id="tpTitle">🚖 Таксопарк</h1>
+    <div class="sub" id="tpSubStatus"></div>
+
+    <div class="card">
+      <div class="summary">
+        <div class="pill">Машин<b id="sumVehicles">0</b></div>
+        <div class="pill">Итого по всем работам<b id="sumTotal">0 ₸</b></div>
+      </div>
+      <div class="row">
+        <input id="filterPlate" placeholder="Фильтр по гос. номеру">
+      </div>
+      <div class="row">
+        <input id="filterFrom" type="date">
+        <input id="filterTo" type="date">
+      </div>
+      <button class="btn-primary btn-full" onclick="reloadTaxiparkData()">Применить фильтры</button>
+      <div class="loading" id="dataStatus"></div>
+    </div>
+
+    <div id="vehiclesWrap"></div>
+
+    <!-- ЭТАП 10, п.5: соцсети. -->
+    <div class="social-footer">
+      <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>
+      </a>
+      <a href="https://www.tiktok.com/@hongqi29" target="_blank" rel="noopener" aria-label="TikTok">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c.4 2.2 1.9 3.8 4 4.1v3.1c-1.5 0-2.9-.5-4-1.3v6.4c0 3.4-2.8 6.2-6.2 6.2S4.1 18.7 4.1 15.3c0-3.3 2.6-6 5.9-6.2v3.2c-1.6.2-2.8 1.5-2.8 3 0 1.7 1.4 3.1 3.1 3.1s3.1-1.4 3.1-3.1V3h3.1z"/></svg>
+      </a>
+    </div>
+  </div>
+
+<script>
+  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
+
+  function fetchWithRetry_(url, options) {
+    return fetch(url, options).catch(function () {
+      return new Promise(function (resolve) { setTimeout(resolve, 1500); })
+        .then(function () { return fetch(url, options); });
+    });
+  }
+
+  // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
+  function apiPost(payload) {
+    return fetchWithRetry_(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    }).then(function (r) { return r.json(); });
+  }
+
+  function escapeHtml(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function withButtonBusy_(btn, busyText, fn) {
+    var orig = btn.innerText;
+    btn.disabled = true; btn.innerText = busyText;
+    return fn().finally(function () { btn.disabled = false; btn.innerText = orig; });
+  }
+
+  // ЭТАП 10 (промт «Кабинет таксопарка»): название+код запоминаем в
+  // localStorage (как и остальные роли в этом проекте — токен устройства
+  // водителя/сотрудника), чтобы не вводить их заново при каждом открытии.
+  var TP_NAME = localStorage.getItem('taxipark_name') || '';
+  var TP_CODE = localStorage.getItem('taxipark_code') || '';
+
+  var openVehiclePlates_ = {}; // какие карточки машин раскрыты — сохраняем между автообновлениями
+
+  function doTaxiparkLogin(btn) {
+    var name = document.getElementById('tpName').value.trim();
+    var code = document.getElementById('tpCode').value.trim();
+    var errEl = document.getElementById('gateError');
+    errEl.innerText = '';
+    if (!name || !code) { errEl.innerText = 'Заполните название и код доступа'; return; }
+
+    document.getElementById('gateStatus').innerText = 'Вхожу...';
+    withButtonBusy_(btn, 'Вхожу...', function () {
+      return apiPost({ action: 'taxiparkLogin', name: name, code: code }).then(function (res) {
+        document.getElementById('gateStatus').innerText = '';
+        if (!res.ok) { errEl.innerText = res.error || 'Не удалось войти'; return; }
+        TP_NAME = name; TP_CODE = code;
+        localStorage.setItem('taxipark_name', TP_NAME);
+        localStorage.setItem('taxipark_code', TP_CODE);
+        showCabinet(res);
+      }).catch(function () { document.getElementById('gateStatus').innerText = ''; errEl.innerText = 'Ошибка сети — попробуйте ещё раз.'; });
+    });
+  }
+
+  function logout() {
+    localStorage.removeItem('taxipark_name');
+    localStorage.removeItem('taxipark_code');
+    location.reload();
+  }
+
+  function showCabinet(payload) {
+    document.getElementById('gate').style.display = 'none';
+    document.getElementById('cabinet').style.display = 'block';
+    document.getElementById('tpTitle').innerText = '🚖 ' + payload.taxiparkName;
+    renderTaxiparkData_(payload);
+    scheduleTaxiparkAutoRefresh_();
+  }
+
+  // ЭТАП 10 (п.7 промта — автообновление у всех): пока кабинет открыт,
+  // данные обновляются сами каждые 20 секунд — если сотрудник СТО внёс
+  // новую работу по одной из машин таксопарка, она появится без
+  // ручного обновления страницы.
+  var tpAutoRefreshTimer_ = null;
+  function scheduleTaxiparkAutoRefresh_() {
+    if (tpAutoRefreshTimer_) clearTimeout(tpAutoRefreshTimer_);
+    tpAutoRefreshTimer_ = setTimeout(function () {
+      reloadTaxiparkData(true);
+    }, 20000);
+  }
+
+  function currentFilters_() {
+    return {
+      plate: document.getElementById('filterPlate').value.trim(),
+      dateFrom: document.getElementById('filterFrom').value,
+      dateTo: document.getElementById('filterTo').value
+    };
+  }
+
+  // ЭТАП 10 (п.9 промта — не сбрасывать экран при ошибке/долгом ответе):
+  // при фоновом автообновлении (silent=true) экран не трогаем, пока не
+  // придёт успешный ответ — так виден последний известный список машин,
+  // а не пустой экран или ошибка, если апп-скрипт временно не ответил.
+  function reloadTaxiparkData(silent) {
+    var statusEl = document.getElementById('dataStatus');
+    if (!silent) statusEl.innerText = 'Обновляю...';
+    apiPost({ action: 'taxiparkData', name: TP_NAME, code: TP_CODE, filters: currentFilters_() })
+      .then(function (res) {
+        statusEl.innerText = '';
+        if (!res.ok) {
+          if (!silent) statusEl.innerText = 'Ошибка: ' + res.error;
+          scheduleTaxiparkAutoRefresh_();
+          return;
+        }
+        renderTaxiparkData_(res);
+        scheduleTaxiparkAutoRefresh_();
+      })
+      .catch(function () {
+        if (!silent) statusEl.innerText = 'Ошибка сети — показаны последние загруженные данные.';
+        scheduleTaxiparkAutoRefresh_();
+      });
+  }
+
+  function toggleVehicle_(plate) {
+    openVehiclePlates_[plate] = !openVehiclePlates_[plate];
+    var body = document.getElementById('vbody_' + cssId_(plate));
+    if (body) body.classList.toggle('open', !!openVehiclePlates_[plate]);
+  }
+
+  function cssId_(plate) {
+    return String(plate).replace(/[^a-zA-Z0-9]/g, '_');
+  }
+
+  function renderTaxiparkData_(payload) {
+    document.getElementById('sumVehicles').innerText = payload.vehicles.length;
+    document.getElementById('sumTotal').innerText = (Number(payload.total) || 0).toLocaleString('ru-RU') + ' ₸';
+    document.getElementById('tpSubStatus').innerText = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
+
+    var wrap = document.getElementById('vehiclesWrap');
+    if (!payload.vehicles.length) {
+      wrap.innerHTML = '<div class="empty">Машины этого таксопарка пока не найдены</div>';
+      return;
+    }
+
+    var html = '';
+    payload.vehicles.forEach(function (v) {
+      var id = cssId_(v.plate);
+      var isOpen = !!openVehiclePlates_[v.plate];
+      html += '<div class="veh-card">' +
+        '<div class="veh-head" onclick="toggleVehicle_(\'' + escapeHtml(v.plate).replace(/'/g, "\\'") + '\')">' +
+          '<div><div class="veh-title">' + escapeHtml(v.plate) + '</div>' +
+          '<div class="veh-sub">' + escapeHtml(v.model || '—') + (v.driverFio ? ' · ' + escapeHtml(v.driverFio) : '') + '</div></div>' +
+          '<div><span class="chev">' + (isOpen ? '▲' : '▼') + '</span></div>' +
+        '</div>' +
+        '<div class="veh-body' + (isOpen ? ' open' : '') + '" id="vbody_' + id + '">' +
+          '<div class="pill" style="margin-bottom:10px;"><b>Итого по машине: ' + (Number(v.total) || 0).toLocaleString('ru-RU') + ' ₸</b></div>' +
+          renderVehicleHistoryTable_(v.rows) +
+        '</div>' +
+      '</div>';
+    });
+    wrap.innerHTML = html;
+  }
+
+  function renderVehicleHistoryTable_(rows) {
+    if (!rows || !rows.length) return '<div class="empty">Работ по этой машине пока нет</div>';
+    var html = '<table><thead><tr><th>Дата</th><th>Работа</th><th>Сумма</th></tr></thead><tbody>';
+    rows.forEach(function (r) {
+      html += '<tr><td>' + escapeHtml(r.date) + '</td>' +
+        '<td>' + escapeHtml(r.type) + (r.description ? ' — ' + escapeHtml(r.description) : '') + '</td>' +
+        '<td>' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</td></tr>';
+    });
+    html += '</tbody></table>';
+    return html;
+  }
+
+  // Тихий вход, если название+код уже сохранены на этом устройстве.
+  if (TP_NAME && TP_CODE) {
+    document.getElementById('gateStatus').innerText = 'Вхожу...';
+    apiPost({ action: 'taxiparkData', name: TP_NAME, code: TP_CODE, filters: {} })
+      .then(function (res) {
+        document.getElementById('gateStatus').innerText = '';
+        if (res.ok) { showCabinet(res); }
+        else {
+          // Сохранённый код больше не действует — очищаем и показываем обычный вход.
+          localStorage.removeItem('taxipark_name');
+          localStorage.removeItem('taxipark_code');
+        }
+      })
+      .catch(function () { document.getElementById('gateStatus').innerText = ''; });
+  }
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('service-worker.js').catch(function () {});
+    });
+  }
+</script>
+</body>
+</html>

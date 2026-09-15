@@ -9,7 +9,7 @@
 <link rel="icon" href="icons/icon-192-driver.png">
 <!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
      дублируем через meta-теги (Этап 8) -->
-<link rel="apple-touch-icon" href="icons/icon-192-driver.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="CCS Водитель">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -86,6 +86,20 @@
   .wa-master svg{width:20px; height:20px; flex-shrink:0;}
   body{padding-bottom:78px;}
 
+  /* ЭТАП 10, п.5: соцсети — тот же стиль, что и в index.html/taxipark.html. */
+  .social-footer{
+    display:flex; justify-content:center; gap:14px; margin:22px 0 10px;
+    padding-top:16px; border-top:1px solid var(--border);
+  }
+  .social-footer a{
+    display:flex; align-items:center; justify-content:center;
+    width:42px; height:42px; border-radius:50%;
+    background:var(--card); border:1px solid var(--border);
+    color:var(--text); text-decoration:none;
+  }
+  .social-footer a:active{border-color:var(--accent);}
+  .social-footer svg{width:20px; height:20px;}
+
   /* ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
      лента временных публикаций (24 часа) — простой корпоративный вид,
      без копирования интерфейса Instagram/WhatsApp один в один. */
@@ -125,7 +139,9 @@
 
   <!-- ЭКРАН ВХОДА: только гос. номер, без пароля -->
   <div id="gate">
-    <div style="text-align:center; color:var(--muted); font-weight:800; letter-spacing:1px; font-size:13px; margin-bottom:6px;">CHINA CAR SERVICE</div>
+    <div style="text-align:center; color:var(--muted); font-weight:800; letter-spacing:1px; font-size:13px; margin-bottom:6px;">
+      <img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">CHINA CAR SERVICE
+    </div>
     <h1 style="text-align:center">🚕 Кабинет водителя</h1>
     <div class="sub" style="text-align:center">Введите гос. номер вашей машины</div>
     <div class="card">
@@ -135,6 +151,16 @@
       <div class="loading" id="gateStatus"></div>
     </div>
     <div style="text-align:center;"><a href="index.html" style="color:var(--muted); font-size:13px;">← Назад к выбору роли</a></div>
+
+    <!-- ЭТАП 10, п.5: соцсети. -->
+    <div class="social-footer">
+      <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>
+      </a>
+      <a href="https://www.tiktok.com/@hongqi29" target="_blank" rel="noopener" aria-label="TikTok">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c.4 2.2 1.9 3.8 4 4.1v3.1c-1.5 0-2.9-.5-4-1.3v6.4c0 3.4-2.8 6.2-6.2 6.2S4.1 18.7 4.1 15.3c0-3.3 2.6-6 5.9-6.2v3.2c-1.6.2-2.8 1.5-2.8 3 0 1.7 1.4 3.1 3.1 3.1s3.1-1.4 3.1-3.1V3h3.1z"/></svg>
+      </a>
+    </div>
   </div>
 
   <!-- ФОРМА РЕГИСТРАЦИИ (первый вход, машина не найдена) -->
@@ -147,10 +173,30 @@
       <input id="r_fio" placeholder="Иванов Иван Иванович">
 
       <label>Тип авто</label>
-      <select id="r_type">
+      <select id="r_type" onchange="onDriverTypeChange_()">
         <option value="Такси">Такси</option>
         <option value="Частная">Частная</option>
       </select>
+
+      <!-- ЭТАП 10 (промт «Шторка ввода таксопарка»): показывается только
+           для типа "Такси" — выбор конкретного таксопарка из списка, с
+           пунктом "Другое" для собственного варианта. -->
+      <div id="taxiParkBlock">
+        <label>Таксопарк</label>
+        <select id="r_taxipark" onchange="onTaxiparkChange_()">
+          <option value="">— выберите таксопарк —</option>
+          <option value="Яндекс Такси">Яндекс Такси</option>
+          <option value="InDrive">InDrive</option>
+          <option value="Максим">Максим</option>
+          <option value="Onai">Onai</option>
+          <option value="other">Другое / указать вручную</option>
+        </select>
+        <!-- Шторка: плавно раскрывается только когда выбрано "Другое". -->
+        <div id="taxiParkOtherWrap" style="max-height:0; overflow:hidden; transition:max-height .25s ease;">
+          <label>Название таксопарка</label>
+          <input id="r_taxipark_other" placeholder="Введите название вашего таксопарка">
+        </div>
+      </div>
 
       <label>VIN (необязательно)</label>
       <!-- ЭТАП 1 (обновлено): автоматическое распознавание VIN по фото
@@ -273,6 +319,16 @@
       <button class="btn-secondary btn-full" onclick="loadActs()">Показать акты</button>
       <div id="actsWrap" style="margin-top:12px;"></div>
     </div>
+
+    <!-- ЭТАП 10, п.5: соцсети. -->
+    <div class="social-footer">
+      <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1"/></svg>
+      </a>
+      <a href="https://www.tiktok.com/@hongqi29" target="_blank" rel="noopener" aria-label="TikTok">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 3c.4 2.2 1.9 3.8 4 4.1v3.1c-1.5 0-2.9-.5-4-1.3v6.4c0 3.4-2.8 6.2-6.2 6.2S4.1 18.7 4.1 15.3c0-3.3 2.6-6 5.9-6.2v3.2c-1.6.2-2.8 1.5-2.8 3 0 1.7 1.4 3.1 3.1 3.1s3.1-1.4 3.1-3.1V3h3.1z"/></svg>
+      </a>
+    </div>
   </div>
 
 <script>
@@ -304,7 +360,7 @@
   // ---- "ЗАПОМНИТЬ УСТРОЙСТВО" (Этап 4) ----
 
   function tryDeviceLogin(plate, token) {
-    apiPost({ action: 'deviceLogin', plate: plate, token: token })
+    return apiPost({ action: 'deviceLogin', plate: plate, token: token })
       .then(function (res) {
         if (res.ok && res.valid) {
           currentPlate = plate;
@@ -337,14 +393,125 @@
     location.reload();
   }
 
-  // ЭТАП 7: один автоматический повтор при сетевой ошибке перед тем, как
-  // показать пользователю "Ошибка сети" (см. такой же helper в to.html).
-  function fetchWithRetry_(url, options) {
-    return fetch(url, options).catch(function () {
-      return new Promise(function (resolve) { setTimeout(resolve, 1500); })
-        .then(function () { return fetch(url, options); });
+  // ЭТАП 10, п.7: автообновление данных. Пока открыт кабинет, раз в 20
+  // секунд опрашиваем лёгкий эндпоинт "версии данных" (см. apiGetDataVersion
+  // в 2_Sheets.gs — не читает листы, только Script Properties). Если
+  // версия отличается от последней увиденной — значит, где-то (сотрудник
+  // в to.html, директор в Telegram) что-то изменилось, и кабинет тихо
+  // перезапрашивается заново — водителю не нужно самому обновлять
+  // страницу, чтобы увидеть новую запись ТО/акт/решение по заявке.
+  var lastKnownDataVersion_ = null;
+  function pollDataVersion_() {
+    var cabEl = document.getElementById('cabinet');
+    if (!cabEl || cabEl.style.display === 'none') return; // кабинет ещё не открыт — нечего обновлять
+    apiGet({ action: 'dataversion' }).then(function (res) {
+      if (!res || !res.ok) return;
+      if (lastKnownDataVersion_ !== null && res.version !== lastKnownDataVersion_) {
+        silentRefreshCabinet_();
+      }
+      lastKnownDataVersion_ = res.version;
+    }).catch(function () { /* сети сейчас нет — просто пропускаем этот опрос, попробуем через 20с снова */ });
+  }
+
+  // Тихое обновление кабинета: переиспользует тот же путь, что и обычный
+  // вход по токену устройства, но НЕ трогает то, что человек уже успел
+  // ввести и ещё не отправил (поле пробега для проверки ТО, даты
+  // фильтра актов) — их значения сохраняются перед перерисовкой и
+  // возвращаются обратно после неё.
+  function silentRefreshCabinet_() {
+    if (!deviceToken || !currentPlate) return; // без сохранённого токена тихо обновить нечем
+    var mileageEl = document.getElementById('currentMileageInput');
+    var fromEl = document.getElementById('actsFrom');
+    var toEl = document.getElementById('actsTo');
+    var savedMileage = mileageEl ? mileageEl.value : '';
+    var savedFrom = fromEl ? fromEl.value : '';
+    var savedTo = toEl ? toEl.value : '';
+    tryDeviceLogin(currentPlate, deviceToken).then(function () {
+      var m = document.getElementById('currentMileageInput');
+      var f = document.getElementById('actsFrom');
+      var t = document.getElementById('actsTo');
+      if (savedMileage && m) m.value = savedMileage;
+      if (savedFrom && f) f.value = savedFrom;
+      if (savedTo && t) t.value = savedTo;
     });
   }
+  setInterval(pollDataVersion_, 20000);
+
+  // ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей
+  // паузой — см. подробный комментарий в to.html, тот же приём.
+  var FETCH_TIMEOUT_MS = 15000;
+  var FETCH_BACKOFF_MS = [1500, 4000];
+
+  function fetchOnce_(url, options) {
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var opts = options ? Object.assign({}, options) : {};
+    if (controller) opts.signal = controller.signal;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS) : null;
+    return fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
+  }
+
+  function fetchWithRetry_(url, options, attempt) {
+    attempt = attempt || 0;
+    return fetchOnce_(url, options).catch(function (err) {
+      if (attempt >= FETCH_BACKOFF_MS.length) throw err;
+      var pause = FETCH_BACKOFF_MS[attempt];
+      return new Promise(function (resolve) { setTimeout(resolve, pause); })
+        .then(function () { return fetchWithRetry_(url, options, attempt + 1); });
+    });
+  }
+
+  // ---- Очередь исходящих запросов (retry-queue), ЭТАП 10, п.6 -------
+  // Только для регистрации (payload небольшой, только текстовые поля —
+  // в отличие от act.html, где в payload попадают фото/PDF и очередь в
+  // localStorage рискует упереться в лимит объёма, поэтому там не
+  // применяется). Если сеть пропала на середине регистрации — данные не
+  // теряются, форма остаётся заполненной, а отправка повторится сама.
+  var RQ_KEY_ = 'driver_retry_queue';
+
+  function rqLoad_() {
+    try { return JSON.parse(localStorage.getItem(RQ_KEY_) || '[]'); } catch (e) { return []; }
+  }
+  function rqSave_(list) {
+    try { localStorage.setItem(RQ_KEY_, JSON.stringify(list)); } catch (e) { /* недоступно/переполнено */ }
+  }
+  function rqEnqueue_(payload, label) {
+    var list = rqLoad_();
+    list.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), payload: payload, label: label || '', ts: Date.now() });
+    rqSave_(list);
+  }
+  var rqFlushing_ = false;
+  function rqFlush_() {
+    if (rqFlushing_) return;
+    var list = rqLoad_();
+    if (!list.length) return;
+    rqFlushing_ = true;
+    var item = list[0];
+    fetchWithRetry_(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(item.payload)
+    }, FETCH_BACKOFF_MS.length)
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        var rest = rqLoad_().filter(function (x) { return x.id !== item.id; });
+        rqSave_(rest);
+        if (res && res.ok) {
+          // Регистрация наконец прошла, пока пользователь мог уже уйти со
+          // страницы — открываем кабинет, если форма ещё видна.
+          var errEl = document.getElementById('regError');
+          if (errEl) errEl.innerText = '';
+          try { showCabinet(res); } catch (e) { /* пользователь уже ушёл с этого экрана — не критично */ }
+        }
+      })
+      .catch(function () { /* сети всё ещё нет — попробуем позже */ })
+      .finally(function () {
+        rqFlushing_ = false;
+        if (rqLoad_().length) setTimeout(rqFlush_, 1000);
+      });
+  }
+  window.addEventListener('online', rqFlush_);
+  setInterval(rqFlush_, 20000);
+  document.addEventListener('DOMContentLoaded', rqFlush_);
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -581,9 +748,47 @@
     return digits ? '+' + digits : '';
   }
 
+  // ЭТАП 10 (промт «Шторка ввода таксопарка»): блок выбора таксопарка
+  // виден только для типа "Такси" — для "Частная" он бессмысленен.
+  function onDriverTypeChange_() {
+    var isTaxi = document.getElementById('r_type').value === 'Такси';
+    document.getElementById('taxiParkBlock').style.display = isTaxi ? 'block' : 'none';
+    if (!isTaxi) {
+      document.getElementById('r_taxipark').value = '';
+      closeTaxiparkOtherWrap_();
+    }
+  }
+
+  // Плавно раскрывает/закрывает шторку с полем ввода названия
+  // таксопарка при выборе "Другое" в списке.
+  function onTaxiparkChange_() {
+    var sel = document.getElementById('r_taxipark').value;
+    var wrap = document.getElementById('taxiParkOtherWrap');
+    if (sel === 'other') {
+      wrap.style.maxHeight = wrap.scrollHeight + 60 + 'px';
+    } else {
+      closeTaxiparkOtherWrap_();
+    }
+  }
+
+  function closeTaxiparkOtherWrap_() {
+    var wrap = document.getElementById('taxiParkOtherWrap');
+    wrap.style.maxHeight = '0';
+    document.getElementById('r_taxipark_other').value = '';
+  }
+
+  /** Итоговое название таксопарка: из списка либо из ручного поля "Другое". */
+  function resolveTaxiPark_() {
+    if (document.getElementById('r_type').value !== 'Такси') return '';
+    var sel = document.getElementById('r_taxipark').value;
+    if (sel === 'other') return document.getElementById('r_taxipark_other').value.trim();
+    return sel || '';
+  }
+
   function submitRegister(btn) {
     var fio = document.getElementById('r_fio').value.trim();
     var taxiOrPrivate = document.getElementById('r_type').value;
+    var taxiPark = resolveTaxiPark_();
     var vin = document.getElementById('r_vin').value.trim();
     var whatsapp = normalizePhone(document.getElementById('r_whatsapp').value.trim());
     var model = document.getElementById('r_model').value.trim();
@@ -594,6 +799,10 @@
 
     if (!fio || !whatsapp) {
       errEl.innerText = 'Заполните ФИО и WhatsApp';
+      return;
+    }
+    if (taxiOrPrivate === 'Такси' && !taxiPark) {
+      errEl.innerText = 'Укажите таксопарк (выберите из списка или введите название вручную)';
       return;
     }
     if (vin && !isValidVin_(vin)) {
@@ -614,7 +823,7 @@
       return apiPost({
         action: 'driverRegister',
         plate: currentPlate,
-        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, vin: vin, whatsapp: whatsapp, model: model, password: password }
+        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password }
       }).then(function (res) {
         document.getElementById('regStatus').innerText = '';
         if (!res.ok) {
@@ -625,8 +834,17 @@
         // лишнего повторного запроса.
         showCabinet(res);
       }).catch(function () {
+        // ЭТАП 10, п.6: все попытки (с таймаутом и паузами) исчерпаны —
+        // сети действительно нет. Форма НЕ очищается и НЕ теряет введённые
+        // данные; сама регистрация уходит в очередь и повторится
+        // автоматически, когда сеть/скрипт снова станут доступны.
+        rqEnqueue_({
+          action: 'driverRegister',
+          plate: currentPlate,
+          data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password }
+        }, 'регистрация ' + currentPlate);
         document.getElementById('regStatus').innerText = '';
-        errEl.innerText = 'Ошибка сети';
+        errEl.innerText = '⚠️ Нет сети. Данные сохранены — регистрация отправится автоматически, как только связь восстановится.';
       });
     });
   }
@@ -656,6 +874,7 @@
     document.getElementById('vehVin').innerText = 'VIN: ' + (data.vin || '—');
     document.getElementById('vehDriver').innerText =
       (data.driverFio || '—') + (data.taxiOrPrivate ? ' · ' + data.taxiOrPrivate : '') +
+      (data.taxiPark ? ' (' + data.taxiPark + ')' : '') +
       (data.whatsapp ? ' · WhatsApp: ' + data.whatsapp : '');
 
     // ЭТАП 4: блок остатка по открытому акту "Получения" (если есть) —

@@ -24,13 +24,14 @@
 // механизм (network-first + баннер "Доступно обновление") уже был
 // сделан в Этапе 8.1 и не менялся, действие нужно только при каждом
 // новом деплое фронтенда.
-var CACHE_NAME = 'ccs-shell-v5';
+var CACHE_NAME = 'ccs-shell-v8';
 
 var PRECACHE_URLS = [
   'index.html',
   'driver.html',
   'to.html',
   'act.html',
+  'taxipark.html',
   'manifest.json',
   'manifest-driver.json',
   'manifest-staff.json',
@@ -39,7 +40,10 @@ var PRECACHE_URLS = [
   'icons/icon-192-driver.png',
   'icons/icon-512-driver.png',
   'icons/icon-192-staff.png',
-  'icons/icon-512-staff.png'
+  'icons/icon-512-staff.png',
+  'icons/icon-512-maskable.png',
+  'icons/apple-touch-icon.png',
+  'icons/site-logo.png'
 ];
 
 self.addEventListener('install', function (event) {

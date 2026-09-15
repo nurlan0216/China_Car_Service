@@ -10,7 +10,7 @@
 <!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
      дублируем через meta-теги (Этап 8). Акт составляет только вошедший
      сотрудник (см. Этап 2), поэтому иконка/манифест — как у to.html -->
-<link rel="apple-touch-icon" href="icons/icon-192-staff.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="CCS СТО">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -164,7 +164,10 @@
     <div class="brand">
       <div>
         <a href="to.html" class="gear" id="btnBackToCto" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;margin-bottom:6px;width:auto;padding:0 10px;height:30px;font-size:13px;">← Учёт ТО</a>
-        <div class="brand-name">CHINA CAR SERVICE</div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <img src="icons/site-logo.png" alt="" style="width:26px; height:26px; border-radius:50%; object-fit:cover;">
+          <div class="brand-name">CHINA CAR SERVICE</div>
+        </div>
         <div class="brand-sub">Акт приёма-передачи автомобиля</div>
       </div>
     </div>
@@ -431,6 +434,10 @@
           <div class="status-line" id="st_pdf"><div class="dot"></div><div>Формирование PDF</div></div>
           <div class="status-line" id="st_tg"><div class="dot"></div><div>Отправка в Telegram</div></div>
           <div class="status-line" id="st_sheet"><div class="dot"></div><div>Запись в Google Таблицу</div></div>
+          <!-- ЭТАП 10, п.6/9: при сбое отправки (сеть/сервер) PDF и все
+               введённые данные акта остаются в памяти — ничего заново
+               вводить не нужно, достаточно нажать "Повторить отправку". -->
+          <button class="btn" id="btnRetrySheet" type="button" style="display:none;margin-top:8px" onclick="sendSheet()">🔁 Повторить отправку</button>
           <div class="status-line" id="st_wa"><div class="dot"></div><div>Подготовка ссылки WhatsApp</div></div>
         </div>
       </div>
@@ -649,7 +656,20 @@ async function fetchIP(){
   }catch(e){ state.ip = 'не определён'; }
 }
 
-/* Geolocation + reverse geocode */
+/* Geolocation + reverse geocode
+ * ЭТАП 9.7 (жалоба «долго грузится при составлении/выдаче»): раньше
+ * stampPhoto() и prepSignatureStep() каждый вызывали getPosition()
+ * (навигационный GPS-фикс, до 8 секунд ожидания при enableHighAccuracy)
+ * и reverseGeocode() (внешний сетевой запрос) ПО ОТДЕЛЬНОСТИ на КАЖДОЕ
+ * фото — 5-6 фото ТС плюс фото дефектов плюс сам шаг подписи. В боксе
+ * СТО (часто со слабым/отсутствующим GPS-сигналом в помещении) это
+ * превращалось в 8+ секунд ожидания на КАЖДОЕ фото подряд — то есть
+ * реальная причина ощущения «долго грузится» как при «Получении», так
+ * и при «Выдаче» (фотографии снимаются одинаково в обоих случаях).
+ * Машина за время заполнения одного акта не переезжает, поэтому
+ * координаты нужно определить только ОДИН раз на весь акт и переиспользовать
+ * во всех фото и на шаге подписи — см. getGeoContextCached_ ниже.
+ */
 function getPosition(){
   return new Promise((resolve)=>{
     if(!navigator.geolocation){ resolve(null); return; }
@@ -666,6 +686,26 @@ async function reverseGeocode(lat,lon){
     const j = await r.json();
     return [j.locality, j.city, j.principalSubdivision].filter(Boolean).join(', ');
   }catch(e){ return ''; }
+}
+
+// ЭТАП 9.7: результат (позиция + готовый текст geoText) определяется один
+// раз за сессию заполнения акта и переиспользуется — сам промис кладём в
+// кэш ДО его разрешения, чтобы параллельные вызовы (например, быстрая
+// съёмка нескольких фото подряд) не запустили несколько одновременных
+// запросов геолокации, а просто дождались одного и того же результата.
+let geoContextPromise_ = null;
+function getGeoContextCached_(){
+  if(!geoContextPromise_){
+    geoContextPromise_ = (async () => {
+      const pos = await getPosition();
+      if(!pos) return {pos:null, lat:null, lon:null, geoText:'координаты недоступны'};
+      let geoText = `${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)} (±${Math.round(pos.acc)}м)`;
+      const addr = await reverseGeocode(pos.lat, pos.lon);
+      if(addr) geoText += ' — '+addr;
+      return {pos, lat:pos.lat, lon:pos.lon, geoText};
+    })();
+  }
+  return geoContextPromise_;
 }
 
 /* Stamp a captured photo with date/time + geo text, return dataURL */
@@ -688,15 +728,10 @@ async function stampPhoto(file){
   ctx.drawImage(img,0,0,canvas.width,canvas.height);
 
   const now = new Date();
-  const pos = await getPosition();
-  let geoText = 'координаты недоступны';
-  let lat=null, lon=null;
-  if(pos){
-    lat=pos.lat; lon=pos.lon;
-    geoText = `${pos.lat.toFixed(6)}, ${pos.lon.toFixed(6)} (±${Math.round(pos.acc)}м)`;
-    const addr = await reverseGeocode(pos.lat,pos.lon);
-    if(addr) geoText += ' — '+addr;
-  }
+  // ЭТАП 9.7: координаты/адрес берутся из кэша getGeoContextCached_ — GPS
+  // и обратный геокодинг выполняются один раз на весь акт, а не заново
+  // на каждое фото (см. комментарий у getGeoContextCached_ выше).
+  const { lat, lon, geoText } = await getGeoContextCached_();
   const line1 = fmtDT(now);
   const line2 = geoText;
   const pad = 10;
@@ -1218,6 +1253,28 @@ async function checkLinkedIntake_(){
 document.getElementById('f_plate').addEventListener('input', scheduleCheckLinkedIntake_);
 document.getElementById('f_plate').addEventListener('blur', checkLinkedIntake_);
 
+// ЭТАП 10, п.7: автообновление данных. Пока сотрудник находится на шаге
+// "Данные Заказчика" с типом акта "Выдача", остаток по связанному акту
+// "Получения" может измениться (например, другой сотрудник в to.html
+// только что добавил запись ТО по этой же машине) — раз в 20 секунд
+// проверяем лёгкую "версию данных" и, если она изменилась, тихо
+// перезапрашиваем найденный акт (checkLinkedIntake_ уже сам по себе
+// безопасен для повторного вызова — обновляет только информационный
+// блок остатка/оплаты, не трогает поля, которые сотрудник заполняет
+// руками). Вне этого шага/типа акта опрос ничего не делает.
+var lastKnownDataVersion_ = null;
+function pollDataVersion_(){
+  if(state.actType !== 'issue' || state.step !== 1) return;
+  gateApiPost({ action: 'dataversion' }).then(function(res){
+    if(!res || !res.ok) return;
+    if(lastKnownDataVersion_ !== null && res.version !== lastKnownDataVersion_){
+      checkLinkedIntake_();
+    }
+    lastKnownDataVersion_ = res.version;
+  }).catch(function(){ /* сети сейчас нет — пропускаем этот опрос, попробуем через 20с снова */ });
+}
+setInterval(pollDataVersion_, 20000);
+
 /**
  * ЭТАП 3: показывает нужный вид блока «Тип оплаты»/«Сумма и оплата» в
  * зависимости от того, найден ли для «Выдачи» незакрытый акт
@@ -1623,12 +1680,13 @@ async function prepSignatureStep(){
   if(!sigCanvas) initSigCanvas();
   const geoLine = document.getElementById('ipGeoLine');
   geoLine.textContent = 'Определение местоположения и IP…';
-  const pos = await getPosition();
-  let g = 'координаты недоступны';
+  // ЭТАП 9.7: тот же кэш, что и в stampPhoto() — если координаты уже
+  // определялись при съёмке фото на этом же акте, здесь они получаются
+  // мгновенно, без повторного 8-секундного GPS-ожидания.
+  const { pos, lat, lon, geoText } = await getGeoContextCached_();
+  let g = geoText;
   if(pos){
-    g = `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`;
-    const addr = await reverseGeocode(pos.lat,pos.lon);
-    if(addr) g += ' — '+addr;
+    g = `${lat.toFixed(5)}, ${lon.toFixed(5)}` + (geoText.includes(' — ') ? geoText.slice(geoText.indexOf(' — ')) : '');
     state._signPos = pos;
   }
   if(!state.ip) await fetchIP();
@@ -1932,8 +1990,19 @@ async function sendSheet(pdfBlob){
       setStatus('st_sheet','fail','Акт записан, но PDF НЕ сохранён на Диск — водитель его не увидит');
     } else {
       setStatus('st_sheet','done','Записано в Google Таблицу, PDF сохранён на Диск');
+      var retryBtn = document.getElementById('btnRetrySheet');
+      if (retryBtn) retryBtn.style.display = 'none';
     }
-  }catch(e){ setStatus('st_sheet','fail','Ошибка записи в таблицу'); }
+  }catch(e){
+    // ЭТАП 10, п.9: все попытки (таймаут+backoff) исчерпаны — ничего из
+    // уже введённых/сфотографированных данных не теряется (state и
+    // сформированный PDF остаются как есть), просто показываем кнопку
+    // "Повторить отправку" вместо того, чтобы заставлять заполнять акт
+    // заново с нуля.
+    setStatus('st_sheet','fail','Ошибка сети — акт не потерян, нажмите «Повторить отправку»');
+    var retryBtn2 = document.getElementById('btnRetrySheet');
+    if (retryBtn2) retryBtn2.style.display = 'block';
+  }
 }
 
 /* Готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и
@@ -2067,13 +2136,36 @@ var GATE_PW = '';
 // в листе "Админ", если он изменится между визитами.
 var GATE_IS_SUPER = false;
 
-// ЭТАП 7: один автоматический повтор при сетевой ошибке (см. такой же
-// helper в to.html/driver.html) — если fetch() отклонился (обрыв связи),
-// пробуем ещё раз через короткую паузу перед тем, как показать ошибку.
-function fetchWithRetry_(url, options) {
-  return fetch(url, options).catch(function () {
-    return new Promise(function (resolve) { setTimeout(resolve, 1500); })
-      .then(function () { return fetch(url, options); });
+// ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей паузой
+// (см. подробный комментарий в to.html). Таймаут здесь заметно больше
+// (45с), чем в to.html/driver.html (15с) — сюда, в отличие от них,
+// уходит целый PDF в base64 (обычно 1-3 МБ), и на слабом мобильном
+// интернете сама загрузка может занимать больше времени, чем обычный
+// короткий запрос без вложений.
+// Очередь-в-localStorage (как в to.html/driver.html) здесь намеренно НЕ
+// применяется: такой payload легко превысит лимит localStorage (~5МБ),
+// а несколько неотправленных актов сразу могли бы его переполнить.
+// Вместо этого при исчерпании попыток данные остаются в памяти вкладки
+// (state), PDF уже сформирован локально, и сотруднику показывается
+// кнопка "Повторить отправку" — см. sendSheet().
+var ACT_FETCH_TIMEOUT_MS = 45000;
+var ACT_FETCH_BACKOFF_MS = [2000, 5000];
+
+function fetchOnce_(url, options) {
+  var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var opts = options ? Object.assign({}, options) : {};
+  if (controller) opts.signal = controller.signal;
+  var timer = controller ? setTimeout(function () { controller.abort(); }, ACT_FETCH_TIMEOUT_MS) : null;
+  return fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
+}
+
+function fetchWithRetry_(url, options, attempt) {
+  attempt = attempt || 0;
+  return fetchOnce_(url, options).catch(function (err) {
+    if (attempt >= ACT_FETCH_BACKOFF_MS.length) throw err;
+    var pause = ACT_FETCH_BACKOFF_MS[attempt];
+    return new Promise(function (resolve) { setTimeout(resolve, pause); })
+      .then(function () { return fetchWithRetry_(url, options, attempt + 1); });
   });
 }
 

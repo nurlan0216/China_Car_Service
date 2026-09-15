@@ -9,7 +9,7 @@
 <link rel="icon" href="icons/icon-192-staff.png">
 <!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
      дублируем через meta-теги (Этап 8) -->
-<link rel="apple-touch-icon" href="icons/icon-192-staff.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="CCS СТО">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -82,7 +82,7 @@
 
   <!-- ЭКРАН ВХОДА: личный логин/пароль сотрудника -->
   <div id="gate">
-    <h1 style="text-align:center">🔒 Учёт ТО</h1>
+    <h1 style="text-align:center"><img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">🔒 Учёт ТО</h1>
     <div class="sub" style="text-align:center">Войдите под своим именем и паролем</div>
     <div class="card">
       <label>Имя</label>
@@ -110,7 +110,7 @@
   <!-- ОСНОВНОЕ ПРИЛОЖЕНИЕ (скрыто до входа) -->
   <div id="mainApp" style="display:none;">
     <span class="logout" onclick="logout()">Выйти</span>
-    <h1>🚗 Учёт обслуживания автопарка</h1>
+    <h1><img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">🚗 Учёт обслуживания автопарка</h1>
     <a href="act.html" class="btn-primary btn-full" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;padding:16px;font-size:16px;font-weight:600;border-radius:10px;margin-bottom:14px;">📝 Оформить акт приёма-передачи ТС</a>
     <div class="sub">Поиск истории ТО по гос. номеру, PDF-выгрузка, добавление новых работ</div>
 
@@ -228,6 +228,24 @@
           <span id="payBalanceLine" style="display:block; font-size:12px; color:var(--muted); margin-top:2px;"></span>
         </div>
 
+        <!-- ЭТАП 10, п.8 (множественный ввод работ за один визит): если у
+             машины за один визит несколько работ (масло + фильтр +
+             колодки и т.п.), сотрудник может добавить их все ДО отправки —
+             каждая "➕ Добавить ещё работу" сохраняет текущие поля работы
+             выше (тип/описание/запчасти/стоимость/оплата) в список этого
+             визита (pendingWorkRows_, ниже в скрипте) и очищает только их,
+             оставляя пробег/владельца/мастера как есть. Финальная кнопка
+             "Сохранить визит" отправляет ВСЕ строки визита (включая
+             текущую, ещё не добавленную кнопкой) одним batch-запросом
+             (action:'addRecords') — один вызов Apps Script и одна запись
+             в историю на каждую работу, как и раньше, но без повторного
+             похода в сеть на каждую отдельную работу. -->
+        <button type="button" class="btn-primary btn-full" style="background:var(--accent-2); margin-bottom:10px;" onclick="addPendingWorkRow_()">➕ Добавить ещё работу</button>
+        <div id="pendingRowsWrap" style="display:none; margin-bottom:14px;">
+          <label style="margin-bottom:6px;">Работы за этот визит (ждут отправки)</label>
+          <div id="pendingRowsList"></div>
+        </div>
+
         <!-- ЭТАП 4: "Мастер" — это сам вошедший сотрудник (он же заносит
              запись о том, что заменил/сделал), а не отдельный человек,
              которого нужно вписывать вручную. Поле теперь не редактируется
@@ -253,8 +271,12 @@
           <datalist id="masterOptions"></datalist>
         </div>
 
-        <button class="btn-primary btn-full" onclick="submitAdd(this)">Сохранить запись</button>
+        <button class="btn-primary btn-full" id="btnSubmitWork" onclick="submitAdd(this)">Сохранить запись</button>
         <div id="addStatus" class="loading"></div>
+        <!-- ЭТАП 10, п.6: видимый индикатор очереди отложенных (не
+             отправленных из-за отсутствия сети) записей. Скрыт, пока
+             очередь пуста — см. updateRetryQueueBadge_() в скрипте. -->
+        <div id="retryQueueBadge" style="display:none;margin-top:6px;padding:8px 10px;border-radius:8px;background:#3b2f10;color:#f5c451;font-size:13px;"></div>
       </div>
     </div>
 
@@ -368,18 +390,96 @@
   var savedDeviceToken = localStorage.getItem(DEVICE_TOKEN_KEY) || '';
   if (savedDeviceName && savedDeviceToken) tryDeviceLogin_(savedDeviceName, savedDeviceToken);
 
-  // ЭТАП 7: один автоматический повтор при сетевой ошибке (обрыв связи,
-  // fetch reject) перед тем, как показать пользователю "Ошибка сети" —
-  // мобильная сеть иногда роняет один запрос из многих, и повтор через
-  // короткую паузу решает это без участия человека. HTTP-ответы с
-  // ошибкой (res.ok:false в JSON) сюда не относятся — это не сетевая
-  // ошибка, а обычный ответ сервера, повторять его не нужно.
-  function fetchWithRetry_(url, options) {
-    return fetch(url, options).catch(function () {
-      return new Promise(function (resolve) { setTimeout(resolve, 1500); })
-        .then(function () { return fetch(url, options); });
+  // ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей
+  // паузой (retry with backoff) для вызовов Apps Script. Раньше был
+  // только один повтор через фиксированные 1.5с и без таймаута — при
+  // "зависшем" запросе (сервер принял, но долго не отвечает) страница
+  // могла ждать неопределённо долго. Теперь: до 3 попыток, таймаут 15с
+  // на каждую (AbortController), паузы между попытками 1.5с → 4с.
+  // HTTP-ответы с ошибкой (res.ok:false в самом JSON) сюда не относятся
+  // — это не сетевая ошибка, а обычный ответ сервера, повторять не надо.
+  var FETCH_TIMEOUT_MS = 15000;
+  var FETCH_BACKOFF_MS = [1500, 4000];
+
+  function fetchOnce_(url, options) {
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var opts = options ? Object.assign({}, options) : {};
+    if (controller) opts.signal = controller.signal;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS) : null;
+    return fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
+  }
+
+  function fetchWithRetry_(url, options, attempt) {
+    attempt = attempt || 0;
+    return fetchOnce_(url, options).catch(function (err) {
+      if (attempt >= FETCH_BACKOFF_MS.length) throw err;
+      var pause = FETCH_BACKOFF_MS[attempt];
+      return new Promise(function (resolve) { setTimeout(resolve, pause); })
+        .then(function () { return fetchWithRetry_(url, options, attempt + 1); });
     });
   }
+
+  // ---- Очередь исходящих запросов (retry-queue), ЭТАП 10, п.6 -------
+  // Только для ЗАПИСЫВАЮЩИХ действий (сейчас — addRecord): если все
+  // попытки fetchWithRetry_ выше исчерпаны (сеть недоступна дольше, чем
+  // 15+1.5+15+4+15 секунд, или скрипт вовсе недоступен), запрос не
+  // теряется — он сохраняется в localStorage и будет отправлен
+  // автоматически при восстановлении сети/доступности скрипта: по
+  // событию 'online', при следующем открытии страницы и раз в 20с, пока
+  // очередь не пуста. Пользователь не должен вводить данные повторно.
+  var RQ_KEY_ = 'to_retry_queue';
+
+  function rqLoad_() {
+    try { return JSON.parse(localStorage.getItem(RQ_KEY_) || '[]'); } catch (e) { return []; }
+  }
+  function rqSave_(list) {
+    try { localStorage.setItem(RQ_KEY_, JSON.stringify(list)); } catch (e) { /* хранилище недоступно/переполнено */ }
+  }
+  function rqEnqueue_(payload, label) {
+    var list = rqLoad_();
+    list.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), payload: payload, label: label || '', ts: Date.now() });
+    rqSave_(list);
+    updateRetryQueueBadge_();
+  }
+  function updateRetryQueueBadge_() {
+    var el = document.getElementById('retryQueueBadge');
+    if (!el) return;
+    var n = rqLoad_().length;
+    el.style.display = n ? 'block' : 'none';
+    el.innerText = n ? ('⏳ Не отправлено (ждёт сети): ' + n) : '';
+  }
+  var rqFlushing_ = false;
+  function rqFlush_() {
+    if (rqFlushing_) return;
+    var list = rqLoad_();
+    if (!list.length) return;
+    rqFlushing_ = true;
+    var item = list[0];
+    fetchWithRetry_(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(item.payload)
+    }, FETCH_BACKOFF_MS.length) // без повторов внутри самой попытки — очередь уже сама повторяет по таймеру
+      .then(function () {
+        // Успех (дошло до сервера) — убираем из очереди независимо от
+        // содержимого ответа: если сервер вернул ok:false (например,
+        // дублирующая ошибка валидации), повторять тот же payload дальше
+        // уже бессмысленно, а сетевая проблема решена.
+        var rest = rqLoad_().filter(function (x) { return x.id !== item.id; });
+        rqSave_(rest);
+        updateRetryQueueBadge_();
+        var badge = document.getElementById('addStatus');
+        if (badge) badge.innerText = '✅ Отложенная запись «' + item.label + '» отправлена.';
+      })
+      .catch(function () { /* сети всё ещё нет — оставляем в очереди, попробуем позже */ })
+      .finally(function () {
+        rqFlushing_ = false;
+        if (rqLoad_().length) setTimeout(rqFlush_, 1000);
+      });
+  }
+  window.addEventListener('online', rqFlush_);
+  setInterval(rqFlush_, 20000);
+  document.addEventListener('DOMContentLoaded', function () { updateRetryQueueBadge_(); rqFlush_(); });
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -739,30 +839,172 @@
     loadWorkHistory(false);
   }
 
+  // ЭТАП 10 (промт «Согласование удаления/изменения работ», п.1): по
+  // каждой строке кэшируем полные данные записи (по id) — нужны для
+  // формы "Изменить" (модалка), таблица истории их не показывает.
+  var historyRecordsById_ = {};
+
   function renderHistoryTable_(rows, total, isSuperAdmin) {
     var wrap = document.getElementById('historyTableWrap');
     if (!rows || !rows.length) {
       wrap.innerHTML = '<div class="empty">Работ пока нет или ничего не найдено по этому фильтру</div>';
       return;
     }
+    historyRecordsById_ = {};
     var html = '<table><thead><tr>' +
       '<th>Дата</th><th>Гос. номер</th><th>Работа</th>' +
       (isSuperAdmin ? '<th>Сотрудник</th>' : '') +
-      '<th>Сумма</th>' +
+      '<th>Сумма</th><th></th>' +
       '</tr></thead><tbody>';
     rows.forEach(function (r) {
-      html += '<tr>' +
+      historyRecordsById_[r.id] = r;
+      var isPending = r.approvalStatus === 'pending';
+      var actionsHtml = isPending
+        ? '<span style="color:var(--muted); font-size:12px;">⏳ на согласовании</span>'
+        : '<span class="row-actions" style="white-space:nowrap;">' +
+          '<a href="javascript:void(0)" onclick="openEditRecordModal(\'' + r.id + '\')" style="color:var(--accent); font-size:12px; margin-right:10px;">✏️ Изменить</a>' +
+          '<a href="javascript:void(0)" onclick="openDeleteRecordModal(\'' + r.id + '\')" style="color:var(--danger); font-size:12px;">🗑 Удалить</a>' +
+          '</span>';
+      html += '<tr id="hrow_' + r.id + '">' +
         '<td>' + escapeHtml(r.date) + '</td>' +
         '<td>' + escapeHtml(r.plate) + '</td>' +
         '<td>' + escapeHtml(r.type) + '</td>' +
         (isSuperAdmin ? '<td>' + escapeHtml(r.master) + '</td>' : '') +
         '<td>' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</td>' +
+        '<td>' + actionsHtml + '</td>' +
         '</tr>';
     });
     html += '</tbody></table>' +
       '<div class="pill" style="margin-top:10px; min-width:100%;"><b>Итого: ' +
       (Number(total) || 0).toLocaleString('ru-RU') + ' ₸</b></div>';
     wrap.innerHTML = html;
+
+    // ЭТАП 10 (п.7 промта — автообновление): пока хотя бы одна запись
+    // "на согласовании", поллим статус заявок почаще, чтобы сотрудник
+    // сразу увидел решение директора, не обновляя страницу вручную.
+    var pendingIds = rows.filter(function (r) { return r.approvalStatus === 'pending'; }).map(function (r) { return r.id; });
+    schedulePendingApprovalPoll_(pendingIds);
+  }
+
+  var pendingApprovalPollTimer_ = null;
+  function schedulePendingApprovalPoll_(ids) {
+    if (pendingApprovalPollTimer_) { clearTimeout(pendingApprovalPollTimer_); pendingApprovalPollTimer_ = null; }
+    if (!ids || !ids.length) return;
+    pendingApprovalPollTimer_ = setTimeout(function () {
+      // Просто перезапрашиваем текущий список — сервер сам вернёт
+      // актуальный approvalStatus по каждой записи (снятый, если решение
+      // уже принято директором).
+      loadWorkHistory(historyShowAll_);
+    }, 8000);
+  }
+
+  /* ---------- Модалка изменения/удаления записи с обязательной причиной ---------- */
+
+  function ensureApprovalModal_() {
+    if (document.getElementById('approvalModal')) return;
+    var div = document.createElement('div');
+    div.id = 'approvalModal';
+    div.style.cssText = 'display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:999; align-items:center; justify-content:center; padding:16px;';
+    div.innerHTML =
+      '<div class="card" style="max-width:420px; width:100%; max-height:90vh; overflow:auto;">' +
+        '<h2 id="approvalModalTitle" style="margin-top:0; font-size:17px;"></h2>' +
+        '<div id="approvalModalFields"></div>' +
+        '<label>Причина (обязательно)</label>' +
+        '<textarea id="approvalReason" rows="3" placeholder="Например: ошибочно указана стоимость"></textarea>' +
+        '<div class="error" id="approvalModalError"></div>' +
+        '<div class="row">' +
+          '<button class="btn-primary btn-full" onclick="submitApprovalRequest_()">Отправить директору на согласование</button>' +
+        '</div>' +
+        '<div class="toggle" style="text-align:center; margin-top:8px;" onclick="closeApprovalModal_()">Отмена</div>' +
+      '</div>';
+    document.body.appendChild(div);
+  }
+
+  var approvalModalState_ = null; // {mode:'edit'|'delete', recordId}
+
+  function openEditRecordModal(recordId) {
+    var r = historyRecordsById_[recordId];
+    if (!r) return;
+    ensureApprovalModal_();
+    approvalModalState_ = { mode: 'edit', recordId: recordId };
+    document.getElementById('approvalModalTitle').innerText = 'Изменить запись — ' + r.plate;
+    document.getElementById('approvalModalFields').innerHTML =
+      '<label>Вид работы</label><input id="ea_type" value="' + escapeHtml(r.type || '') + '">' +
+      '<label>Описание</label><input id="ea_description" value="' + escapeHtml(r.description || '') + '">' +
+      '<label>Запчасти</label><input id="ea_parts" value="' + escapeHtml(r.parts || '') + '">' +
+      '<label>Пробег, км</label><input id="ea_mileage" value="' + escapeHtml(String(r.mileage || '')) + '">' +
+      '<label>Стоимость</label><input id="ea_cost" type="number" value="' + escapeHtml(String(r.cost || '')) + '">';
+    document.getElementById('approvalReason').value = '';
+    document.getElementById('approvalModalError').innerText = '';
+    document.getElementById('approvalModal').style.display = 'flex';
+  }
+
+  function openDeleteRecordModal(recordId) {
+    var r = historyRecordsById_[recordId];
+    if (!r) return;
+    ensureApprovalModal_();
+    approvalModalState_ = { mode: 'delete', recordId: recordId };
+    document.getElementById('approvalModalTitle').innerText = 'Удалить запись — ' + r.plate;
+    document.getElementById('approvalModalFields').innerHTML =
+      '<div class="sub" style="margin-bottom:10px;">' + escapeHtml(r.date) + ' · ' + escapeHtml(r.type) +
+      (r.description ? ' — ' + escapeHtml(r.description) : '') + ' · ' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</div>';
+    document.getElementById('approvalReason').value = '';
+    document.getElementById('approvalModalError').innerText = '';
+    document.getElementById('approvalModal').style.display = 'flex';
+  }
+
+  function closeApprovalModal_() {
+    document.getElementById('approvalModal').style.display = 'none';
+    approvalModalState_ = null;
+  }
+
+  // ЭТАП 10 (п.9 промта — не терять введённые данные): состояние формы
+  // (текст причины, поля правки) остаётся на экране при ошибке сети —
+  // модалка просто не закрывается, показывается сообщение об ошибке,
+  // повторная отправка возможна без повторного ввода.
+  function submitApprovalRequest_() {
+    if (!approvalModalState_) return;
+    var reason = document.getElementById('approvalReason').value.trim();
+    var errEl = document.getElementById('approvalModalError');
+    if (!reason) {
+      errEl.innerText = 'Укажите причину — без неё заявка не отправляется.';
+      return;
+    }
+    errEl.innerText = 'Отправляю...';
+    var btn = document.querySelector('#approvalModal .btn-primary');
+    if (btn) btn.disabled = true;
+
+    var payload;
+    if (approvalModalState_.mode === 'edit') {
+      payload = {
+        action: 'requestEditRecord', name: ADMIN_NAME, pw: PW,
+        recordId: approvalModalState_.recordId,
+        reason: reason,
+        newData: {
+          type: document.getElementById('ea_type').value.trim(),
+          description: document.getElementById('ea_description').value.trim(),
+          parts: document.getElementById('ea_parts').value.trim(),
+          mileage: document.getElementById('ea_mileage').value.trim(),
+          cost: Number(document.getElementById('ea_cost').value) || 0
+        }
+      };
+    } else {
+      payload = {
+        action: 'requestDeleteRecord', name: ADMIN_NAME, pw: PW,
+        recordId: approvalModalState_.recordId,
+        reason: reason
+      };
+    }
+
+    apiPost(payload).then(function (res) {
+      if (btn) btn.disabled = false;
+      if (!res.ok) { errEl.innerText = 'Ошибка: ' + res.error; return; }
+      closeApprovalModal_();
+      loadWorkHistory(historyShowAll_); // сразу показать пометку "на согласовании"
+    }).catch(function () {
+      if (btn) btn.disabled = false;
+      errEl.innerText = 'Ошибка сети — данные формы сохранены, попробуйте отправить ещё раз.';
+    });
   }
 
   // ЭТАП 7 (промт stage7 fixes, п.6): CSV должен уметь выгрузить полный
@@ -833,6 +1075,13 @@
     var plate = document.getElementById('plateInput').value.trim();
     if (!plate) return;
     currentPlate = plate;
+    // ЭТАП 10, п.8: восстанавливаем черновик визита (работы, уже
+    // добавленные кнопкой "➕ Добавить ещё работу", но ещё не
+    // отправленные) для ЭТОГО гос. номера, если он есть — например,
+    // после случайной перезагрузки страницы посреди визита. Для другого
+    // номера, у которого своего черновика нет, список будет пустым.
+    loadPendingDraft_();
+    renderPendingRows_();
     document.getElementById('resultsCard').style.display = 'none';
 
     // ЭТАП 8.4: тот же номер могли искать секунды назад (типичный сценарий
@@ -1211,12 +1460,164 @@
     });
   });
 
+  // ==================== ЭТАП 10, п.8 ====================
+  // Множественный ввод работ за один визит: список работ, уже
+  // добавленных кнопкой "➕ Добавить ещё работу" для ТЕКУЩЕГО визита
+  // (currentPlate), но ещё не отправленных на сервер. Хранится и в
+  // памяти (для мгновенной отрисовки), и в localStorage (черновик,
+  // переживает случайную перезагрузку страницы, отдельно по каждому
+  // гос. номеру) — см. loadPendingDraft_/savePendingDraft_.
+  var pendingWorkRows_ = [];
+  var PENDING_DRAFT_PREFIX_ = 'to_batch_draft_';
+
+  function pendingDraftKey_() {
+    return PENDING_DRAFT_PREFIX_ + (currentPlate || '').trim().toUpperCase();
+  }
+
+  function savePendingDraft_() {
+    try {
+      if (!currentPlate) return;
+      if (pendingWorkRows_.length) {
+        localStorage.setItem(pendingDraftKey_(), JSON.stringify(pendingWorkRows_));
+      } else {
+        localStorage.removeItem(pendingDraftKey_());
+      }
+    } catch (e) { /* хранилище недоступно/переполнено — не критично, просто не сохраняем черновик в этот раз */ }
+  }
+
+  // Вызывается из doSearch() сразу после установки currentPlate — если
+  // для этого гос. номера остался незавершённый визит (например, вкладка
+  // случайно закрылась/обновилась после того, как сотрудник добавил
+  // пару работ, но не успел нажать "Сохранить визит"), список
+  // восстанавливается автоматически, ничего вводить заново не нужно.
+  function loadPendingDraft_() {
+    pendingWorkRows_ = [];
+    try {
+      if (!currentPlate) return;
+      var raw = localStorage.getItem(pendingDraftKey_());
+      if (raw) pendingWorkRows_ = JSON.parse(raw) || [];
+    } catch (e) { pendingWorkRows_ = []; }
+  }
+
+  function clearPendingDraft_() {
+    pendingWorkRows_ = [];
+    try { if (currentPlate) localStorage.removeItem(pendingDraftKey_()); } catch (e) { /* не критично */ }
+  }
+
+  // Есть ли смысл считать текущие (ещё не добавленные кнопкой) поля формы
+  // отдельной работой — чтобы не отправлять и не показывать в списке
+  // пустую "работу без ничего" после того, как форма уже была очищена
+  // кнопкой "➕ Добавить ещё работу".
+  function currentWorkRowHasContent_() {
+    var desc = document.getElementById('f_description').value.trim();
+    var parts = document.getElementById('f_parts').value.trim();
+    var cost = document.getElementById('f_cost').value;
+    var anyPay = checkedPayFieldIds_().length > 0;
+    var typeEl = document.getElementById('f_type');
+    var typeChanged = typeEl && typeEl.selectedIndex !== 0;
+    return !!(desc || parts || cost || anyPay || typeChanged);
+  }
+
+  function readCurrentWorkRowFields_() {
+    return {
+      type: document.getElementById('f_type').value,
+      description: document.getElementById('f_description').value,
+      parts: document.getElementById('f_parts').value,
+      cost: document.getElementById('f_cost').value,
+      kaspiAmount: Number(document.getElementById('f_pay_kaspi').value) || 0,
+      cashAmount: Number(document.getElementById('f_pay_cash').value) || 0,
+      ipAmount: Number(document.getElementById('f_pay_ip').value) || 0
+    };
+  }
+
+  // Общий сброс полей ОДНОЙ работы (тип/описание/запчасти/стоимость/
+  // оплата) — используется и после "➕ Добавить ещё работу", и после
+  // успешного сохранения всего визита. Пробег, владелец/телефон/VIN/
+  // модель и мастер — общие для визита, не сбрасываются (как и раньше).
+  function resetCurrentWorkRowFields_() {
+    document.getElementById('f_type').selectedIndex = 0;
+    document.getElementById('f_description').value = '';
+    document.getElementById('f_parts').value = '';
+    document.getElementById('f_cost').value = '';
+    PAY_METHOD_MAP_.forEach(function (m) {
+      document.getElementById(m.cb).checked = false;
+    });
+    updatePayFieldVisibility_();
+  }
+
+  function addPendingWorkRow_() {
+    var costVal = Number(document.getElementById('f_cost').value) || 0;
+    var kaspiVal = Number(document.getElementById('f_pay_kaspi').value) || 0;
+    var cashVal = Number(document.getElementById('f_pay_cash').value) || 0;
+    var ipVal = Number(document.getElementById('f_pay_ip').value) || 0;
+    var paidVal = kaspiVal + cashVal + ipVal;
+    if (costVal > 0 && paidVal > costVal) {
+      document.getElementById('addStatus').innerText = '❌ Сумма оплаты превышает стоимость';
+      return;
+    }
+    if (!currentWorkRowHasContent_()) {
+      document.getElementById('addStatus').innerText = '⚠️ Сначала укажите вид работы, описание или стоимость';
+      return;
+    }
+    pendingWorkRows_.push(readCurrentWorkRowFields_());
+    savePendingDraft_();
+    renderPendingRows_();
+    resetCurrentWorkRowFields_();
+    document.getElementById('addStatus').innerText = '➕ Добавлено в список визита. Впишите следующую работу или нажмите «Сохранить визит».';
+    var typeEl = document.getElementById('f_type');
+    if (typeEl) typeEl.focus();
+  }
+
+  function removePendingWorkRow_(idx) {
+    pendingWorkRows_.splice(idx, 1);
+    savePendingDraft_();
+    renderPendingRows_();
+  }
+
+  function renderPendingRows_() {
+    var wrap = document.getElementById('pendingRowsWrap');
+    var list = document.getElementById('pendingRowsList');
+    if (!pendingWorkRows_.length) {
+      wrap.style.display = 'none';
+      list.innerHTML = '';
+      updateSubmitButtonLabel_();
+      return;
+    }
+    wrap.style.display = 'block';
+    var html = '';
+    pendingWorkRows_.forEach(function (row, i) {
+      var costStr = row.cost ? Number(row.cost).toLocaleString('ru-RU') + ' ₸' : '—';
+      html += '<div class="pill" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
+        '<span>' + (i + 1) + '. ' + escapeHtml(row.type || '') + ' — ' + costStr + '</span>' +
+        '<span class="toggle" style="margin:0;" onclick="removePendingWorkRow_(' + i + ')">✕</span>' +
+        '</div>';
+    });
+    list.innerHTML = html;
+    updateSubmitButtonLabel_();
+  }
+
+  function updateSubmitButtonLabel_() {
+    var btn = document.getElementById('btnSubmitWork');
+    if (!btn) return;
+    var total = pendingWorkRows_.length + (currentWorkRowHasContent_() || !pendingWorkRows_.length ? 1 : 0);
+    btn.textContent = pendingWorkRows_.length ? ('Сохранить визит (' + total + ' раб.)') : 'Сохранить запись';
+  }
+
+  // ЭТАП 10, п.8: submitAdd теперь отправляет ВЕСЬ визит одним
+  // batch-запросом (action:'addRecords') — все работы, добавленные
+  // кнопкой "➕ Добавить ещё работу" (pendingWorkRows_), плюс текущие
+  // (ещё не добавленные кнопкой) поля формы, если в них что-то введено.
+  // Один вызов Apps Script и одна запись в Telegram на весь визит вместо
+  // одного вызова на каждую работу. Если "➕ Добавить ещё работу" ни
+  // разу не нажималась — поведение полностью совпадает со старым
+  // однострочным сохранением (один элемент в items), просто через новый
+  // batch-эндпоинт.
   function submitAdd(btn) {
     // ЭТАП 7 (пункт 3 промта фиксов): супер-админ печатает имя мастера в
     // свободном текстовом поле f_master_input (с подсказками из
     // <datalist>, см. setupMasterField_); обычный сотрудник по-прежнему
     // видит только собственное имя в нередактируемом f_master_auto.
-    // Сервер (apiAddRecord) в любом случае сам решает, чьё имя реально
+    // Сервер (apiAddRecords) в любом случае сам решает, чьё имя реально
     // попадёт в запись — обычному сотруднику подделать чужое имя нельзя.
     var masterName = ADMIN_NAME;
     if (IS_SUPER) {
@@ -1235,76 +1636,76 @@
       }
     }
 
+    // Собираем список работ визита: сначала всё, что уже добавлено
+    // кнопкой "➕ Добавить ещё работу", затем — текущие поля формы, если
+    // в них что-то введено (или если это вообще единственная работа
+    // визита — тогда включаем их независимо от содержимого, как и в
+    // прежнем однострочном сохранении, чтобы не менять поведение для
+    // самого частого случая — одна работа за визит).
+    var items = pendingWorkRows_.slice();
+    if (currentWorkRowHasContent_() || !items.length) {
+      items.push(readCurrentWorkRowFields_());
+    }
+
     // ЭТАП 3 (новое ТЗ): сумма способов оплаты не должна превышать
-    // стоимость — та же проверка повторяется на сервере (apiAddRecord),
+    // стоимость — та же проверка повторяется на сервере (apiAddRecords),
     // но лучше показать понятную ошибку сразу, не дожидаясь ответа сети.
-    var costVal = Number(document.getElementById('f_cost').value) || 0;
-    var kaspiVal = Number(document.getElementById('f_pay_kaspi').value) || 0;
-    var cashVal = Number(document.getElementById('f_pay_cash').value) || 0;
-    var ipVal = Number(document.getElementById('f_pay_ip').value) || 0;
-    var paidVal = kaspiVal + cashVal + ipVal;
-    if (costVal > 0 && paidVal > costVal) {
-      document.getElementById('addStatus').innerText = '❌ Сумма оплаты превышает стоимость';
-      return;
+    // Проверяется КАЖДАЯ работа визита по отдельности (уже добавленные
+    // кнопкой были проверены при добавлении, но перепроверяем и здесь —
+    // дёшево и подстраховывает от рассинхронизации).
+    for (var vi = 0; vi < items.length; vi++) {
+      var it = items[vi];
+      var itCost = Number(it.cost) || 0;
+      var itPaid = (Number(it.kaspiAmount) || 0) + (Number(it.cashAmount) || 0) + (Number(it.ipAmount) || 0);
+      if (itCost > 0 && itPaid > itCost) {
+        document.getElementById('addStatus').innerText = '❌ Сумма оплаты превышает стоимость в работе №' + (vi + 1);
+        return;
+      }
     }
 
     var data = {
       plate: currentPlate,
       mileage: document.getElementById('f_mileage').value,
-      type: document.getElementById('f_type').value,
-      description: document.getElementById('f_description').value,
-      parts: document.getElementById('f_parts').value,
-      cost: document.getElementById('f_cost').value,
       master: masterName,
       owner: document.getElementById('f_owner').value,
       phone: document.getElementById('f_phone').value,
       vin: document.getElementById('f_vin').value,
       model: document.getElementById('f_model').value,
-      kaspiAmount: kaspiVal,
-      cashAmount: cashVal,
-      ipAmount: ipVal
+      items: items
     };
-    document.getElementById('addStatus').innerText = 'Сохраняю...';
+    document.getElementById('addStatus').innerText = items.length > 1 ? ('Сохраняю ' + items.length + ' работ(ы)...') : 'Сохраняю...';
 
     withButtonBusy_(btn, 'Сохраняю...', function () {
-      return apiPost({ action: 'addRecord', name: ADMIN_NAME, pw: PW, data: data })
+      return apiPost({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data })
         .then(function (res) {
           if (res.ok) {
             // ЭТАП 8.4: сразу после сохранения инвалидируем клиентский
             // кэш поиска этого номера и истории работ — иначе следующий
             // поиск/просмотр истории мог бы до TTL-секунд показывать
-            // список ещё без только что добавленной записи.
+            // список ещё без только что добавленных записей.
             clientCacheInvalidateAfterSave_(currentPlate);
-            // ЭТАП 4: если запись привязалась к открытому акту "Получения"
-            // и остаток ушёл в минус — сервер прислал предупреждение
-            // (debtWarning) одной строкой, показываем его вместо обычного
-            // "Сохранено", чтобы сотрудник сразу видел долг клиента.
+            // ЭТАП 4: если запись(и) привязалась к открытому акту
+            // "Получения" и остаток ушёл в минус — сервер прислал
+            // предупреждение (debtWarning) одной строкой, показываем его
+            // вместо обычного "Сохранено", чтобы сотрудник сразу видел
+            // долг клиента.
             document.getElementById('addStatus').innerText = res.debtWarning
-              ? ('✅ Сохранено. ' + res.debtWarning)
-              : '✅ Сохранено. Можно сразу добавить следующий вид работы по этой машине.';
-            // Если у машины за один визит несколько работ (масло + фильтр +
-            // тормозные колодки и т.п.) — раньше после каждой сохранённой
-            // записи форма сворачивалась и приходилось заново нажимать
-            // "Добавить новую запись" и заново искать машину. Теперь форма
-            // остаётся открытой (см. doSearch(true) ниже), сбрасываются
-            // только поля самой работы (тип/описание/запчасти/стоимость/
-            // способы оплаты) — пробег и данные владельца оставляем как
-            // есть, чтобы вписать следующий вид работы по этой же машине
-            // за пару секунд, без повторного ввода всего заново.
-            document.getElementById('f_type').selectedIndex = 0;
-            document.getElementById('f_description').value = '';
-            document.getElementById('f_parts').value = '';
-            document.getElementById('f_cost').value = '';
-            PAY_METHOD_MAP_.forEach(function (m) {
-              document.getElementById(m.cb).checked = false;
-            });
-            updatePayFieldVisibility_();
+              ? ('✅ Сохранено (' + res.count + '). ' + res.debtWarning)
+              : ('✅ Сохранено (' + res.count + '). Можно сразу добавить следующий визит по этой машине.');
+            // Визит целиком отправлен — черновик и список работ визита
+            // больше не нужны, очищаем и localStorage, и поля формы (как
+            // и раньше, пробег/владельца оставляем как есть). Форма
+            // остаётся открытой (см. doSearch(true) ниже), чтобы можно
+            // было сразу начать следующий визит по этой же машине.
+            clearPendingDraft_();
+            renderPendingRows_();
+            resetCurrentWorkRowFields_();
             // doSearch(true) заново запросит vehicleinfo, обновит таблицу и
             // блок остатка (renderOpenActInfo) с учётом только что
-            // сохранённой записи, но НЕ сворачивает форму добавления.
+            // сохранённых записей, но НЕ сворачивает форму добавления.
             setTimeout(function(){
               doSearch(true);
-              loadWorkHistory(); // ЭТАП 6: сразу подтягиваем новую запись в общий список работ
+              loadWorkHistory(); // ЭТАП 6: сразу подтягиваем новые записи в общий список работ
               var typeEl = document.getElementById('f_type');
               if (typeEl) typeEl.focus();
             }, 400);
@@ -1313,7 +1714,18 @@
           }
         })
         .catch(function () {
-          document.getElementById('addStatus').innerText = 'Ошибка сети';
+          // ЭТАП 10, п.6/п.9: все попытки fetchWithRetry_ (с таймаутом и
+          // паузами) исчерпаны — сети действительно нет. Данные не
+          // теряются: весь визит (все работы разом) уходит в локальную
+          // очередь и будет отправлен сам, как только сеть/скрипт снова
+          // станут доступны. Поля формы и список работ визита намеренно
+          // НЕ очищаются (см. п.9 ТЗ — не сбрасывать состояние экрана при
+          // ошибке/отсутствии ответа сервера) — сотрудник по-прежнему
+          // видит, что именно ждёт отправки, и черновик остаётся в
+          // localStorage на случай перезагрузки страницы.
+          rqEnqueue_({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data }, items.length > 1 ? (items.length + ' работ(ы)') : (items[0] && items[0].type) || 'запись');
+          document.getElementById('addStatus').innerText =
+            '⚠️ Нет сети. Визит сохранён локально и будет отправлен автоматически при восстановлении связи — можно продолжать вводить следующую работу.';
         });
     });
   }
