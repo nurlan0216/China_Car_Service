@@ -180,15 +180,18 @@
 
       <!-- ЭТАП 10 (промт «Шторка ввода таксопарка»): показывается только
            для типа "Такси" — выбор конкретного таксопарка из списка, с
-           пунктом "Другое" для собственного варианта. -->
+           пунктом "Другое" для собственного варианта.
+           ЭТАП 11 (промт «Реальные таксопарки вместо Яндекс/InDrive»):
+           список названий больше не хардкодится в разметке — при
+           открытии страницы подгружается из базы (см.
+           loadTaxiparkOptions_) и вставляется перед пунктом "Другое".
+           Если ни одного таксопарка ещё не зарегистрировано, список
+           будет состоять только из "Другое" — это нормально для самого
+           первого водителя-таксиста в системе. -->
       <div id="taxiParkBlock">
         <label>Таксопарк</label>
         <select id="r_taxipark" onchange="onTaxiparkChange_()">
           <option value="">— выберите таксопарк —</option>
-          <option value="Яндекс Такси">Яндекс Такси</option>
-          <option value="InDrive">InDrive</option>
-          <option value="Максим">Максим</option>
-          <option value="Onai">Onai</option>
           <option value="other">Другое / указать вручную</option>
         </select>
         <!-- Шторка: плавно раскрывается только когда выбрано "Другое". -->
@@ -784,6 +787,25 @@
     if (sel === 'other') return document.getElementById('r_taxipark_other').value.trim();
     return sel || '';
   }
+
+  // ЭТАП 11 (промт «Реальные таксопарки вместо Яндекс/InDrive»): список
+  // названий уже существующих в базе таксопарков — вставляется в select
+  // перед пунктом "Другое". Грузится один раз при открытии страницы,
+  // ещё до того как водитель успеет выбрать "Такси" — так шторка не
+  // "моргает" пустым списком в момент выбора.
+  function loadTaxiparkOptions_() {
+    apiGet({ action: 'taxiparks' }).then(function (res) {
+      if (!res.ok || !res.names) return;
+      var sel = document.getElementById('r_taxipark');
+      var otherOpt = sel.querySelector('option[value="other"]');
+      res.names.forEach(function (n) {
+        var opt = document.createElement('option');
+        opt.value = n; opt.textContent = n;
+        sel.insertBefore(opt, otherOpt);
+      });
+    }).catch(function () { /* не критично: таксопарк всё равно можно ввести вручную через "Другое" */ });
+  }
+  loadTaxiparkOptions_();
 
   function submitRegister(btn) {
     var fio = document.getElementById('r_fio').value.trim();

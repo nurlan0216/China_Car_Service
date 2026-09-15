@@ -133,6 +133,7 @@
       <div id="summary" class="summary"></div>
       <div id="tableWrap"></div>
       <a id="pdfLink" class="pdf-link" style="display:none;" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
+      <div class="toggle" id="toggleGeneralHistoryLink" style="display:none;" onclick="toggleGeneralHistory_()">Показать общую историю работ ▾</div>
 
       <div class="date-filter" style="margin-top:14px; border-top:1px solid var(--border); padding-top:12px;">
         <label>Показывать записи с даты</label>
@@ -158,7 +159,37 @@
 
           <label>Марка и модель (необязательно)</label>
           <input id="f_model" placeholder="Например, Chery Tiggo 4">
+
+          <!-- ЭТАП 11 (промт «Тип машины частная/таксопарк в to.html»):
+               раньше этот выбор был только в регистрации водителя
+               (driver.html) — сотрудник СТО, заводящий машину впервые
+               сам, вообще не мог его указать. Список таксопарков
+               загружается динамически из базы (см. loadTaxiparkOptionsTo_),
+               так же, как и в driver.html — без хардкода конкретных
+               названий (Яндекс/InDrive и т.п.). -->
+          <label>Тип машины</label>
+          <select id="f_cartype" onchange="onCarTypeChangeTo_()">
+            <option value="Частная">Частная</option>
+            <option value="Такси">Такси (таксопарк)</option>
+          </select>
+          <div id="f_taxiparkBlock" style="display:none;">
+            <label>Таксопарк</label>
+            <select id="f_taxipark" onchange="onTaxiparkChangeTo_()">
+              <option value="">— выберите таксопарк —</option>
+              <option value="other">Другое / указать вручную</option>
+            </select>
+            <div id="f_taxiparkOtherWrap" style="display:none;">
+              <label>Название таксопарка</label>
+              <input id="f_taxipark_other" placeholder="Введите название таксопарка">
+            </div>
+          </div>
         </div>
+
+        <!-- ЭТАП 11: для УЖЕ известной машины тип/таксопарк не редактируются
+             здесь (это задаётся один раз, при заведении машины в базу —
+             либо тут, либо при регистрации в кабинете водителя), но
+             сотрудник должен их видеть — просто справочная строка. -->
+        <div id="knownVehicleCarType" style="display:none; margin:-4px 0 12px; font-size:13px; color:var(--muted);"></div>
 
         <label>Пробег, км</label>
         <input id="f_mileage" type="number" placeholder="45000">
@@ -354,6 +385,62 @@
         <label style="margin-bottom:8px;">Активные публикации</label>
         <div id="storiesAdminList"></div>
       </div>
+    </div>
+
+    <!-- ЭТАП 12 (промт «Неверный пароль» / сброс пароля сотрудника):
+         супер-админ мог только смотреть на ошибку в логах и просить
+         поправить пароль сотрудника вручную в таблице. Теперь можно
+         сбросить пароль сотруднику прямо отсюда — старый пароль и все
+         запомненные устройства этого сотрудника сразу перестают
+         работать (см. apiAdminResetPassword, 6_WebApi.gs). Видно и
+         работает только для супер-админа (IS_SUPER выше). -->
+    <div class="card" id="pwResetCard" style="display:none;">
+      <h1 style="font-size:16px; margin:0 0 4px;">🔑 Сброс пароля сотрудника</h1>
+      <div class="sub" style="margin-bottom:12px;">Используйте, если сотрудник забыл пароль или видит ошибку «Неверный пароль». После сброса все его запомненные устройства разлогинятся — войти нужно будет новым паролем.</div>
+
+      <label>Сотрудник</label>
+      <input id="pwResetName" list="masterOptions" placeholder="Начните вводить имя...">
+
+      <label>Новый пароль</label>
+      <input id="pwResetNew" type="text" placeholder="Минимум 4 символа">
+
+      <button class="btn-primary btn-full" onclick="resetStaffPassword(this)">Сбросить пароль</button>
+      <div class="gate-error" id="pwResetError"></div>
+      <div class="loading" id="pwResetStatus"></div>
+    </div>
+
+    <!-- ЭТАП 12.2 (промт «Кнопка "Разрешить" в Telegram ничего не меняет»):
+         супер-админ раньше мог только просить программиста зайти в
+         редактор Apps Script и проверить getWebhookInfo/токен руками.
+         Теперь то же самое видно прямо здесь, одной кнопкой. Видно и
+         работает только для супер-админа (IS_SUPER выше). -->
+    <div class="card" id="tgDiagCard" style="display:none;">
+      <h1 style="font-size:16px; margin:0 0 4px;">📡 Диагностика Telegram-уведомлений</h1>
+      <div class="sub" style="margin-bottom:12px;">Используйте, если кнопки «Разрешить»/«Запретить» под заявками в Telegram не работают, или если директор не получает уведомления вовсе.</div>
+
+      <button class="btn-primary btn-full" onclick="checkTelegramDiag(this)">Проверить</button>
+      <div class="gate-error" id="tgDiagError"></div>
+      <div class="loading" id="tgDiagStatus"></div>
+      <div id="tgDiagResult" style="margin-top:10px;"></div>
+
+      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook на текущий URL</button>
+    </div>
+
+    <!-- ЭТАП 12.3 (промт «По этой записи уже есть заявка на согласовании»),
+         п.1: супер-админ раньше видел зависшие заявки только открыв лист
+         "ApprovalRequests" в самой Google Таблице. Теперь список виден
+         прямо здесь, с возможностью разрешить/отклонить без Telegram —
+         полезно, если кнопки в Telegram по какой-то причине не работают
+         (см. Этап 12.2) или директор временно недоступен. Видно и
+         работает только для супер-админа (IS_SUPER выше). -->
+    <div class="card" id="pendingApprovalsCard" style="display:none;">
+      <h1 style="font-size:16px; margin:0 0 4px;">⏳ Заявки на согласование</h1>
+      <div class="sub" style="margin-bottom:12px;">Заявки сотрудников на изменение/удаление записей, ожидающие решения. Можно решить прямо здесь, не заходя в Telegram. Заявка, провисевшая без решения дольше 48 часов, отклоняется автоматически.</div>
+
+      <button class="btn-primary btn-full" onclick="loadPendingApprovals(this)" style="margin-bottom:10px;">Обновить список</button>
+      <div class="loading" id="pendingApprovalsStatus"></div>
+      <div class="gate-error" id="pendingApprovalsError"></div>
+      <div id="pendingApprovalsList"></div>
     </div>
   </div>
 
@@ -691,10 +778,20 @@
     document.getElementById('storiesCard').style.display = IS_SUPER ? 'block' : 'none';
     if (IS_SUPER) loadStoriesAdmin();
 
+    // ЭТАП 12: карточка сброса пароля сотрудника — только супер-админу.
+    document.getElementById('pwResetCard').style.display = IS_SUPER ? 'block' : 'none';
+    // ЭТАП 12.2: карточка диагностики Telegram — тоже только супер-админу.
+    document.getElementById('tgDiagCard').style.display = IS_SUPER ? 'block' : 'none';
+    // ЭТАП 12.3: карточка зависших заявок на согласование — тоже только
+    // супер-админу, загружаем сразу, чтобы не ждать ручного клика.
+    document.getElementById('pendingApprovalsCard').style.display = IS_SUPER ? 'block' : 'none';
+    if (IS_SUPER) loadPendingApprovals();
+
     document.getElementById('historyScopeNote').innerText = IS_SUPER
       ? 'Вы супер-админ: показаны работы всех сотрудников'
       : 'Показаны только ваши работы';
     loadWorkHistory();
+    loadTaxiparkOptionsTo_(); // ЭТАП 11: список таксопарков для формы новой машины
   }
 
   /**
@@ -818,7 +915,7 @@
 
     apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
       .then(function (res) {
-        if (!res.ok) { if (!cached) statusEl.innerText = 'Ошибка: ' + res.error; return; }
+        if (!res.ok) { if (!cached) handleAuthError({ message: res.error }, 'historyStatus'); return; }
         statusEl.innerText = '';
         clientCacheSet_(cacheKey, res);
         applyHistoryResult_(res, dateFrom, dateTo, filters.showAll);
@@ -998,7 +1095,11 @@
 
     apiPost(payload).then(function (res) {
       if (btn) btn.disabled = false;
-      if (!res.ok) { errEl.innerText = 'Ошибка: ' + res.error; return; }
+      if (!res.ok) {
+        var msg = ('' + (res.error || ''));
+        if (msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1) { handleAuthError({ message: res.error }, 'historyStatus'); closeApprovalModal_(); return; }
+        errEl.innerText = 'Ошибка: ' + res.error; return;
+      }
       closeApprovalModal_();
       loadWorkHistory(historyShowAll_); // сразу показать пометку "на согласовании"
     }).catch(function () {
@@ -1026,7 +1127,7 @@
     apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
       .then(function (res) {
         statusEl.innerText = '';
-        if (!res.ok) { statusEl.innerText = 'Ошибка: ' + res.error; return; }
+        if (!res.ok) { handleAuthError({ message: res.error }, 'historyStatus'); return; }
         exportHistoryCsv_(res.rows);
       })
       .catch(function () { statusEl.innerText = 'Ошибка сети'; });
@@ -1054,6 +1155,48 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
   }
 
+  // ЭТАП 11 (промт «Тип машины частная/таксопарк в to.html»): выбор
+  // "Такси" показывает выбор конкретного таксопарка — тот же принцип
+  // шторки, что и в driver.html (onDriverTypeChange_/onTaxiparkChange_),
+  // только под id-полями этой формы (f_...).
+  function onCarTypeChangeTo_() {
+    var isTaxi = document.getElementById('f_cartype').value === 'Такси';
+    document.getElementById('f_taxiparkBlock').style.display = isTaxi ? 'block' : 'none';
+    if (!isTaxi) {
+      document.getElementById('f_taxipark').value = '';
+      document.getElementById('f_taxiparkOtherWrap').style.display = 'none';
+      document.getElementById('f_taxipark_other').value = '';
+    }
+  }
+
+  function onTaxiparkChangeTo_() {
+    var sel = document.getElementById('f_taxipark').value;
+    document.getElementById('f_taxiparkOtherWrap').style.display = (sel === 'other') ? 'block' : 'none';
+  }
+
+  // Реальный список таксопарков из базы (лист "Taxiparks") вместо
+  // хардкода конкретных названий — грузится один раз при открытии
+  // приложения; "Другое" остаётся статическим пунктом всегда в конце.
+  function loadTaxiparkOptionsTo_() {
+    apiGet({ action: 'taxiparks' }).then(function (res) {
+      if (!res.ok || !res.names) return;
+      var sel = document.getElementById('f_taxipark');
+      var otherOpt = sel.querySelector('option[value="other"]');
+      res.names.forEach(function (n) {
+        var opt = document.createElement('option');
+        opt.value = n; opt.textContent = n;
+        sel.insertBefore(opt, otherOpt);
+      });
+    }).catch(function () { /* не критично: можно ввести вручную через "Другое" */ });
+  }
+
+  function taxiparkValueTo_() {
+    if (document.getElementById('f_cartype').value !== 'Такси') return '';
+    var sel = document.getElementById('f_taxipark').value;
+    if (sel === 'other') return document.getElementById('f_taxipark_other').value.trim();
+    return sel;
+  }
+
   var lastRows = [];
   var isKnownVehicle = true; // по умолчанию считаем машину известной, пока не проверили
 
@@ -1067,6 +1210,31 @@
     document.getElementById('f_phone').value = (vehRes.ok && vehRes.phone) || '';
     document.getElementById('f_vin').value = (vehRes.ok && vehRes.vin) || '';
     document.getElementById('f_model').value = (vehRes.ok && vehRes.model) || '';
+
+    // ЭТАП 11 (промт «Тип машины частная/таксопарк в to.html»): для новой
+    // машины сбрасываем выбор типа к значению по умолчанию ("Частная");
+    // для уже известной машины — просто показываем справочную строку с
+    // тем, что уже сохранено (тип не переопределяется задним числом
+    // через обычное добавление записи, см. apiAddRecord).
+    var knownInfoEl = document.getElementById('knownVehicleCarType');
+    if (!isKnownVehicle) {
+      document.getElementById('f_cartype').value = 'Частная';
+      onCarTypeChangeTo_();
+      knownInfoEl.style.display = 'none';
+    } else {
+      var ct = (vehRes.ok && vehRes.carType) || '';
+      var tp = (vehRes.ok && vehRes.taxiPark) || '';
+      if (ct === 'Такси') {
+        knownInfoEl.innerText = '🚖 Тип машины: Такси' + (tp ? ' (' + tp + ')' : '');
+        knownInfoEl.style.display = 'block';
+      } else if (ct === 'Частная') {
+        knownInfoEl.innerText = '🚗 Тип машины: Частная';
+        knownInfoEl.style.display = 'block';
+      } else {
+        knownInfoEl.style.display = 'none'; // старая запись без указанного типа
+      }
+    }
+
     renderOpenActInfo(vehRes.ok ? vehRes.openAct : null);
     renderResults(searchRes.rows, keepFormOpen);
   }
@@ -1119,10 +1287,23 @@
     });
   }
 
-  function handleAuthError(err) {
-    document.getElementById('searchStatus').innerText = 'Ошибка: ' + err.message;
-    var msg = ('' + err.message);
-    if (msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1) {
+  // ЭТАП 11 (промт «Неверный пароль» при протухшем токене устройства):
+  // раньше эта функция считалась написанной только для doSearch() (жёстко
+  // писала в #searchStatus) и не применялась к другим защищённым вызовам
+  // (workhistory, listmasters и т.п.) — именно поэтому там при истёкшем
+  // токене устройства (см. STAFF_DEVICE_TOKEN_TTL_DAYS, loginAdmin в
+  // 2_Sheets.gs) сотрудник видел пугающее "Ошибка: Неверный пароль",
+  // хотя сам ничего не вводил — токен протух в фоне. Теперь функция
+  // принимает id элемента статуса (по умолчанию searchStatus, для
+  // обратной совместимости) и, если это действительно похоже на
+  // просроченную/недействительную сессию, показывает понятную фразу и
+  // тихо перелогинивает, а не просто печатает исходный текст ошибки.
+  function handleAuthError(err, statusElId) {
+    var msg = ('' + (err && err.message || err));
+    var isSessionError = msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1;
+    var el = document.getElementById(statusElId || 'searchStatus');
+    if (el) el.innerText = isSessionError ? 'Сессия истекла — выполняю повторный вход...' : ('Ошибка: ' + msg);
+    if (isSessionError) {
       // ЭТАП 8.2: раньше здесь чистился sessionStorage (то_name/to_pw) —
       // теперь учётные данные для повторного тихого входа хранятся в
       // localStorage как токен устройства (см. DEVICE_NAME_KEY/
@@ -1198,9 +1379,31 @@
     document.getElementById('resultsCard').style.display = 'block';
     renderFilteredRows(rows);
 
+    // ЭТАП 11 (промт «Скрывать общую историю по гос. номеру»): пока
+    // сотрудник смотрит карточку КОНКРЕТНОЙ найденной машины, общий
+    // список "История выполненных работ" (по всем машинам сразу) ниже
+    // только загромождает экран — скрываем его автоматически. Ссылка
+    // "Показать общую историю" в самой карточке машины (см. ниже, кнопка
+    // #toggleGeneralHistoryLink) позволяет развернуть его обратно, если
+    // всё же нужно — ничего не удаляется, просто не показывается по
+    // умолчанию.
+    document.getElementById('historyCard').style.display = 'none';
+    document.getElementById('toggleGeneralHistoryLink').style.display = 'block';
+    document.getElementById('toggleGeneralHistoryLink').innerText = 'Показать общую историю работ ▾';
+
     var pdfLink = document.getElementById('pdfLink');
     pdfLink.style.display = 'inline-block';
     document.getElementById('addForm').style.display = keepFormOpen ? 'block' : 'none';
+  }
+
+  // Ручной разворот/сворачивание общего списка истории — кнопка внутри
+  // карточки найденной машины (resultsCard), см. renderResults() выше.
+  function toggleGeneralHistory_() {
+    var card = document.getElementById('historyCard');
+    var link = document.getElementById('toggleGeneralHistoryLink');
+    var show = card.style.display === 'none';
+    card.style.display = show ? 'block' : 'none';
+    link.innerText = show ? 'Скрыть общую историю работ ▴' : 'Показать общую историю работ ▾';
   }
 
   function applyDateFilter() {
@@ -1671,6 +1874,12 @@
       phone: document.getElementById('f_phone').value,
       vin: document.getElementById('f_vin').value,
       model: document.getElementById('f_model').value,
+      // ЭТАП 11: заполняются, только пока видна форма "новая машина"
+      // (isKnownVehicle===false) — для уже известной машины поля скрыты
+      // и carType всегда придёт пустым, сервер это и так игнорирует для
+      // существующих строк (см. findOrCreateVehicle).
+      carType: !isKnownVehicle ? document.getElementById('f_cartype').value : '',
+      taxiPark: !isKnownVehicle ? taxiparkValueTo_() : '',
       items: items
     };
     document.getElementById('addStatus').innerText = items.length > 1 ? ('Сохраняю ' + items.length + ' работ(ы)...') : 'Сохраняю...';
@@ -1710,7 +1919,9 @@
               if (typeEl) typeEl.focus();
             }, 400);
           } else {
-            document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error;
+            var msg = ('' + (res.error || ''));
+            if (msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1) { handleAuthError({ message: res.error }, 'addStatus'); }
+            else { document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error; }
           }
         })
         .catch(function () {
@@ -1788,6 +1999,184 @@
         }
       }).catch(function () {
         statusEl.innerText = '';
+        errEl.innerText = 'Ошибка сети';
+      });
+    });
+  }
+
+  // ЭТАП 12 (промт «Неверный пароль» / сброс пароля сотрудника):
+  // подтверждение перед сбросом — действие необратимо разлогинивает
+  // все устройства сотрудника, поэтому лучше переспросить, чем случайно
+  // сбросить не тому человеку.
+  function resetStaffPassword(btn) {
+    var name = document.getElementById('pwResetName').value.trim();
+    var newPw = document.getElementById('pwResetNew').value;
+    var errEl = document.getElementById('pwResetError');
+    var statusEl = document.getElementById('pwResetStatus');
+    errEl.innerText = '';
+    statusEl.innerText = '';
+
+    if (!name) { errEl.innerText = 'Укажите сотрудника'; return; }
+    if (!newPw || newPw.length < 4) { errEl.innerText = 'Пароль слишком короткий (минимум 4 символа)'; return; }
+    if (!confirm('Сбросить пароль сотруднику «' + name + '»? Все его запомненные устройства разлогинятся.')) return;
+
+    withButtonBusy_(btn, 'Сбрасываю...', function () {
+      return apiPost({
+        action: 'adminResetPassword', name: ADMIN_NAME, pw: PW,
+        targetName: name, newPassword: newPw
+      }).then(function (res) {
+        if (res.ok) {
+          statusEl.innerText = '✅ Пароль сброшен. Сообщите его сотруднику лично — сервер новый пароль нигде не хранит в открытом виде.';
+          document.getElementById('pwResetName').value = '';
+          document.getElementById('pwResetNew').value = '';
+        } else {
+          errEl.innerText = res.error || 'Не удалось сбросить пароль';
+        }
+      }).catch(function () {
+        errEl.innerText = 'Ошибка сети';
+      });
+    });
+  }
+
+  // ЭТАП 12.2 (промт «Кнопка "Разрешить" в Telegram ничего не меняет»):
+  // рендерит человеко-читаемый вердикт по каждому из пунктов чек-листа
+  // из промта (webhook, токен, последняя ошибка Telegram), вместо сырого
+  // JSON — супер-админ не обязан разбираться в терминах Telegram API.
+  function renderTelegramDiag_(res) {
+    var el = document.getElementById('tgDiagResult');
+    if (!res.tokenConfigured) {
+      el.innerHTML = '<div class="empty">❌ Токен Telegram не настроен (в Script Properties стоит плейсхолдер). ' +
+        'Уведомления и кнопки работать не будут, пока владелец проекта не впишет реальный токен от @BotFather и не выполнит setupConfig().</div>';
+      document.getElementById('tgDiagReinstallBtn').style.display = 'none';
+      return;
+    }
+    var lines = [];
+    lines.push((res.ok ? '✅' : '❌') + ' Связь с Telegram: ' + (res.ok ? 'токен рабочий' : 'ошибка запроса (HTTP ' + res.httpStatus + ') — токен мог быть отозван'));
+    if (res.ok) {
+      lines.push((res.urlMatchesDeploy ? '✅' : '❌') + ' Webhook указывает на текущий деплой: ' + (res.urlMatchesDeploy ? 'да' : 'НЕТ — это и есть, скорее всего, причина, почему кнопки не работают'));
+      if (!res.urlMatchesDeploy) {
+        lines.push('&nbsp;&nbsp;Сейчас настроен на: <code style="word-break:break-all;">' + escapeHtml(res.webhookUrl || '(не задан)') + '</code>');
+        lines.push('&nbsp;&nbsp;Нужно: <code style="word-break:break-all;">' + escapeHtml(res.currentDeployUrl || '') + '</code>');
+      }
+      if (res.lastErrorMessage) {
+        lines.push('⚠️ Последняя ошибка Telegram при доставке (' + escapeHtml(res.lastErrorDate || '') + '): ' + escapeHtml(res.lastErrorMessage));
+      }
+      lines.push((res.adminChatIdsCount > 0 ? '✅' : '❌') + ' Настроено получателей (ADMIN_CHAT_IDS): ' + res.adminChatIdsCount);
+      if (res.pendingUpdateCount > 0) {
+        lines.push('ℹ️ В очереди у Telegram ' + res.pendingUpdateCount + ' необработанных апдейтов — обычно рассасывается само после переустановки webhook.');
+      }
+    }
+    el.innerHTML = lines.map(function (l) { return '<div style="margin-bottom:6px; font-size:14px;">' + l + '</div>'; }).join('');
+    document.getElementById('tgDiagReinstallBtn').style.display = (res.ok && !res.urlMatchesDeploy) ? 'block' : 'none';
+  }
+
+  function checkTelegramDiag(btn) {
+    var errEl = document.getElementById('tgDiagError');
+    var statusEl = document.getElementById('tgDiagStatus');
+    errEl.innerText = '';
+    document.getElementById('tgDiagResult').innerHTML = '';
+    document.getElementById('tgDiagReinstallBtn').style.display = 'none';
+
+    withButtonBusy_(btn, 'Проверяю...', function () {
+      return apiPost({ action: 'telegramDiagnostics', name: ADMIN_NAME, pw: PW }).then(function (res) {
+        statusEl.innerText = '';
+        if (!res.ok) { errEl.innerText = res.error || 'Не удалось проверить'; return; }
+        renderTelegramDiag_(res);
+      }).catch(function () {
+        statusEl.innerText = '';
+        errEl.innerText = 'Ошибка сети';
+      });
+    });
+  }
+
+  /**
+   * ЭТАП 12.3 (промт «По этой записи уже есть заявка на согласовании»),
+   * п.1: список зависших заявок на согласование + ручное решение прямо
+   * из to.html — работает независимо от того, исправны ли сейчас
+   * кнопки «Разрешить»/«Запретить» в Telegram (Этап 12.2).
+   */
+  function loadPendingApprovals(btn) {
+    var errEl = document.getElementById('pendingApprovalsError');
+    var statusEl = document.getElementById('pendingApprovalsStatus');
+    errEl.innerText = '';
+    statusEl.innerText = 'Загружаю...';
+
+    return apiPost({ action: 'listPendingApprovals', name: ADMIN_NAME, pw: PW }).then(function (res) {
+      statusEl.innerText = '';
+      if (!res.ok) { errEl.innerText = res.error || 'Не удалось загрузить список'; return; }
+      renderPendingApprovals_(res.requests || []);
+    }).catch(function () {
+      statusEl.innerText = '';
+      errEl.innerText = 'Ошибка сети';
+    });
+  }
+
+  function describeApprovalData_(d) {
+    if (!d) return '—';
+    var parts = [];
+    if (d.type) parts.push(d.type);
+    if (d.description) parts.push(d.description);
+    if (d.parts) parts.push('запчасти: ' + d.parts);
+    if (d.cost) parts.push((Number(d.cost) || 0).toLocaleString('ru-RU') + ' ₸');
+    if (d.mileage) parts.push(d.mileage + ' км');
+    return parts.length ? parts.join(', ') : '—';
+  }
+
+  function renderPendingApprovals_(requests) {
+    var wrap = document.getElementById('pendingApprovalsList');
+    if (!requests.length) {
+      wrap.innerHTML = '<div class="empty">Зависших заявок нет.</div>';
+      return;
+    }
+    wrap.innerHTML = requests.map(function (r) {
+      var title = (r.type === 'delete' ? '🗑 Удаление' : '✏️ Изменение') + ' — ' + escapeHtml(r.plate || '—');
+      var staleBadge = r.staleSoon
+        ? '<span style="color:var(--danger); font-size:12px;">⚠️ скоро автоматически отклонится (' + r.ageHours + ' ч. из 48)</span>'
+        : '<span style="color:var(--muted); font-size:12px;">' + r.ageHours + ' ч. назад</span>';
+      var body = '<div style="font-size:13px; margin:6px 0;">' +
+        '📝 Было: ' + escapeHtml(describeApprovalData_(r.oldData)) +
+        (r.type === 'edit' ? '<br>🆕 Станет: ' + escapeHtml(describeApprovalData_(r.newData)) : '') +
+        '<br>❗ Причина: ' + escapeHtml(r.reason || '—') +
+        '</div>';
+      return '<div class="card" style="background:var(--panel2, var(--card)); margin-bottom:10px;">' +
+        '<div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">' +
+        '<b style="font-size:14px;">' + title + '</b>' + staleBadge + '</div>' +
+        '<div class="sub" style="margin:2px 0 0;">👤 ' + escapeHtml(r.staffName || '—') + ' · подана ' + escapeHtml(r.createdAt || '—') + '</div>' +
+        body +
+        '<div class="row">' +
+        '<button class="btn-primary" style="flex:1; background:var(--accent-2);" onclick="decideApproval_(\'' + r.id + '\', true, this)">✅ Разрешить</button>' +
+        '<button class="btn-primary" style="flex:1; background:var(--danger);" onclick="decideApproval_(\'' + r.id + '\', false, this)">❌ Запретить</button>' +
+        '</div>' +
+        '</div>';
+    }).join('');
+  }
+
+  function decideApproval_(requestId, approve, btn) {
+    var errEl = document.getElementById('pendingApprovalsError');
+    errEl.innerText = '';
+    if (!confirm((approve ? 'Разрешить' : 'Запретить') + ' эту заявку?')) return;
+
+    withButtonBusy_(btn, 'Сохраняю...', function () {
+      return apiPost({ action: 'decideApproval', name: ADMIN_NAME, pw: PW, requestId: requestId, approve: approve }).then(function (res) {
+        if (!res.ok) { errEl.innerText = res.error || 'Не удалось применить решение'; return; }
+        loadPendingApprovals();
+        loadWorkHistory(historyShowAll_); // отражаем снятую пометку "на согласовании" в общей истории
+      }).catch(function () {
+        errEl.innerText = 'Ошибка сети';
+      });
+    });
+  }
+
+  function reinstallTelegramWebhook(btn) {
+    var errEl = document.getElementById('tgDiagError');
+    errEl.innerText = '';
+    if (!confirm('Переустановить webhook Telegram на текущий URL деплоя?')) return;
+
+    withButtonBusy_(btn, 'Переустанавливаю...', function () {
+      return apiPost({ action: 'telegramReinstallWebhook', name: ADMIN_NAME, pw: PW }).then(function (res) {
+        if (!res.ok) { errEl.innerText = res.error || 'Не удалось переустановить webhook'; return; }
+        renderTelegramDiag_(res);
+      }).catch(function () {
         errEl.innerText = 'Ошибка сети';
       });
     });
