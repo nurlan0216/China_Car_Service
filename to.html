@@ -510,7 +510,7 @@
       <div class="loading" id="tgDiagStatus"></div>
       <div id="tgDiagResult" style="margin-top:10px;"></div>
 
-      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook на текущий URL</button>
+      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook и очистить очередь</button>
       </div>
     </div>
 
@@ -788,6 +788,22 @@
   // автоматически при восстановлении сети/доступности скрипта: по
   // событию 'online', при следующем открытии страницы и раз в 20с, пока
   // очередь не пуста. Пользователь не должен вводить данные повторно.
+  // ФИКС (промт «Дубли сообщений бота / 302 / пуш»): случайный
+  // идентификатор ОДНОЙ попытки сохранения визита (не самого визита) —
+  // генерируется один раз и передаётся на сервер во всех повторах этого
+  // же запроса (внутренние повторы fetchWithRetry_ из-за таймаута 15с,
+  // а также повтор из очереди rqEnqueue_ при отсутствии сети), чтобы
+  // сервер (см. withIdempotency_ в 7_WebApp.gs) не сохранил один и тот
+  // же визит дважды и не отправил дублирующее уведомление в Telegram,
+  // если сервер на самом деле успел ответить, просто ответ не успел
+  // дойти до браузера за отведённое время.
+  function newClientRequestId_() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+    return 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
   var RQ_KEY_ = 'to_retry_queue';
 
   function rqLoad_() {
@@ -2204,8 +2220,14 @@
     };
     document.getElementById('addStatus').innerText = items.length > 1 ? ('Сохраняю ' + items.length + ' работ(ы)...') : 'Сохраняю...';
 
+    // Один и тот же id на эту попытку сохранения визита — см.
+    // newClientRequestId_ и withIdempotency_ (7_WebApp.gs): используется
+    // и при немедленной отправке, и при повторе из очереди ниже, чтобы
+    // сервер распознал повтор и не сохранил визит дважды.
+    var clientRequestId = newClientRequestId_();
+
     withButtonBusy_(btn, 'Сохраняю...', function () {
-      return apiPost({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data })
+      return apiPost({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId })
         .then(function (res) {
           if (res.ok) {
             // ЭТАП 8.4: сразу после сохранения инвалидируем клиентский
@@ -2254,7 +2276,7 @@
           // ошибке/отсутствии ответа сервера) — сотрудник по-прежнему
           // видит, что именно ждёт отправки, и черновик остаётся в
           // localStorage на случай перезагрузки страницы.
-          rqEnqueue_({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data }, items.length > 1 ? (items.length + ' работ(ы)') : (items[0] && items[0].type) || 'запись');
+          rqEnqueue_({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId }, items.length > 1 ? (items.length + ' работ(ы)') : (items[0] && items[0].type) || 'запись');
           document.getElementById('addStatus').innerText =
             '⚠️ Нет сети. Визит сохранён локально и будет отправлен автоматически при восстановлении связи — можно продолжать вводить следующую работу.';
         });
@@ -2408,7 +2430,7 @@
       }
       lines.push((res.adminChatIdsCount > 0 ? '✅' : '❌') + ' Настроено получателей (ADMIN_CHAT_IDS): ' + res.adminChatIdsCount);
       if (res.pendingUpdateCount > 0) {
-        lines.push('ℹ️ В очереди у Telegram ' + res.pendingUpdateCount + ' необработанных апдейтов — обычно рассасывается само после переустановки webhook.');
+        lines.push('ℹ️ В очереди у Telegram ' + res.pendingUpdateCount + ' необработанных апдейтов — нажмите кнопку «Переустановить webhook» ниже, она теперь принудительно очищает эту очередь (drop_pending_updates), а не только переустанавливает адрес.');
       }
     }
     el.innerHTML = lines.map(function (l) { return '<div style="margin-bottom:6px; font-size:14px;">' + l + '</div>'; }).join('');
@@ -2748,7 +2770,7 @@
   function reinstallTelegramWebhook(btn) {
     var errEl = document.getElementById('tgDiagError');
     errEl.innerText = '';
-    if (!confirm('Переустановить webhook Telegram на текущий URL деплоя?')) return;
+    if (!confirm('Переустановить webhook Telegram и очистить очередь необработанных апдейтов (застрявшие повторные попытки доставки)? Если сейчас есть свежий непрочитанный /start от пользователя — его тоже придётся прислать заново.')) return;
 
     withButtonBusy_(btn, 'Переустанавливаю...', function () {
       return apiPost({ action: 'telegramReinstallWebhook', name: ADMIN_NAME, pw: PW }).then(function (res) {
