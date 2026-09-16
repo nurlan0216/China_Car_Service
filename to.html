@@ -39,16 +39,26 @@
   .sec-body.open{display:block;}
   .chev{color:var(--muted); font-size:13px;}
   .row{display:flex; gap:8px;}
-  /* ЭТАП 13.13-fix («реальный прогресс-бар»): визуальный индикатор
-     реальной загрузки (upload) больших вложений (фото/видео в Stories и
-     в рассылке) — раньше вместо него был просто статичный текст
-     «Отправляю...», который никак не показывал, сколько уже ушло и жив
-     ли вообще запрос. Полоса скрыта, пока не идёт загрузка (см.
-     showUploadProgress_/hideUploadProgress_). */
+  /* ЭТАП 13.13-fix (было) / ЭТАП 13.16-fix (сейчас, «CORS сломал реальный
+     прогресс-бар»): визуальный индикатор загрузки больших вложений
+     (фото/видео в Stories и в рассылке). Раньше здесь была ссылка на
+     xhr.upload.onprogress — НАСТОЯЩИЙ процент по факту отправленных
+     байт. Оказалось, что сама ПОДПИСКА на это событие заставляет браузер
+     слать перед запросом служебный CORS-preflight (OPTIONS), а Google
+     Apps Script не умеет отвечать на OPTIONS правильными заголовками
+     (у него нет doOptions(), только doGet/doPost) — в результате ВСЯ
+     рассылка и Stories переставали работать вообще, с любым файлом или
+     без него ("Ошибка сети" = "blocked by CORS policy: ... preflight").
+     Обычный fetch() (как во всех остальных действиях — вход, сохранение
+     ТО и т.п.) preflight не требует и работает нормально, но не даёт
+     прогресс по байтам в принципе — только эта полоса и осталась,
+     теперь она построена на ОЦЕНКЕ по времени (см. estimateUploadProgress_
+     ниже), а не на реальных байтах. Это единственный вариант, совместимый
+     с Apps Script как бэкендом. */
   .progress-wrap{display:none; margin:8px 0;}
   .progress-wrap.active{display:block;}
   .progress-track{width:100%; height:8px; background:#0d141e; border:1px solid var(--border); border-radius:6px; overflow:hidden;}
-  .progress-fill{height:100%; width:0%; background:var(--accent); transition:width .12s linear;}
+  .progress-fill{height:100%; width:0%; background:var(--accent); transition:width .3s linear;}
   .progress-pct{font-size:12px; color:var(--muted); margin-top:4px;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
@@ -673,53 +683,52 @@
   }
 
   /**
-   * ЭТАП 13.13-fix («реальный прогресс-бар»): обычный apiPost/fetchWithRetry_
-   * выше не годится для больших вложений (фото/видео в Stories и в
-   * рассылке) по двум причинам сразу:
-   *   1) fetch() в браузере не умеет отдавать прогресс ЗАГРУЗКИ (upload) —
-   *      только скачивания ответа, а для нас как раз важна именно
-   *      загрузка (тело запроса — база64 фото/видео, может быть много
-   *      мегабайт), поэтому нечем было бы рисовать реальную полосу.
-   *   2) FETCH_TIMEOUT_MS = 15с у fetchWithRetry_ рассчитан на обычные
-   *      короткие запросы без вложений — большое видео на медленном
-   *      интернете вполне может грузиться дольше 15 секунд, и запрос
-   *      обрывался посреди загрузки (это и была причина «Ошибка сети»
-   *      при отправке видео в рассылке).
-   * Решение — XMLHttpRequest (у него есть xhr.upload.onprogress) и
-   * таймаут «по бездействию»: обрывается не через фиксированное время
-   * на весь запрос, а только если дольше UPLOAD_INACTIVITY_MS вообще нет
-   * никакой активности (ни события прогресса, ни ответа) — то есть
-   * реально зависший запрос всё равно обрывается, а медленный, но живой,
-   * докачивается сколько нужно.
+   * ЭТАП 13.13-fix (было) → ЭТАП 13.16-fix (сейчас): изначально здесь
+   * стоял xhr.upload.onprogress — НАСТОЯЩИЙ процент по факту отправленных
+   * байт. На практике это сломало рассылку и Stories целиком: сама
+   * ПОДПИСКА на событие прогресса ЗАГРУЗКИ у кросс-доменного XHR
+   * заставляет браузер слать перед запросом CORS-preflight (OPTIONS), а
+   * у Google Apps Script нет doOptions() и preflight падает с "No
+   * 'Access-Control-Allow-Origin' header" — то есть запрос не уходил
+   * ВООБЩЕ, даже без вложения (см. Network/Console пользователя).
+   * Простой fetch()/XHR без слушателя на xhr.upload preflight не требует
+   * (это и есть причина, почему все остальные действия — вход,
+   * сохранение ТО и т.п. — работали всё это время нормально).
+   *
+   * Раз честный побайтовый прогресс технически недоступен с Apps Script
+   * как бэкендом (то же ограничение будет у ЛЮБОГО кросс-доменного
+   * запроса к нему, не только у этого), делаем следующую по честности
+   * вещь: полоса тикает по ВРЕМЕНИ, а не по факту загруженного, беря
+   * заведомо консервативную (медленную) оценку скорости — так она не
+   * обгонит реальную загрузку и не "зависнет" на 100% в ожидании ответа
+   * сервера. Явно останавливаем её на 92%, оставляя видимый запас на
+   * реальный ответ сервера, и не изображаем несуществующую точность
+   * до десятых долей процента.
    */
-  var UPLOAD_INACTIVITY_MS = 30000;
+  var UPLOAD_ESTIMATE_KBPS = 150; // консервативно: плохой мобильный интернет
+  var UPLOAD_TIMEOUT_MIN_MS = 30000;
+  var UPLOAD_TIMEOUT_PER_MB_MS = 20000; // запас на каждый МБ вложения
 
-  function apiPostWithProgress_(payload, onProgress) {
+  function apiPostWithProgress_(payload, onProgress, approxBytes) {
+    approxBytes = approxBytes || 0;
     return new Promise(function (resolve, reject) {
       var xhr = new XMLHttpRequest();
       xhr.open('POST', SCRIPT_URL, true);
+      xhr.timeout = Math.round(UPLOAD_TIMEOUT_MIN_MS + (approxBytes / 1024 / 1024) * UPLOAD_TIMEOUT_PER_MB_MS);
       xhr.setRequestHeader('Content-Type', 'text/plain;charset=utf-8');
 
-      var inactivityTimer = null;
-      function bumpInactivityTimer_() {
-        if (inactivityTimer) clearTimeout(inactivityTimer);
-        inactivityTimer = setTimeout(function () { xhr.abort(); }, UPLOAD_INACTIVITY_MS);
-      }
-      bumpInactivityTimer_();
-
-      xhr.upload.onprogress = function (e) {
-        bumpInactivityTimer_();
-        if (onProgress && e.lengthComputable) {
-          onProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
-      // Само скачивание ответа обычно занимает доли секунды (ответ —
-      // маленький JSON), но событие тоже сбрасывает таймер бездействия,
-      // на случай медленного соединения на обратном пути.
-      xhr.onprogress = function () { bumpInactivityTimer_(); };
+      // ВАЖНО: намеренно НЕ трогаем xhr.upload (ни .onprogress, ни
+      // другие его события) — именно подписка на него ломает CORS выше.
+      var estimatedTotalMs = Math.max(4000, (approxBytes / 1024) / UPLOAD_ESTIMATE_KBPS * 1000);
+      var startedAt = Date.now();
+      var progressTimer = onProgress ? setInterval(function () {
+        var pct = Math.min(92, Math.round(((Date.now() - startedAt) / estimatedTotalMs) * 100));
+        onProgress(pct);
+      }, 250) : null;
+      function stopProgressTimer_() { if (progressTimer) clearInterval(progressTimer); }
 
       xhr.onload = function () {
-        clearTimeout(inactivityTimer);
+        stopProgressTimer_();
         if (xhr.status >= 200 && xhr.status < 300) {
           try {
             resolve(JSON.parse(xhr.responseText));
@@ -730,8 +739,8 @@
           reject(new Error('HTTP ' + xhr.status));
         }
       };
-      xhr.onerror = function () { clearTimeout(inactivityTimer); reject(new Error('Ошибка сети')); };
-      xhr.onabort = function () { reject(new Error('Нет ответа слишком долго — попробуйте ещё раз')); };
+      xhr.onerror = function () { stopProgressTimer_(); reject(new Error('Ошибка сети')); };
+      xhr.ontimeout = function () { stopProgressTimer_(); reject(new Error('Нет ответа слишком долго — попробуйте ещё раз')); };
 
       xhr.send(JSON.stringify(payload));
     });
@@ -2295,7 +2304,7 @@
     var reader = new FileReader();
     reader.onload = function () {
       var base64 = reader.result.split(',')[1];
-      pendingStoryImage = { base64: base64, mimeType: file.type, fileName: file.name };
+      pendingStoryImage = { base64: base64, mimeType: file.type, fileName: file.name, fileSize: file.size };
       preview.innerHTML = '<img src="' + reader.result + '" style="max-width:160px; border-radius:10px; display:block;">';
     };
     reader.readAsDataURL(file);
@@ -2318,7 +2327,8 @@
       return apiPostWithProgress_({
         action: 'createStory', name: ADMIN_NAME, pw: PW,
         text: text, media: pendingStoryImage
-      }, function (pct) { updateUploadProgress_('story', pct); }).then(function (res) {
+      }, function (pct) { updateUploadProgress_('story', pct); },
+         pendingStoryImage ? pendingStoryImage.fileSize : 0).then(function (res) {
         hideUploadProgress_('story');
         if (res.ok) {
           statusEl.innerText = '✅ Опубликовано. Удалится автоматически через 24 часа.';
@@ -2566,7 +2576,7 @@
     var reader = new FileReader();
     reader.onload = function () {
       var base64 = reader.result.split(',')[1];
-      pendingBroadcastMedia = { base64: base64, mimeType: file.type, fileName: file.name };
+      pendingBroadcastMedia = { base64: base64, mimeType: file.type, fileName: file.name, fileSize: file.size };
       preview.innerHTML = file.type.indexOf('video/') === 0
         ? '<video src="' + reader.result + '" controls style="max-width:220px; border-radius:10px; display:block;"></video>'
         : '<img src="' + reader.result + '" style="max-width:160px; border-radius:10px; display:block;">';
@@ -2611,8 +2621,8 @@
         recipients: recipients, text: text, media: pendingBroadcastMedia
       }, function (pct) {
         updateUploadProgress_('broadcast', pct);
-        if (pct >= 100) statusEl.innerText = 'Файл загружен, рассылаю получателям...';
-      }).then(function (res) {
+        if (pct >= 92) statusEl.innerText = 'Файл почти загружен, рассылаю получателям...';
+      }, pendingBroadcastMedia ? pendingBroadcastMedia.fileSize : 0).then(function (res) {
         hideUploadProgress_('broadcast');
         statusEl.innerText = '';
         if (!res.ok) { errEl.innerText = res.error || 'Не удалось отправить рассылку'; return; }
