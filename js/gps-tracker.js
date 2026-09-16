@@ -160,14 +160,38 @@
 
     var normalizedPlate = String(plate).toUpperCase();
     var existing = global.CCSGpsStorage.getState(normalizedPlate);
-    var sessionId = (existing && existing.status === 'active') ? existing.sessionId : genSessionId();
+    var resuming = !!(existing && existing.status === 'active');
+    var sessionId = resuming ? existing.sessionId : genSessionId();
 
     global.CCSGpsStorage.startSession(normalizedPlate, sessionId, deviceToken || '');
 
     state.plate = normalizedPlate;
     state.deviceToken = deviceToken || '';
     state.sessionId = sessionId;
-    state.lastAcceptedPoint = null;
+    // ФИКС («точка блокировки / точка включения»): если экран был
+    // заблокирован (или страница просто перезапустилась — ОС часто
+    // выгружает фоновую вкладку целиком, стирая ВЕСЬ JS в памяти, включая
+    // lastAcceptedPoint ниже), раньше здесь ВСЕГДА стояло null — первая
+    // точка после разблокировки просто "тихо" становилась новой базой, а
+    // расстояние, пройденное ПОКА экран был заблокирован, терялось
+    // целиком (GPS ведь эти километры физически не видел — заблокированный
+    // экран останавливает не только эту вкладку, но и саму выдачу
+    // координат браузером/ОС, это отдельное ограничение платформы, см.
+    // предыдущий ответ). Что можно и нужно сохранить — это ПОСЛЕДНЮЮ
+    // ИЗВЕСТНУЮ точку ДО блокировки (она уже лежит в CCSGpsStorage,
+    // обновляется на каждой принятой точке, см. addDistance ниже). Если
+    // сейчас продолжается та же активная сессия этой же машины — берём
+    // именно её как базу, и первая же точка ПОСЛЕ включения экрана
+    // сравнивается с ней: между "точкой блокировки" и "точкой включения"
+    // считается прямое расстояние (haversine) и прибавляется к пробегу —
+    // ровно так, как и предлагалось. Это не полный путь (что происходило
+    // между двумя точками, GPS не видел), но хотя бы прямое смещение
+    // учитывается, а не теряется совсем. Для новой сессии (другая машина
+    // или сессии ещё не было) сравнивать не с чем — начинаем с чистого
+    // листа, как и раньше.
+    state.lastAcceptedPoint = (resuming && existing.lastLat != null && existing.lastLon != null && existing.lastPointAt)
+      ? { lat: existing.lastLat, lon: existing.lastLon, atMs: existing.lastPointAt }
+      : null;
     state.running = true;
 
     if (!state.testMode && state.available) {
