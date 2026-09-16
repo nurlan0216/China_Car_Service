@@ -275,6 +275,12 @@
 
     <h1>🚕 Мой автомобиль</h1>
     <div class="sub" id="cabPlateSub"></div>
+    <!-- ФИКС (по аналогии с tpSubStatus в taxipark.html): видимая отметка
+         времени последнего обновления — раньше кабинет водителя тихо
+         обновлялся сам (см. pollDataVersion_/silentRefreshCabinet_ ниже),
+         но на экране это никак не было видно, и водитель не мог понять,
+         актуальные ли данные или страницу пора обновить вручную. -->
+    <div class="sub" id="cabSubStatus"></div>
 
     <!-- ЭТАП 13.4 (промт «Отказ от WhatsApp-рассылки, подключение к
          Telegram-боту через уникальную ссылку»): та же кнопка, что и в
@@ -947,6 +953,14 @@
     if (!fromCache) clientCacheSet_('cabinet_' + currentPlate, data);
 
     document.getElementById('cabPlateSub').innerText = 'Гос. номер: ' + currentPlate;
+    // ФИКС: та же метка "Обновлено: ЧЧ:ММ:СС", что в taxipark.html —
+    // если данные показаны ИЗ клиентского кэша (офлайн, см. ЭТАП 8.4
+    // выше), честно пишем, что это последние сохранённые данные, а не
+    // текущее время, чтобы не создавать ложное ощущение "только что
+    // проверено".
+    document.getElementById('cabSubStatus').innerText = fromCache
+      ? 'Показаны сохранённые данные (нет сети)'
+      : 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
     renderTelegramLinkCard_(data);
     document.getElementById('vehModel').innerText = data.model || 'Модель не указана';
     document.getElementById('vehVin').innerText = 'VIN: ' + (data.vin || '—');
