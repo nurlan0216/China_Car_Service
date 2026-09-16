@@ -42,7 +42,7 @@ var messaging = firebase.messaging();
 // (иконка, клик по уведомлению) и работает во всех браузерах одинаково.
 messaging.onBackgroundMessage(function (payload) {
   var notification = payload.notification || {};
-  var title = notification.title || 'China Car Service';
+  var title = notification.title || 'Honghi EV Service';
   var link = (payload.fcmOptions && payload.fcmOptions.link)
     || (payload.data && payload.data.link)
     || '/to.html';

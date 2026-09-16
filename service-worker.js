@@ -1,4 +1,4 @@
-// China Car Service — service worker для базовой офлайн-загрузки оболочки.
+// Honghi EV Service — service worker для базовой офлайн-загрузки оболочки.
 // Кэширует только статичные файлы сайта (html/manifest/иконки).
 // Запросы к Apps Script (.../exec — данные, PDF, акты) НЕ кэшируются и НЕ
 // перехватываются: они всегда идут напрямую в сеть, чтобы данные были свежими.
@@ -12,12 +12,8 @@
 // 1) стратегия фетча заменена на network-first (см. fetch ниже): пока
 //    есть сеть, всегда отдаём свежий файл с сервера, а кэш — только
 //    запасной вариант на случай офлайна;
-// 2) self.skipWaiting() в install больше НЕ вызывается автоматически —
-//    новый воркер осознанно остаётся в состоянии "waiting", пока
-//    страница сама не попросит его активироваться (см. message ниже и
-//    код в to.html/driver.html/act.html/index.html, который показывает
-//    баннер "Доступно обновление" и вызывает postMessage('SKIP_WAITING')
-//    только по явному нажатию кнопки пользователем).
+// 2) для текущей версии брендинга новый воркер активируется автоматически,
+//    чтобы установленные PWA не зависели от ручной кнопки обновления.
 // v5 — ЭТАП 9.2 (PROMPT_stage9.md, п.5 "принудительно обновить у всех
 // сайт и ПВА"): версия кэша просто бампается при каждом деплое с
 // изменениями во фронтенд-файлах (act.html/to.html и т.д.) — сам этот
@@ -35,7 +31,13 @@
 // установленные PWA увидели свежий код (тот же паттерн, что в v5/v9:
 // "версия кэша бампается при каждом деплое с изменениями во
 // фронтенд-файлах"), логика network-first не менялась.
-var CACHE_NAME = 'ccs-shell-v11';
+// v13 — ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ PWA + смена бренда Honghi EV Service
+// При установке нового SW он сразу активируется, чтобы уже установленные PWA
+// получили новые HTML/manifest без ручной кнопки «Обновить».
+//
+v12 — ЭТАП 4 (маскировка GPS): js/gps-*.js и js/routing-service.js убраны
+// из PRECACHE_URLS (см. комментарий у списка ниже) — сами файлы не удалены.
+var CACHE_NAME = 'ccs-shell-v13-honghi-brand';
 
 var PRECACHE_URLS = [
   'index.html',
@@ -54,18 +56,28 @@ var PRECACHE_URLS = [
   'icons/icon-512-staff.png',
   'icons/icon-512-maskable.png',
   'icons/apple-touch-icon.png',
-  'icons/site-logo.png',
-  'js/gps-storage.js',
-  'js/gps-tracker.js',
-  'js/gps-sync.js',
-  'js/routing-service.js'
+  'icons/site-logo.png'
+  // ЭТАП 4 (маскировка GPS): подключение js/gps-*.js и js/routing-service.js
+  // в driver.html закомментировано (см. driver.html), поэтому эти файлы
+  // больше не используются на странице — предзагружать их в кэш незачем.
+  // Сами файлы никуда не удалены, лежат на месте (js/gps-storage.js,
+  // js/gps-tracker.js, js/gps-sync.js, js/routing-service.js). Чтобы
+  // вернуть GPS обратно — раскомментируйте 4 строки ниже (и соответствующие
+  // строки в driver.html).
+  // , 'js/gps-storage.js'
+  // , 'js/gps-tracker.js'
+  // , 'js/gps-sync.js'
+  // , 'js/routing-service.js'
 ];
 
 self.addEventListener('install', function (event) {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(function (cache) { return cache.addAll(PRECACHE_URLS); })
-    // Намеренно НЕ self.skipWaiting() здесь — см. комментарий сверху.
+      .then(function () {
+        // Принудительно активируем новую версию сразу после установки.
+        return self.skipWaiting();
+      })
   );
 });
 

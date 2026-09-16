@@ -1,7 +1,7 @@
 {
-  "name": "China Car Service",
-  "short_name": "CCS",
-  "description": "Учёт ТО автопарка и акты приёма-передачи — China Car Service",
+  "name": "Honghi EV Service",
+  "short_name": "Honghi EV",
+  "description": "Учёт ТО автопарка и акты приёма-передачи — Honghi EV Service",
   "start_url": "index.html",
   "scope": ".",
   "display": "standalone",

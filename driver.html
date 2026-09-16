@@ -3,14 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Кабинет водителя — China Car Service</title>
+<title>Кабинет водителя — Honghi EV Service</title>
 <link rel="manifest" href="manifest-driver.json">
 <meta name="theme-color" content="#0e1318">
 <link rel="icon" href="icons/icon-192-driver.png">
 <!-- iOS Safari не всегда читает manifest.json при "Добавить на экран Домой" —
      дублируем через meta-теги (Этап 8) -->
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<meta name="apple-mobile-web-app-title" content="CCS Водитель">
+<meta name="apple-mobile-web-app-title" content="Honghi EV Водитель">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
@@ -163,7 +163,7 @@
   <!-- ЭКРАН ВХОДА: только гос. номер, без пароля -->
   <div id="gate">
     <div style="text-align:center; color:var(--muted); font-weight:800; letter-spacing:1px; font-size:13px; margin-bottom:6px;">
-      <img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">CHINA CAR SERVICE
+      <img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">HONGHI EV SERVICE
     </div>
     <h1 style="text-align:center">🚕 Кабинет водителя</h1>
     <div class="sub" style="text-align:center">Введите гос. номер вашей машины</div>
@@ -412,31 +412,27 @@
 
       <div class="summary" id="costSummary"></div>
 
-      <!-- GPS / пробег / маршрут: работает локально даже без API карт. -->
+      <!-- ПРИМЕЧАНИЕ: блок "GPS / пробег / маршрут" временно отключён
+           (карточка не выводится в кабинете). Разметка сохранена внутри
+           этого комментария на случай, если понадобится включить обратно:
+           просто уберите открывающий и закрывающий теги комментария,
+           окружающие блок ниже.
       <div class="card" id="gpsMileageCard" style="margin-top:12px; padding:14px 16px;">
-        <div style="font-weight:700; margin-bottom:8px;">📍 Пробег и China Car Service</div>
+        <div style="font-weight:700; margin-bottom:8px;">📍 Пробег и Honghi EV Service</div>
         <div id="gpsStatusLine" style="font-size:13px; color:var(--muted);">GPS: запуск после входа…</div>
         <div class="summary" style="margin-top:8px;">
           <div class="pill">Сегодня<b id="gpsTodayKm">0 км</b></div>
           <div class="pill">С GPS-сессии<b id="gpsSessionKm">0 км</b></div>
           <div class="pill">Расчётный пробег<b id="gpsEstimatedMileage">—</b></div>
-          <!-- ЭТАП 4 ГПС-плана: в отличие от остальных пилюль (чисто
-               локальные на этом устройстве), это значение подтверждено
-               сервером (лист "Пробег") и видно даже с другого
-               устройства/браузера — см. gpsTotalKm в buildDriverCabinetPayload_. -->
           <div class="pill">Подтверждено сервером<b id="gpsServerKm">—</b></div>
         </div>
         <div id="gpsMaintenanceHint" class="rec rec-unknown" style="margin-top:8px;">Чтобы автоматически оценивать следующее ТО, подтвердите текущий пробег одометра.</div>
-        <!-- ЭТАП 8 ГПС-плана: если водитель ранее отказался от GPS (или
-             ещё не отвечал на плашку согласия ни разу) — карточка вместо
-             статуса "не активен" показывает явную причину и кнопку
-             включить, а не молча пытается запуститься без разрешения. -->
         <div id="gpsConsentDeclinedNote" style="display:none; margin-top:8px; font-size:13px; color:var(--muted);">
           📍 GPS выключен — вы отказались от отслеживания пробега.
           <span class="toggle" style="display:inline;" onclick="openGpsConsentModal_()">Включить</span>
         </div>
         <div style="margin-top:10px;">
-          <div id="serviceDistanceLine" style="font-size:14px;">📍 До China Car Service: определяем…</div>
+          <div id="serviceDistanceLine" style="font-size:14px;">📍 До Honghi EV Service: определяем…</div>
           <div id="serviceDistanceNote" style="font-size:12px; color:var(--muted); margin-top:3px;"></div>
         </div>
         <div class="row" style="margin-top:10px; gap:8px;">
@@ -445,6 +441,7 @@
           <button class="btn-secondary" style="flex:1;" onclick="openRouteYandex_()">Яндекс</button>
         </div>
       </div>
+      -->
 
       <a id="pdfLink" class="pdf-link" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
     </div>
@@ -487,15 +484,20 @@
     </div>
   </div>
 
-<!-- ЭТАП 2: новая GPS-инфраструктура. Порядок важен: storage перед
-     tracker/sync (оба от него зависят). Ничего здесь пока не запускает
-     GPS автоматически — только регистрирует window.CCSGps* до того, как
-     выполнится основной инлайн-скрипт ниже (см. hook в logout()/
-     logoutDevice()). -->
+<!-- ПРИМЕЧАНИЕ: GPS-инфраструктура (учёт пробега/трекинг) временно
+     отключена — подключение скриптов закомментировано, сами файлы
+     js/gps-storage.js, js/gps-tracker.js, js/gps-sync.js,
+     js/routing-service.js никуда не делись и лежат на месте. Весь
+     остальной код кабинета уже написан с проверками вида
+     "if (window.CCSGpsTracker) {...}", поэтому при отсутствии этих
+     window.CCSGps*-объектов GPS-логика просто тихо ничего не делает.
+     Чтобы включить обратно — раскомментируйте 4 строки ниже.
 <script src="js/gps-storage.js"></script>
 <script src="js/gps-tracker.js"></script>
 <script src="js/gps-sync.js"></script>
 <script src="js/routing-service.js"></script>
+-->
+
 <!-- ЭТАП 3 (промт «Push + Telegram для Stories»): тот же Firebase SDK,
      что и в to.html — нужен для push-уведомлений о новых объявлениях
      (Stories). -->
@@ -549,12 +551,22 @@
 
   // ---- "ЗАПОМНИТЬ УСТРОЙСТВО" (Этап 4) ----
 
-  function tryDeviceLogin(plate, token) {
+  // ЭТАП 14 (улучшение сохранения входа): раньше единственный "не valid"
+  // ответ сервера сразу стирал токен и выкидывал на экран пароля — даже
+  // если секундой раньше на этом же устройстве уже был честно показан
+  // кабинет (см. cachedCabinet выше). Один спорный/сбойный ответ (напр.
+  // "холодный старт" Apps Script) выглядел для водителя как "постоянно
+  // просит войти заново". Теперь если это первая попытка на этой
+  // загрузке страницы — один раз тихо перепроверяем токен ещё раз,
+  // прежде чем решить, что он действительно недействителен.
+  function tryDeviceLogin(plate, token, isRetry) {
     return apiPost({ action: 'deviceLogin', plate: plate, token: token })
       .then(function (res) {
         if (res.ok && res.valid) {
           currentPlate = plate;
           showCabinet(res);
+        } else if (!isRetry) {
+          return tryDeviceLogin(plate, token, true);
         } else {
           // Токен не подтверждён (устройство новое/токен отозван) —
           // убираем его и показываем обычный вход по паролю.
@@ -782,7 +794,17 @@
   // всё равно уходит в сеть следом и обновляет экран (см. ниже, где
   // используется вместе с tryDeviceLogin) — stale-while-revalidate.
   var CLIENT_CACHE_PREFIX = 'driver_cache_';
-  var CLIENT_CACHE_TTL_MS = 20000;
+  // ЭТАП 14 (улучшение сохранения входа): было 20000 (20 секунд) — на
+  // практике кэш почти всегда успевал "протухнуть" между визитами, и
+  // мгновенная отрисовка кабинета выше (см. cachedCabinet) не срабатывала
+  // почти никогда: обновление страницы целиком зависело от того, успеет
+  // ли тихий вход по токену устройства отработать без сбоя, а любая
+  // заминка сети выглядела как "просит войти заново". Кабинет — не
+  // секретные данные конкретного устройства, а лишь то, что и так уже
+  // было показано этому же водителю на этом же телефоне, поэтому держим
+  // его в кэше неделю; тихий вход по токену всё равно выполняется каждый
+  // раз и обновляет экран свежими данными, как только придёт ответ.
+  var CLIENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
   function clientCacheGet_(key) {
     try {
@@ -1331,7 +1353,7 @@
       '• Работает только пока эта страница открыта на телефоне — после закрытия ' +
       'вкладки отслеживание останавливается.<br>' +
       '• Координаты не передаются посторонним — используются только для расчёта ' +
-      'пройденного расстояния и расстояния до China Car Service.<br>' +
+      'пройденного расстояния и расстояния до Honghi EV Service.<br>' +
       '• Разрешение можно отозвать в любой момент.' +
       '</div>' +
       '<div class="row" style="gap:8px;">' +
@@ -1456,14 +1478,14 @@
     var line = document.getElementById('serviceDistanceLine');
     var note = document.getElementById('serviceDistanceNote');
     if (!st.lastLat || !st.lastLon) {
-      line.innerText = '📍 До China Car Service: включите GPS';
+      line.innerText = '📍 До Honghi EV Service: включите GPS';
       note.innerText = 'Бесплатный режим: расстояние рассчитывается по GPS по прямой; API карт не используется.';
       return;
     }
-    line.innerText = '📍 До China Car Service: считаем…';
+    line.innerText = '📍 До Honghi EV Service: считаем…';
     window.CCSRoutingService.getRoute(st.lastLat, st.lastLon).then(function (r) {
       if (!r || !r.ok) { line.innerText = '📍 Расстояние до сервиса недоступно'; return; }
-      line.innerText = '📍 До China Car Service: ' + fmtKm_(r.distanceKm) + (r.durationMin ? ' · ~' + Math.round(r.durationMin) + ' мин' : '');
+      line.innerText = '📍 До Honghi EV Service: ' + fmtKm_(r.distanceKm) + (r.durationMin ? ' · ~' + Math.round(r.durationMin) + ' мин' : '');
       note.innerText = 'Бесплатный режим: локальный расчёт по GPS · без платных API';
     });
   }
@@ -1605,9 +1627,12 @@
     renderHistory(rows);
     loadActs();
     loadStories();
-    // ЭТАП 8 ГПС-плана: GPS больше не запускается автоматически без
-    // явного разрешения — см. ensureGpsConsentThenStart_() выше.
-    ensureGpsConsentThenStart_();
+    // ПРИМЕЧАНИЕ: GPS-трекинг пробега временно отключён — вызов
+    // ensureGpsConsentThenStart_() закомментирован, сама функция (см.
+    // выше) осталась нетронутой на случай, если понадобится вернуть
+    // эту возможность обратно. Раскомментируйте строку ниже, чтобы
+    // снова спрашивать разрешение и запускать GPS при открытии кабинета.
+    // ensureGpsConsentThenStart_();
   }
 
   // ЭТАП 4 (промт «Постоянное предложение включить уведомления»):
@@ -1749,11 +1774,11 @@
       statusEl.innerText = 'Заблокировано в браузере — разрешите уведомления в настройках сайта вручную';
       btn.innerText = 'Включить';
     } else if (saved) {
-      statusEl.innerText = '✅ Включены на этом устройстве — сюда придут новые объявления';
+      statusEl.innerText = '✅ Включены на этом устройстве — сюда придут новые объявления и уведомления о работах по вашей машине';
       btn.innerText = 'Отключить';
       enabled = true;
     } else {
-      statusEl.innerText = 'Выключены — сюда могут приходить новые объявления (Stories)';
+      statusEl.innerText = 'Выключены — сюда могут приходить новые объявления и уведомления о работах по вашей машине';
       btn.innerText = 'Включить';
     }
 

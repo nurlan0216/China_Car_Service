@@ -1,7 +1,7 @@
 {
   "id": "staff",
-  "name": "China Car Service — СТО",
-  "short_name": "CCS СТО",
+  "name": "Honghi EV Service — СТО",
+  "short_name": "Honghi EV СТО",
   "description": "Панель сотрудника СТО — учёт ТО автопарка и акты приёма-передачи",
   "start_url": "to.html",
   "scope": ".",

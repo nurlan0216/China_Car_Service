@@ -1,7 +1,7 @@
 {
   "id": "driver",
-  "name": "China Car Service — Водитель",
-  "short_name": "CCS Водитель",
+  "name": "Honghi EV Service — Водитель",
+  "short_name": "Honghi EV Водитель",
   "description": "Кабинет водителя — история ТО, акты, PDF-выгрузка по гос. номеру",
   "start_url": "driver.html",
   "scope": ".",

@@ -1,5 +1,5 @@
 /**
- * China Car Service — FREE routing service
+ * Honghi EV Service — FREE routing service
  *
  * No paid API keys, no paid routing requests and no dependency on 2GIS/Yandex APIs.
  * Core distance calculation uses phone GPS locally (Haversine).
@@ -16,7 +16,7 @@
   var SERVICE = {
     lat: 43.2920,
     lon: 77.0079,
-    name: 'China Car Service',
+    name: 'Honghi EV Service',
     gisId: '9430047402871248'
   };
   var CACHE_KEY = 'ccs_route_cache_free_v1';
