@@ -13,6 +13,12 @@
 <meta name="apple-mobile-web-app-title" content="CCS СТО">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- ФИКС (промт «Push-уведомления»): SDK Firebase Cloud Messaging (только
+     клиентская часть — compat-сборка, без сборщика/npm). Если
+     FIREBASE_CONFIG ниже не заполнен, эти скрипты просто не используются,
+     остальной сайт работает как обычно, даже если CDN недоступен. -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -143,6 +149,20 @@
     <h1><img src="icons/site-logo.png" alt="" style="width:22px; height:22px; border-radius:50%; object-fit:cover; vertical-align:middle; margin-right:6px;">🚗 Учёт обслуживания автопарка</h1>
     <a href="act.html" class="btn-primary btn-full" style="display:block;text-align:center;text-decoration:none;box-sizing:border-box;padding:16px;font-size:16px;font-weight:600;border-radius:10px;margin-bottom:14px;">📝 Оформить акт приёма-передачи ТС</a>
     <div class="sub">Поиск истории ТО по гос. номеру, PDF-выгрузка, добавление новых работ</div>
+
+    <!-- ФИКС (промт «Push-уведомления»): кнопка включения/выключения
+         push-уведомлений (Firebase Cloud Messaging) на этом устройстве.
+         Скрыта, если браузер не поддерживает push (initPushUi_) или пока
+         не вставлены FIREBASE_CONFIG/FIREBASE_VAPID_KEY (см. JS ниже). -->
+    <div class="card" id="pushCard" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:600;">🔔 Push-уведомления</div>
+          <div class="sub" id="pushStatus" style="margin:2px 0 0;">Проверка...</div>
+        </div>
+        <button class="btn-primary" id="pushToggleBtn" onclick="togglePush()">…</button>
+      </div>
+    </div>
 
     <div class="card">
       <label>Гос. номер автомобиля</label>
@@ -602,6 +622,142 @@
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App, полученный при
   // Deploy -> Manage deployments -> Web app (заканчивается на /exec).
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
+
+  // ================== PUSH-УВЕДОМЛЕНИЯ (Firebase Cloud Messaging) ==================
+  // ФИКС (промт «Push-уведомления»). Серверная часть — apps-script/12_Push.gs
+  // (там же — полная инструкция по Firebase, пункты 1-7 в шапке файла).
+  // Здесь нужны ТОЛЬКО два публичных (не секретных) значения из шагов 2-3
+  // той инструкции — ключи сервис-аккаунта (шаг 4) сюда НЕ вставляются,
+  // они идут только в setupConfig() (1_Config.gs), это разные вещи.
+  //
+  // ВСТАВЬТЕ_FIREBASE_CONFIG — объект firebaseConfig из Firebase Console
+  // (Project settings -> General -> Your apps -> "</>"), вставьте его
+  // сюда ЦЕЛИКОМ вместо null:
+  var FIREBASE_CONFIG = null;
+  // Пример (только для наглядности, значения ваши):
+  // var FIREBASE_CONFIG = { apiKey: "AIzaSy...", authDomain: "myproj.firebaseapp.com",
+  //   projectId: "myproj", storageBucket: "myproj.appspot.com",
+  //   messagingSenderId: "123456789012", appId: "1:123456789012:web:abcdef0123456789" };
+  //
+  // ВСТАВЬТЕ_VAPID_KEY — ключ из Project settings -> Cloud Messaging ->
+  // Web configuration -> Web Push certificates -> Generate key pair:
+  var FIREBASE_VAPID_KEY = null;
+
+  // ВАЖНО: те же два значения (FIREBASE_CONFIG, VAPID не нужен) нужно
+  // продублировать в файле firebase-messaging-sw.js (лежит рядом с
+  // to.html) — см. комментарий в начале того файла. Без этого фоновые
+  // push (когда вкладка/сайт закрыты) приходить не будут, хотя кнопка
+  // ниже будет работать.
+
+  var PUSH_TOKEN_KEY = 'to_push_token';
+  var firebaseMessagingInstance_ = null;
+
+  function pushBrowserSupported_() {
+    return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+  }
+
+  function pushConfigured_() {
+    return !!FIREBASE_CONFIG && typeof FIREBASE_CONFIG === 'object' && !!FIREBASE_VAPID_KEY;
+  }
+
+  // Вызывается из showApp() при каждом входе — решает, показывать ли
+  // карточку вообще, и в каком она состоянии (включено/выключено).
+  function initPushUi_() {
+    var card = document.getElementById('pushCard');
+    if (!card) return;
+    if (!pushBrowserSupported_()) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    refreshPushStatus_();
+  }
+
+  function refreshPushStatus_() {
+    var statusEl = document.getElementById('pushStatus');
+    var btn = document.getElementById('pushToggleBtn');
+    if (!statusEl || !btn) return;
+
+    if (!pushConfigured_()) {
+      statusEl.innerText = 'Пока не настроено (см. FIREBASE_CONFIG в to.html)';
+      btn.innerText = '—';
+      btn.disabled = true;
+      return;
+    }
+
+    btn.disabled = false;
+    var saved = localStorage.getItem(PUSH_TOKEN_KEY);
+    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+      statusEl.innerText = 'Заблокировано в браузере — разрешите уведомления в настройках сайта вручную';
+      btn.innerText = 'Включить';
+    } else if (saved) {
+      statusEl.innerText = 'Включены на этом устройстве';
+      btn.innerText = 'Отключить';
+    } else {
+      statusEl.innerText = 'Выключены';
+      btn.innerText = 'Включить';
+    }
+  }
+
+  function ensureFirebaseMessaging_() {
+    if (firebaseMessagingInstance_) return Promise.resolve(firebaseMessagingInstance_);
+    if (typeof firebase === 'undefined') {
+      return Promise.reject(new Error('Firebase SDK не загрузился (нет сети или заблокирован CDN)'));
+    }
+    if (!firebase.apps || !firebase.apps.length) {
+      firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    firebaseMessagingInstance_ = firebase.messaging();
+    return Promise.resolve(firebaseMessagingInstance_);
+  }
+
+  function togglePush() {
+    var saved = localStorage.getItem(PUSH_TOKEN_KEY);
+    if (saved) {
+      disablePush_(saved);
+    } else {
+      enablePush_();
+    }
+  }
+
+  function enablePush_() {
+    var statusEl = document.getElementById('pushStatus');
+    var btn = document.getElementById('pushToggleBtn');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.innerText = 'Запрашиваем разрешение браузера...';
+
+    navigator.serviceWorker.register('firebase-messaging-sw.js')
+      .then(function (registration) {
+        return Notification.requestPermission().then(function (permission) {
+          if (permission !== 'granted') throw new Error('Разрешение не выдано');
+          return ensureFirebaseMessaging_();
+        }).then(function (messaging) {
+          return messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: registration });
+        });
+      })
+      .then(function (token) {
+        if (!token) throw new Error('Не удалось получить токен устройства');
+        return apiPost({ action: 'registerPushToken', name: ADMIN_NAME, pw: PW, token: token })
+          .then(function (res) {
+            if (!res.ok) throw new Error(res.error || 'Сервер отклонил регистрацию');
+            localStorage.setItem(PUSH_TOKEN_KEY, token);
+            refreshPushStatus_();
+          });
+      })
+      .catch(function (err) {
+        if (statusEl) statusEl.innerText = 'Ошибка: ' + (err && err.message ? err.message : err);
+        if (btn) btn.disabled = false;
+      });
+  }
+
+  function disablePush_(token) {
+    var btn = document.getElementById('pushToggleBtn');
+    if (btn) btn.disabled = true;
+    apiPost({ action: 'unregisterPushToken', name: ADMIN_NAME, pw: PW, token: token })
+      .catch(function () { /* сети нет — всё равно отключаем локально ниже, чтобы не блокировать пользователя */ })
+      .then(function () {
+        localStorage.removeItem(PUSH_TOKEN_KEY);
+        refreshPushStatus_();
+      });
+  }
+  // ================== /PUSH-УВЕДОМЛЕНИЯ ==================
 
   // ЭТАП 13.7: autocapitalize="characters" — это лишь подсказка виртуальной
   // клавиатуре телефона, ничего не гарантирует и не работает на компьютере.
@@ -1091,6 +1247,7 @@
     loadWorkHistory();
     scheduleHistoryAutoRefresh_(); // ЭТАП 13.8: тихое автообновление раз в 20 сек, пока вкладка открыта
     loadTaxiparkOptionsTo_(); // ЭТАП 11: список таксопарков для формы новой машины
+    initPushUi_(); // ФИКС (промт «Push-уведомления»): показать/обновить карточку push
   }
 
   /**

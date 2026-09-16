@@ -77,6 +77,36 @@
   }
   .social-footer a:active{border-color:var(--accent);}
   .social-footer svg{width:20px; height:20px;}
+
+  /* ЭТАП 3 (промт «Push + Telegram для Stories»): те же стили ленты
+     объявлений, что и в driver.html — таксопарк теперь тоже видит
+     Stories (раньше показывались только водителям), поскольку теперь
+     получает и уведомление о новых публикациях. */
+  .stories-reel{
+    display:flex; gap:12px; overflow-x:auto; padding:2px 2px 10px;
+    margin-bottom:6px; -webkit-overflow-scrolling:touch;
+  }
+  .story-card{flex:0 0 auto; width:76px; text-align:center; cursor:pointer;}
+  .story-thumb{
+    width:68px; height:68px; border-radius:50%; object-fit:cover;
+    border:2px solid var(--accent); background:#0d141e; display:block; margin:0 auto;
+  }
+  .story-thumb.text-only{display:flex; align-items:center; justify-content:center; font-size:24px;}
+  .story-label{
+    font-size:11px; color:var(--muted); margin-top:5px; white-space:nowrap;
+    overflow:hidden; text-overflow:ellipsis;
+  }
+  .story-modal-backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:200;
+    display:flex; align-items:center; justify-content:center; padding:20px;
+  }
+  .story-modal{
+    background:var(--card); border:1px solid var(--border); border-radius:16px;
+    padding:16px; max-width:400px; width:100%; max-height:85vh; overflow-y:auto;
+  }
+  .story-modal img{width:100%; border-radius:12px; margin-bottom:12px; display:block;}
+  .story-modal-text{white-space:pre-wrap; font-size:15px; margin-bottom:10px; line-height:1.4;}
+  .story-modal-meta{color:var(--muted); font-size:12px; margin-bottom:14px;}
 </style>
 </head>
 <body>
@@ -116,6 +146,14 @@
     <span class="logout" onclick="logout()">Выйти</span>
     <h1 id="tpTitle">🚖 Таксопарк</h1>
     <div class="sub" id="tpSubStatus"></div>
+
+    <!-- ЭТАП 3 (промт «Push + Telegram для Stories»): раньше Stories
+         показывались только в driver.html — теперь, раз таксопарк тоже
+         получает уведомление о новой публикации (см. notifyNewStoryTelegram_,
+         9_Stories.gs), ему нужно куда-то по этому уведомлению перейти.
+         Та же лента и то же модальное окно, что и в кабинете водителя,
+         просто без специфичных для водителя полей. -->
+    <div id="storiesWrap"></div>
 
     <!-- ЭТАП 11 (промт «Номер мастера для таксопарков»): контактный номер
          СТО — виден сразу в шапке кабинета, скрыт, если номер не задан в
@@ -243,11 +281,92 @@
     }).then(function (r) { return r.json(); });
   }
 
+  // ЭТАП 3 (промт «Push + Telegram для Stories»): раньше в этом файле не
+  // было ни одного GET-запроса (всё шло через apiPost) — понадобился для
+  // action:'stories' (см. doGet, 7_WebApp.gs), точно такая же функция,
+  // что уже есть в driver.html.
+  function apiGet(params) {
+    var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
+    return fetchWithRetry_(url).then(function (r) { return r.json(); });
+  }
+
   function escapeHtml(s) {
     return String(s === null || s === undefined ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
+
+  /* ===================== STORIES — временная доска объявлений =====================
+     ЭТАП 3 (промт «Push + Telegram для Stories»): та же лента и то же
+     модальное окно, что и в driver.html (см. там же подробный комментарий
+     у STORY_LIFETIME_MS_/apiGetActiveStories, 9_Stories.gs) — управление
+     публикациями по-прежнему только из to.html (супер-админ), здесь
+     только чтение через action:'stories'. */
+  var STORIES_DATA_ = [];
+
+  function loadStories() {
+    var wrap = document.getElementById('storiesWrap');
+    if (!wrap) return;
+    apiGet({ action: 'stories' }).then(function (res) {
+      if (!res.ok || !res.stories || !res.stories.length) {
+        wrap.innerHTML = '';
+        STORIES_DATA_ = [];
+        return;
+      }
+      renderStoriesReel_(res.stories, wrap);
+    }).catch(function () {
+      wrap.innerHTML = '';
+    });
+  }
+
+  function renderStoriesReel_(stories, wrap) {
+    STORIES_DATA_ = stories;
+    var html = '<div class="sub" style="margin-bottom:6px;">📢 Объявления</div><div class="stories-reel">';
+    stories.forEach(function (s, idx) {
+      var thumb = s.imageUrl
+        ? '<img class="story-thumb" src="' + s.imageUrl + '" alt="">'
+        : '<div class="story-thumb text-only">📢</div>';
+      var label = s.text ? s.text : 'Объявление';
+      html += '<div class="story-card" onclick="openStory_(' + idx + ')">' + thumb +
+        '<div class="story-label">' + escapeHtml(label) + '</div></div>';
+    });
+    html += '</div>';
+    wrap.innerHTML = html;
+  }
+
+  function formatStoryTimeAgo_(iso) {
+    var hours = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
+    if (hours <= 0) return 'Опубликовано только что';
+    return 'Опубликовано ' + hours + ' ч. назад';
+  }
+  function formatStoryTimeLeft_(iso) {
+    var hours = Math.max(0, Math.ceil((new Date(iso).getTime() - Date.now()) / 3600000));
+    return 'Осталось ~' + hours + ' ч.';
+  }
+
+  function openStory_(idx) {
+    var s = STORIES_DATA_[idx];
+    if (!s) return;
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'story-modal-backdrop';
+    backdrop.onclick = function (e) { if (e.target === backdrop) backdrop.remove(); };
+
+    var modal = document.createElement('div');
+    modal.className = 'story-modal';
+
+    var html = '';
+    if (s.imageUrl) html += '<img src="' + s.imageUrl + '" alt="">';
+    if (s.text) html += '<div class="story-modal-text">' + escapeHtml(s.text) + '</div>';
+    html += '<div class="story-modal-meta">' + escapeHtml(s.author || '') +
+      ' · ' + formatStoryTimeAgo_(s.createdAt) + ' · ' + formatStoryTimeLeft_(s.expiresAt) + '</div>';
+    html += '<button class="btn-primary btn-full" onclick="this.closest(\'.story-modal-backdrop\').remove()">Закрыть</button>';
+
+    modal.innerHTML = html;
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+  }
+  /* ===================== /STORIES ===================== */
 
   // ЭТАП 13.7/13.10: autocapitalize="characters" — только подсказка
   // виртуальной клавиатуре телефона, ничего не гарантирует и не работает
@@ -530,6 +649,11 @@
 
   function renderTaxiparkData_(payload) {
     renderTelegramLinkCard_(payload);
+    // ЭТАП 3 (промт «Push + Telegram для Stories»): подгружаем ленту
+    // объявлений при каждом показе/автообновлении кабинета — тот же
+    // принцип, что и у renderTelegramLinkCard_ выше (недорогой отдельный
+    // запрос, не завязанный на остальной payload кабинета).
+    loadStories();
     document.getElementById('sumVehicles').innerText = payload.vehicles.length;
     document.getElementById('sumTotal').innerText = (Number(payload.total) || 0).toLocaleString('ru-RU') + ' ₸';
     document.getElementById('tpSubStatus').innerText = 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');

@@ -73,6 +73,23 @@
   .rec-unknown{ background:#0d141e; border:1px solid var(--border); color:var(--muted); }
   .veh-title{font-size:18px; font-weight:700; margin-bottom:2px;}
   .veh-sub{color:var(--muted); font-size:13px; margin-bottom:12px;}
+  /* ЭТАП 4 (промт «Постоянное предложение включить уведомления»): как
+     только канал (Telegram/push) подключён, карточка сжимается в мелкую
+     строку-статус без активного призыва к действию и переезжает вниз
+     кабинета (см. notif-bottom-anchor ниже и moveNotifCard_ в JS) — чтобы
+     не занимать видное место, но при этом статус оставался виден. */
+  .notif-compact{
+    padding:8px 12px !important; margin-bottom:8px !important;
+  }
+  .notif-compact #tgLinkStatus, .notif-compact #pushStatus{
+    font-size:12px; color:var(--muted);
+  }
+  /* Только для Telegram: как только подключено, кнопка "Выдать новую
+     ссылку" — это уже не нужный призыв к действию, а не осмысленное
+     действие (в отличие от push, где даже включённое состояние оставляет
+     полезную кнопку "Отключить") — поэтому прячем именно её отдельным
+     классом, а не через общий .notif-compact (который used и для push). */
+  .notif-hide-cta .btn-primary{display:none;}
   .scan-row{display:flex; gap:8px;}
   .scan-row input{flex:1;}
   .scan-row button{white-space:nowrap;}
@@ -267,6 +284,48 @@
   <div id="cabinet" style="display:none;">
     <span class="logout" onclick="logoutDevice()">Это не моё устройство / Выйти</span>
 
+    <!-- ЭТАП 2 (промт «Донаполнение анкеты водителя»): показывается
+         только если сервер прислал needName/needPhone/needTaxipark=true
+         (см. buildDriverCabinetPayload_, 6_WebApi.gs) — то есть какое-то
+         из обязательных полей анкеты пустое (например, его удалили из
+         таблицы вручную). Внутри показываются только реально недостающие
+         поля. Как только водитель сохраняет форму, эти поля в таблице
+         больше не пустые, и при следующей сборке кабинета флаги сами не
+         придут — форма один раз показывается и больше не мешает. -->
+    <div class="card" id="profileCompleteCard" style="display:none;">
+      <h2>📝 Уточните данные</h2>
+      <div class="sub" style="margin-bottom:10px;">В вашей анкете не хватает нескольких полей — заполните их один раз.</div>
+
+      <div id="pc_nameWrap" style="display:none;">
+        <label>ФИО водителя</label>
+        <input id="pc_fio" placeholder="Иванов Иван Иванович">
+      </div>
+
+      <div id="pc_phoneWrap" style="display:none;">
+        <label>Номер телефона (WhatsApp)</label>
+        <input id="pc_phone" placeholder="+7 777 777 77 77">
+      </div>
+
+      <!-- Та же "шторка" выбора таксопарка, что и в форме регистрации
+           (taxiParkBlock выше) — id-шники другие, чтобы не конфликтовать
+           с regScreen, логика та же. -->
+      <div id="pc_taxiparkWrap" style="display:none;">
+        <label>Таксопарк</label>
+        <select id="pc_taxipark" onchange="onPcTaxiparkChange_()">
+          <option value="">— выберите таксопарк —</option>
+          <option value="other">Другое / указать вручную</option>
+        </select>
+        <div id="pc_taxiparkOtherWrap" style="max-height:0; overflow:hidden; transition:max-height .25s ease;">
+          <label>Название таксопарка</label>
+          <input id="pc_taxipark_other" placeholder="Введите название вашего таксопарка">
+        </div>
+      </div>
+
+      <button class="btn-primary btn-full" onclick="submitProfileComplete_(this)">Сохранить</button>
+      <div class="error" id="pcError"></div>
+      <div class="loading" id="pcStatus"></div>
+    </div>
+
     <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
          временные публикации (24 часа) от супер-админа. Управляются
          только из to.html, здесь только показ. Пусто, если активных
@@ -282,15 +341,46 @@
          актуальные ли данные или страницу пора обновить вручную. -->
     <div class="sub" id="cabSubStatus"></div>
 
+    <!-- ЭТАП 4 (промт «Постоянное предложение включить уведомления»):
+         этот маркер отмечает "видное место" в верхней части кабинета —
+         пока канал не подключён, соответствующая карточка живёт здесь.
+         Как только канал подключается, JS переносит саму карточку (не
+         копирует — перемещает тот же DOM-узел) к notifBottomAnchor ниже,
+         см. moveNotifCard_. -->
+    <div id="notifTopAnchor"></div>
+
     <!-- ЭТАП 13.4 (промт «Отказ от WhatsApp-рассылки, подключение к
          Telegram-боту через уникальную ссылку»): та же кнопка, что и в
          taxipark.html — одним нажатием подключаем уведомления в Telegram
-         лично этому водителю. -->
+         лично этому водителю.
+         ЭТАП 4: пока не подключено — карточка видна здесь, с кнопкой.
+         Как только подключено — сжимается (.notif-compact) и переезжает
+         вниз кабинета, кнопка "Выдать новую ссылку" скрывается (см.
+         renderTelegramLinkCard_ ниже), остаётся только статус. -->
     <div class="card" id="tgLinkCard" style="padding:12px 16px;">
       <div id="tgLinkStatus" style="margin-bottom:8px;"></div>
       <button class="btn-primary btn-full" id="tgLinkBtn" onclick="generateTelegramLink_(this)">Подключить уведомления в Telegram</button>
       <div class="loading" id="tgLinkLoading"></div>
       <div class="error" id="tgLinkError"></div>
+    </div>
+
+    <!-- ЭТАП 3 (промт «Push + Telegram для Stories»): та же кнопка
+         push-уведомлений, что в to.html (см. pushCard там же), только для
+         водителя — сохраняет токен в отдельный лист "DriverPushTokens"
+         (12_Push.gs), не смешиваясь с push сотрудников. Скрыта, если
+         браузер не поддерживает push, или пока в этом файле не заполнены
+         FIREBASE_CONFIG/FIREBASE_VAPID_KEY (см. JS ниже — те же значения,
+         что уже вписаны в to.html).
+         ЭТАП 4: как и tgLinkCard выше — когда push включён, карточка
+         сжимается и переезжает вниз (см. refreshDriverPushStatus_). -->
+    <div class="card" id="pushCard" style="display:none; padding:12px 16px;">
+      <div id="pushStatusRow" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:600;">🔔 Push-уведомления</div>
+          <div class="sub" id="pushStatus" style="margin:2px 0 0;">Проверка...</div>
+        </div>
+        <button class="btn-primary" id="pushToggleBtn" onclick="toggleDriverPush_()">…</button>
+      </div>
     </div>
 
     <div class="card">
@@ -380,6 +470,12 @@
       <div id="actsWrap" style="margin-top:12px;"></div>
     </div>
 
+    <!-- ЭТАП 4 (промт «Постоянное предложение включить уведомления»):
+         "невидное место" внизу кабинета — сюда переезжают tgLinkCard/
+         pushCard, как только соответствующий канал подключён/включён
+         (см. moveNotifCard_ в JS), в сжатом виде, без кнопок-призывов. -->
+    <div id="notifBottomAnchor"></div>
+
     <!-- ЭТАП 10, п.5: соцсети. -->
     <div class="social-footer">
       <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
@@ -400,6 +496,11 @@
 <script src="js/gps-tracker.js"></script>
 <script src="js/gps-sync.js"></script>
 <script src="js/routing-service.js"></script>
+<!-- ЭТАП 3 (промт «Push + Telegram для Stories»): тот же Firebase SDK,
+     что и в to.html — нужен для push-уведомлений о новых объявлениях
+     (Stories). -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <script>
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App (тот же, что в to.html/act.html).
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
@@ -967,17 +1068,30 @@
   // перед пунктом "Другое". Грузится один раз при открытии страницы,
   // ещё до того как водитель успеет выбрать "Такси" — так шторка не
   // "моргает" пустым списком в момент выбора.
-  function loadTaxiparkOptions_() {
+  // ЭТАП 2 (промт «Донаполнение анкеты водителя»): та же загрузка списка,
+  // вынесенная в переиспользуемую функцию — теперь ею пользуется не
+  // только select регистрации (r_taxipark), но и select формы
+  // донаполнения анкеты (pc_taxipark, см. ниже). selectEl.dataset.loaded
+  // защищает от повторной загрузки/задваивания опций, если один и тот же
+  // select почему-то заполняется дважды.
+  function populateTaxiparkSelect_(selectEl) {
+    if (!selectEl || selectEl.dataset.loaded) return;
+    selectEl.dataset.loaded = '1';
     apiGet({ action: 'taxiparks' }).then(function (res) {
       if (!res.ok || !res.names) return;
-      var sel = document.getElementById('r_taxipark');
-      var otherOpt = sel.querySelector('option[value="other"]');
+      var otherOpt = selectEl.querySelector('option[value="other"]');
       res.names.forEach(function (n) {
         var opt = document.createElement('option');
         opt.value = n; opt.textContent = n;
-        sel.insertBefore(opt, otherOpt);
+        selectEl.insertBefore(opt, otherOpt);
       });
-    }).catch(function () { /* не критично: таксопарк всё равно можно ввести вручную через "Другое" */ });
+    }).catch(function () {
+      selectEl.dataset.loaded = ''; // сеть подвела — разрешаем попробовать снова
+      /* не критично: таксопарк всё равно можно ввести вручную через "Другое" */
+    });
+  }
+  function loadTaxiparkOptions_() {
+    populateTaxiparkSelect_(document.getElementById('r_taxipark'));
   }
   loadTaxiparkOptions_();
 
@@ -1041,6 +1155,105 @@
         }, 'регистрация ' + currentPlate);
         document.getElementById('regStatus').innerText = '';
         errEl.innerText = '⚠️ Нет сети. Данные сохранены — регистрация отправится автоматически, как только связь восстановится.';
+      });
+    });
+  }
+
+  // ЭТАП 2 (промт «Донаполнение анкеты водителя»): те же три функции
+  // "шторки" выбора таксопарка (onTaxiparkChange_/closeTaxiparkOtherWrap_/
+  // resolveTaxiPark_ у формы регистрации выше), но для отдельных id-шников
+  // формы донаполнения — так обе формы (регистрация и донаполнение) не
+  // делят один и тот же select/инпут и не мешают друг другу, даже если
+  // обе почему-то оказались бы на странице одновременно.
+  function onPcTaxiparkChange_() {
+    var sel = document.getElementById('pc_taxipark').value;
+    var wrap = document.getElementById('pc_taxiparkOtherWrap');
+    if (sel === 'other') {
+      wrap.style.maxHeight = wrap.scrollHeight + 60 + 'px';
+    } else {
+      closePcTaxiparkOtherWrap_();
+    }
+  }
+  function closePcTaxiparkOtherWrap_() {
+    var wrap = document.getElementById('pc_taxiparkOtherWrap');
+    wrap.style.maxHeight = '0';
+    document.getElementById('pc_taxipark_other').value = '';
+  }
+  function resolvePcTaxiPark_() {
+    var sel = document.getElementById('pc_taxipark').value;
+    if (sel === 'other') return document.getElementById('pc_taxipark_other').value.trim();
+    return sel || '';
+  }
+
+  /**
+   * Рисует карточку донаполнения анкеты — вызывается из showCabinet() при
+   * каждом открытии кабинета. Карточка целиком скрыта, если у сервера нет
+   * ни одного needName/needPhone/needTaxipark=true, а внутри неё виден
+   * только блок для реально недостающего поля.
+   */
+  function renderProfileCompleteCard_(data) {
+    var card = document.getElementById('profileCompleteCard');
+    var anyMissing = !!(data.needName || data.needPhone || data.needTaxipark);
+    card.style.display = anyMissing ? 'block' : 'none';
+    if (!anyMissing) return;
+
+    document.getElementById('pc_nameWrap').style.display = data.needName ? 'block' : 'none';
+    document.getElementById('pc_phoneWrap').style.display = data.needPhone ? 'block' : 'none';
+    document.getElementById('pc_taxiparkWrap').style.display = data.needTaxipark ? 'block' : 'none';
+    if (data.needTaxipark) populateTaxiparkSelect_(document.getElementById('pc_taxipark'));
+
+    document.getElementById('pc_fio').value = '';
+    document.getElementById('pc_phone').value = '';
+    document.getElementById('pc_taxipark').value = '';
+    closePcTaxiparkOtherWrap_();
+    document.getElementById('pcError').innerText = '';
+    document.getElementById('pcStatus').innerText = '';
+  }
+
+  function submitProfileComplete_(btn) {
+    var needName = document.getElementById('pc_nameWrap').style.display !== 'none';
+    var needPhone = document.getElementById('pc_phoneWrap').style.display !== 'none';
+    var needTaxipark = document.getElementById('pc_taxiparkWrap').style.display !== 'none';
+
+    var fio = document.getElementById('pc_fio').value.trim();
+    var phone = normalizePhone(document.getElementById('pc_phone').value.trim());
+    var taxiPark = needTaxipark ? resolvePcTaxiPark_() : '';
+    var errEl = document.getElementById('pcError');
+    errEl.innerText = '';
+
+    if (needName && !fio) { errEl.innerText = 'Укажите ФИО'; return; }
+    if (needPhone && !phone) { errEl.innerText = 'Укажите номер телефона'; return; }
+    if (needTaxipark && !taxiPark) { errEl.innerText = 'Укажите таксопарк'; return; }
+
+    var fields = {};
+    if (needName) fields.fio = fio;
+    if (needPhone) fields.phone = phone;
+    if (needTaxipark) fields.taxiPark = taxiPark;
+
+    document.getElementById('pcStatus').innerText = 'Сохраняю...';
+    withButtonBusy_(btn, 'Сохраняю...', function () {
+      return apiPost({
+        action: 'driverUpdateProfile',
+        plate: currentPlate,
+        // Пароль на клиенте после входа по "запомненному устройству" не
+        // хранится (сознательно, см. комментарии выше про deviceToken) —
+        // deviceToken как раз и есть равноценное доказательство личности
+        // для этой некритичной формы (тот же принцип, что и у кнопки
+        // "Подключить Telegram", см. generateTelegramLink_).
+        deviceToken: localStorage.getItem('driver_device_token') || '',
+        fields: fields
+      }).then(function (res) {
+        document.getElementById('pcStatus').innerText = '';
+        if (!res.ok) {
+          errEl.innerText = res.error || 'Не удалось сохранить';
+          return;
+        }
+        // Сервер отдаёт полный обновлённый кабинет — просто перерисовываем
+        // (карточка донаполнения сама скроется, т.к. поля больше не пустые).
+        showCabinet(res);
+      }).catch(function () {
+        document.getElementById('pcStatus').innerText = '';
+        errEl.innerText = '⚠️ Нет сети. Попробуйте сохранить ещё раз чуть позже.';
       });
     });
   }
@@ -1348,6 +1561,14 @@
       ? 'Показаны сохранённые данные (нет сети)'
       : 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
     renderTelegramLinkCard_(data);
+    // ЭТАП 3 (промт «Push + Telegram для Stories»): показывает/скрывает
+    // карточку push-уведомлений и обновляет её статус на КАЖДОМ открытии
+    // кабинета (например, разрешение в браузере могли отозвать вручную).
+    initDriverPushUi_();
+    // ЭТАП 2 (промт «Донаполнение анкеты водителя»): проверяем на каждом
+    // открытии кабинета — если сервер прислал needName/needPhone/
+    // needTaxipark, покажет форму только по недостающим полям.
+    renderProfileCompleteCard_(data);
     document.getElementById('vehModel').innerText = data.model || 'Модель не указана';
     document.getElementById('vehVin').innerText = 'VIN: ' + (data.vin || '—');
     document.getElementById('vehDriver').innerText =
@@ -1389,19 +1610,41 @@
     ensureGpsConsentThenStart_();
   }
 
-  // ЭТАП 13.4: карточка перерисовывается при каждом показе кабинета — как
-  // только чат реально подключится (пользователь перейдёт по ссылке и
-  // напишет боту /start), статус обновится сам при следующем открытии
-  // кабинета/входе.
+  // ЭТАП 4 (промт «Постоянное предложение включить уведомления»):
+  // перемещает саму карточку (тот же DOM-узел, не копию) к нужному
+  // маркеру-якорю — insertBefore(card, anchor) кладёт карточку СРАЗУ
+  // ПЕРЕД якорем; если вызывать в одном и том же порядке (сначала
+  // Telegram, потом push) на каждом рендере, относительный порядок
+  // карточек друг относительно друга не меняется от вызова к вызову.
+  function moveNotifCard_(card, anchorId) {
+    var anchor = document.getElementById(anchorId);
+    if (!card || !anchor || !anchor.parentNode) return;
+    if (card.nextSibling === anchor) return; // уже на месте — не дёргаем DOM зря
+    anchor.parentNode.insertBefore(card, anchor);
+  }
+
+  // ЭТАП 13.4 + ЭТАП 4: карточка перерисовывается при каждом показе
+  // кабинета — как только чат реально подключится (пользователь перейдёт
+  // по ссылке и напишет боту /start), статус обновится сам при следующем
+  // открытии кабинета/входе. С ЭТАПА 4: как только Telegram подключён —
+  // карточка сжимается (мельче шрифт, см. .notif-compact) и переезжает
+  // вниз кабинета (notifBottomAnchor), кнопка "Выдать новую ссылку"
+  // скрывается — остаётся только статус "подключено", без активного
+  // призыва к действию. Пока НЕ подключено — карточка на видном месте
+  // вверху (notifTopAnchor), с кнопкой подключения, как и раньше.
   function renderTelegramLinkCard_(data) {
+    var card = document.getElementById('tgLinkCard');
     var statusEl = document.getElementById('tgLinkStatus');
     var btn = document.getElementById('tgLinkBtn');
     if (data.telegramConnected) {
-      statusEl.innerHTML = '✅ Telegram уже подключён — сюда приходят история и акты по вашей машине.';
-      btn.textContent = '🔄 Выдать новую ссылку';
+      statusEl.innerHTML = '✅ Telegram подключён — сюда приходят история и акты по вашей машине.';
+      card.classList.add('notif-compact', 'notif-hide-cta');
+      moveNotifCard_(card, 'notifBottomAnchor');
     } else {
       statusEl.innerHTML = '📲 Подключите уведомления в Telegram — сюда будут приходить история обслуживания и акты по вашей машине.';
       btn.textContent = 'Подключить уведомления в Telegram';
+      card.classList.remove('notif-compact', 'notif-hide-cta');
+      moveNotifCard_(card, 'notifTopAnchor');
     }
   }
 
@@ -1434,6 +1677,158 @@
         });
     });
   }
+
+  // ================== ЭТАП 3: PUSH-УВЕДОМЛЕНИЯ ВОДИТЕЛЯ ==================
+  // Тот же Firebase Cloud Messaging, что и в to.html (см. подробную
+  // инструкцию в шапке apps-script/12_Push.gs) — здесь нужны те же два
+  // публичных значения (FIREBASE_CONFIG/FIREBASE_VAPID_KEY), просто
+  // продублированные в этот файл, потому что driver.html и to.html —
+  // разные статические страницы без общего JS-модуля между ними.
+  //
+  // ВСТАВЬТЕ те же значения, что уже вписаны в to.html (или впишите
+  // заново по инструкции в 12_Push.gs, если делаете это впервые):
+  var FIREBASE_CONFIG = null;
+  var FIREBASE_VAPID_KEY = null;
+  // firebase-messaging-sw.js (общий на весь сайт, лежит в корне) уже
+  // обрабатывает фоновые push и для этой страницы — отдельный
+  // service-worker для driver.html не нужен, доп. настройка не требуется.
+
+  var DRIVER_PUSH_TOKEN_KEY = 'driver_push_token';
+  var driverFirebaseMessagingInstance_ = null;
+
+  function pushBrowserSupported_() {
+    return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+  }
+  function driverPushConfigured_() {
+    return !!FIREBASE_CONFIG && typeof FIREBASE_CONFIG === 'object' && !!FIREBASE_VAPID_KEY;
+  }
+
+  // Вызывается из showCabinet() при каждом открытии кабинета — решает,
+  // показывать ли карточку вообще, и в каком она состоянии (вкл/выкл).
+  function initDriverPushUi_() {
+    var card = document.getElementById('pushCard');
+    if (!card) return;
+    if (!pushBrowserSupported_()) { card.style.display = 'none'; return; }
+    card.style.display = 'block';
+    refreshDriverPushStatus_();
+  }
+
+  // ЭТАП 4 (промт «Постоянное предложение включить уведомления»): та же
+  // логика сжатия/переезда вниз, что и у Telegram-карточки выше — как
+  // только push реально включён на этом устройстве, карточка уменьшается
+  // (.notif-compact) и уезжает вниз кабинета. В отличие от Telegram,
+  // кнопка "Отключить" остаётся видна и в сжатом виде — это осмысленное
+  // действие, а не повторный призыв подключиться, поэтому здесь НЕ
+  // добавляется класс .notif-hide-cta (см. CSS выше).
+  function refreshDriverPushStatus_() {
+    var card = document.getElementById('pushCard');
+    var statusEl = document.getElementById('pushStatus');
+    var btn = document.getElementById('pushToggleBtn');
+    if (!statusEl || !btn || !card) return;
+
+    if (!driverPushConfigured_()) {
+      statusEl.innerText = 'Пока не настроено администратором';
+      btn.innerText = '—';
+      btn.disabled = true;
+      card.classList.remove('notif-compact');
+      moveNotifCard_(card, 'notifTopAnchor');
+      return;
+    }
+
+    btn.disabled = false;
+    var saved = localStorage.getItem(DRIVER_PUSH_TOKEN_KEY);
+    var enabled = false;
+    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
+      statusEl.innerText = 'Заблокировано в браузере — разрешите уведомления в настройках сайта вручную';
+      btn.innerText = 'Включить';
+    } else if (saved) {
+      statusEl.innerText = '✅ Включены на этом устройстве — сюда придут новые объявления';
+      btn.innerText = 'Отключить';
+      enabled = true;
+    } else {
+      statusEl.innerText = 'Выключены — сюда могут приходить новые объявления (Stories)';
+      btn.innerText = 'Включить';
+    }
+
+    if (enabled) {
+      // Только .notif-compact (не .notif-hide-cta) — кнопка "Отключить"
+      // остаётся видна и в сжатом виде, см. комментарий у CSS-класса
+      // .notif-hide-cta выше.
+      card.classList.add('notif-compact');
+      moveNotifCard_(card, 'notifBottomAnchor');
+    } else {
+      card.classList.remove('notif-compact');
+      moveNotifCard_(card, 'notifTopAnchor');
+    }
+  }
+
+  function ensureDriverFirebaseMessaging_() {
+    if (driverFirebaseMessagingInstance_) return Promise.resolve(driverFirebaseMessagingInstance_);
+    if (typeof firebase === 'undefined') {
+      return Promise.reject(new Error('Firebase SDK не загрузился (нет сети или заблокирован CDN)'));
+    }
+    if (!firebase.apps || !firebase.apps.length) {
+      firebase.initializeApp(FIREBASE_CONFIG);
+    }
+    driverFirebaseMessagingInstance_ = firebase.messaging();
+    return Promise.resolve(driverFirebaseMessagingInstance_);
+  }
+
+  function toggleDriverPush_() {
+    var saved = localStorage.getItem(DRIVER_PUSH_TOKEN_KEY);
+    if (saved) {
+      disableDriverPush_(saved);
+    } else {
+      enableDriverPush_();
+    }
+  }
+
+  function enableDriverPush_() {
+    var statusEl = document.getElementById('pushStatus');
+    var btn = document.getElementById('pushToggleBtn');
+    if (btn) btn.disabled = true;
+    if (statusEl) statusEl.innerText = 'Запрашиваем разрешение браузера...';
+
+    navigator.serviceWorker.register('firebase-messaging-sw.js')
+      .then(function (registration) {
+        return Notification.requestPermission().then(function (permission) {
+          if (permission !== 'granted') throw new Error('Разрешение не выдано');
+          return ensureDriverFirebaseMessaging_();
+        }).then(function (messaging) {
+          return messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: registration });
+        });
+      })
+      .then(function (token) {
+        if (!token) throw new Error('Не удалось получить токен устройства');
+        // Тот же принцип доступа, что и у Telegram-ссылки выше — пароль
+        // ИЛИ deviceToken "запомненного устройства".
+        var savedDeviceToken = localStorage.getItem('driver_device_token') || '';
+        var password = savedDeviceToken ? '' : (window.prompt('Введите пароль от кабинета, чтобы включить push-уведомления:') || '');
+        if (!savedDeviceToken && !password) throw new Error('Нужен пароль или вход по запомненному устройству');
+        return apiPost({ action: 'driverRegisterPushToken', plate: currentPlate, password: password, deviceToken: savedDeviceToken, token: token })
+          .then(function (res) {
+            if (!res.ok) throw new Error(res.error || 'Сервер отклонил регистрацию');
+            localStorage.setItem(DRIVER_PUSH_TOKEN_KEY, token);
+            refreshDriverPushStatus_();
+          });
+      })
+      .catch(function (err) {
+        if (statusEl) statusEl.innerText = 'Ошибка: ' + (err && err.message ? err.message : err);
+        if (btn) btn.disabled = false;
+      });
+  }
+
+  function disableDriverPush_(token) {
+    var btn = document.getElementById('pushToggleBtn');
+    if (btn) btn.disabled = true;
+    apiPost({ action: 'driverUnregisterPushToken', plate: currentPlate, token: token })
+      .catch(function () { /* сети нет — всё равно отключаем локально ниже, чтобы не блокировать пользователя */ })
+      .then(function () {
+        localStorage.removeItem(DRIVER_PUSH_TOKEN_KEY);
+        refreshDriverPushStatus_();
+      });
+  }
+  // ================== /ЭТАП 3: PUSH-УВЕДОМЛЕНИЯ ВОДИТЕЛЯ ==================
 
   // ЭТАП 4 (Часть 4.3 промта): показывает водителю короткий блок с
   // суммой, типом оплаты и текущим остатком по открытому акту "Получения"
