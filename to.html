@@ -633,15 +633,18 @@
   // ВСТАВЬТЕ_FIREBASE_CONFIG — объект firebaseConfig из Firebase Console
   // (Project settings -> General -> Your apps -> "</>"), вставьте его
   // сюда ЦЕЛИКОМ вместо null:
-  var FIREBASE_CONFIG = null;
-  // Пример (только для наглядности, значения ваши):
-  // var FIREBASE_CONFIG = { apiKey: "AIzaSy...", authDomain: "myproj.firebaseapp.com",
-  //   projectId: "myproj", storageBucket: "myproj.appspot.com",
-  //   messagingSenderId: "123456789012", appId: "1:123456789012:web:abcdef0123456789" };
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAwD02lTtIflvSGjELsI6HbrIxdA_OdgG4",
+    authDomain: "chinacarservice-6f004.firebaseapp.com",
+    projectId: "chinacarservice-6f004",
+    storageBucket: "chinacarservice-6f004.firebasestorage.app",
+    messagingSenderId: "265907667641",
+    appId: "1:265907667641:web:8d6cc2d6c7412546dd5168"
+  };
   //
   // ВСТАВЬТЕ_VAPID_KEY — ключ из Project settings -> Cloud Messaging ->
   // Web configuration -> Web Push certificates -> Generate key pair:
-  var FIREBASE_VAPID_KEY = null;
+  var FIREBASE_VAPID_KEY = "BNQXoFpnnT3UJr3K8rbIlw9jTGu_yMe3qwTTu9-k0V0iub2JkRTIR4NG1gh0T7EQbMJjhFjR8W0WOmWzBEhL0Uo";
 
   // ВАЖНО: те же два значения (FIREBASE_CONFIG, VAPID не нужен) нужно
   // продублировать в файле firebase-messaging-sw.js (лежит рядом с

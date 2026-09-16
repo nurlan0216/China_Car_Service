@@ -22,12 +22,12 @@ importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js
 importScripts('https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js');
 
 firebase.initializeApp({
-  apiKey: 'ВСТАВЬТЕ_FIREBASE_CONFIG',
-  authDomain: 'ВСТАВЬТЕ_FIREBASE_CONFIG',
-  projectId: 'ВСТАВЬТЕ_FIREBASE_CONFIG',
-  storageBucket: 'ВСТАВЬТЕ_FIREBASE_CONFIG',
-  messagingSenderId: 'ВСТАВЬТЕ_FIREBASE_CONFIG',
-  appId: 'ВСТАВЬТЕ_FIREBASE_CONFIG'
+  apiKey: 'AIzaSyAwD02lTtIflvSGjELsI6HbrIxdA_OdgG4',
+  authDomain: 'chinacarservice-6f004.firebaseapp.com',
+  projectId: 'chinacarservice-6f004',
+  storageBucket: 'chinacarservice-6f004.firebasestorage.app',
+  messagingSenderId: '265907667641',
+  appId: '1:265907667641:web:8d6cc2d6c7412546dd5168'
 });
 
 var messaging = firebase.messaging();

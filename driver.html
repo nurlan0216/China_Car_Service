@@ -1687,8 +1687,15 @@
   //
   // ВСТАВЬТЕ те же значения, что уже вписаны в to.html (или впишите
   // заново по инструкции в 12_Push.gs, если делаете это впервые):
-  var FIREBASE_CONFIG = null;
-  var FIREBASE_VAPID_KEY = null;
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyAwD02lTtIflvSGjELsI6HbrIxdA_OdgG4",
+    authDomain: "chinacarservice-6f004.firebaseapp.com",
+    projectId: "chinacarservice-6f004",
+    storageBucket: "chinacarservice-6f004.firebasestorage.app",
+    messagingSenderId: "265907667641",
+    appId: "1:265907667641:web:8d6cc2d6c7412546dd5168"
+  };
+  var FIREBASE_VAPID_KEY = "BNQXoFpnnT3UJr3K8rbIlw9jTGu_yMe3qwTTu9-k0V0iub2JkRTIR4NG1gh0T7EQbMJjhFjR8W0WOmWzBEhL0Uo";
   // firebase-messaging-sw.js (общий на весь сайт, лежит в корне) уже
   // обрабатывает фоновые push и для этой страницы — отдельный
   // service-worker для driver.html не нужен, доп. настройка не требуется.
