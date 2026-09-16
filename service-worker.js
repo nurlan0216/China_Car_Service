@@ -24,7 +24,18 @@
 // механизм (network-first + баннер "Доступно обновление") уже был
 // сделан в Этапе 8.1 и не менялся, действие нужно только при каждом
 // новом деплое фронтенда.
-var CACHE_NAME = 'ccs-shell-v8';
+// v10 — ЭТАП 2-7 (GPS + routing): добавлены три новых статических файла GPS-модуля
+// в precache. Ничего в логике кэширования не менялось — те же правила
+// (network-first для шелла, /exec никогда не перехватывается) действуют
+// и на js/gps-*.js. Версия кэша бампнута, потому что появились новые
+// файлы в PRECACHE_URLS (тот же паттерн, что при прошлых бампах v5–v8).
+// v11 — ЭТАП 4 ГПС-плана (реальная синхронизация с Apps Script):
+// изменились driver.html и js/gps-sync.js (уже входят в PRECACHE_URLS,
+// новых путей не появилось) — бамп версии кэша нужен только чтобы уже
+// установленные PWA увидели свежий код (тот же паттерн, что в v5/v9:
+// "версия кэша бампается при каждом деплое с изменениями во
+// фронтенд-файлах"), логика network-first не менялась.
+var CACHE_NAME = 'ccs-shell-v11';
 
 var PRECACHE_URLS = [
   'index.html',
@@ -43,7 +54,11 @@ var PRECACHE_URLS = [
   'icons/icon-512-staff.png',
   'icons/icon-512-maskable.png',
   'icons/apple-touch-icon.png',
-  'icons/site-logo.png'
+  'icons/site-logo.png',
+  'js/gps-storage.js',
+  'js/gps-tracker.js',
+  'js/gps-sync.js',
+  'js/routing-service.js'
 ];
 
 self.addEventListener('install', function (event) {

@@ -322,6 +322,40 @@
 
       <div class="summary" id="costSummary"></div>
 
+      <!-- GPS / пробег / маршрут: работает локально даже без API карт. -->
+      <div class="card" id="gpsMileageCard" style="margin-top:12px; padding:14px 16px;">
+        <div style="font-weight:700; margin-bottom:8px;">📍 Пробег и China Car Service</div>
+        <div id="gpsStatusLine" style="font-size:13px; color:var(--muted);">GPS: запуск после входа…</div>
+        <div class="summary" style="margin-top:8px;">
+          <div class="pill">Сегодня<b id="gpsTodayKm">0 км</b></div>
+          <div class="pill">С GPS-сессии<b id="gpsSessionKm">0 км</b></div>
+          <div class="pill">Расчётный пробег<b id="gpsEstimatedMileage">—</b></div>
+          <!-- ЭТАП 4 ГПС-плана: в отличие от остальных пилюль (чисто
+               локальные на этом устройстве), это значение подтверждено
+               сервером (лист "Пробег") и видно даже с другого
+               устройства/браузера — см. gpsTotalKm в buildDriverCabinetPayload_. -->
+          <div class="pill">Подтверждено сервером<b id="gpsServerKm">—</b></div>
+        </div>
+        <div id="gpsMaintenanceHint" class="rec rec-unknown" style="margin-top:8px;">Чтобы автоматически оценивать следующее ТО, подтвердите текущий пробег одометра.</div>
+        <!-- ЭТАП 8 ГПС-плана: если водитель ранее отказался от GPS (или
+             ещё не отвечал на плашку согласия ни разу) — карточка вместо
+             статуса "не активен" показывает явную причину и кнопку
+             включить, а не молча пытается запуститься без разрешения. -->
+        <div id="gpsConsentDeclinedNote" style="display:none; margin-top:8px; font-size:13px; color:var(--muted);">
+          📍 GPS выключен — вы отказались от отслеживания пробега.
+          <span class="toggle" style="display:inline;" onclick="openGpsConsentModal_()">Включить</span>
+        </div>
+        <div style="margin-top:10px;">
+          <div id="serviceDistanceLine" style="font-size:14px;">📍 До China Car Service: определяем…</div>
+          <div id="serviceDistanceNote" style="font-size:12px; color:var(--muted); margin-top:3px;"></div>
+        </div>
+        <div class="row" style="margin-top:10px; gap:8px;">
+          <button class="btn-primary" style="flex:1;" onclick="confirmGpsOdometer_()">Подтвердить одометр</button>
+          <button class="btn-secondary" style="flex:1;" onclick="openRoute2gis_()">2GIS</button>
+          <button class="btn-secondary" style="flex:1;" onclick="openRouteYandex_()">Яндекс</button>
+        </div>
+      </div>
+
       <a id="pdfLink" class="pdf-link" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
     </div>
 
@@ -357,6 +391,15 @@
     </div>
   </div>
 
+<!-- ЭТАП 2: новая GPS-инфраструктура. Порядок важен: storage перед
+     tracker/sync (оба от него зависят). Ничего здесь пока не запускает
+     GPS автоматически — только регистрирует window.CCSGps* до того, как
+     выполнится основной инлайн-скрипт ниже (см. hook в logout()/
+     logoutDevice()). -->
+<script src="js/gps-storage.js"></script>
+<script src="js/gps-tracker.js"></script>
+<script src="js/gps-sync.js"></script>
+<script src="js/routing-service.js"></script>
 <script>
   // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App (тот же, что в to.html/act.html).
   var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
@@ -433,6 +476,10 @@
     if (token && currentPlate) {
       apiPost({ action: 'deviceLogout', plate: currentPlate, token: token }).catch(function () {});
     }
+    stopGpsBeforeExit_(); // ЭТАП 2 (AUDIT_REPORT.md §9.2): остановить и пометить
+                           // GPS-сессию закрытой ДО удаления driver_plate/reload,
+                           // иначе накопленный несинхронизированный пробег
+                           // логически повиснет на старом номере.
     localStorage.removeItem('driver_device_token');
     localStorage.removeItem('driver_plate');
     clientCacheClearAll_(); // ЭТАП 8.4: не оставлять кабинет прошлой машины в кэше
@@ -457,6 +504,18 @@
       }
       lastKnownDataVersion_ = res.version;
     }).catch(function () { /* сети сейчас нет — просто пропускаем этот опрос, попробуем через 20с снова */ });
+
+    // ЭТАП 4 ГПС-плана: та же самая уже существующая 20-секундная точка
+    // опроса (см. комментарий выше) — переиспользуем её цикл и для
+    // отправки накопившейся GPS-очереди, вместо того чтобы заводить
+    // отдельный новый постоянный таймер специально под GPS (п.17/41 ТЗ).
+    // trySyncQueue() сама быстро резолвится с skipped:'queue_empty',
+    // если отправлять нечего — лишней нагрузки в обычном случае нет.
+    if (window.CCSGpsSync) {
+      window.CCSGpsSync.trySyncQueue().then(function (res) {
+        if (res && res.ok && res.accepted) renderGpsMileage_(); // подтянуть новый gpsTotalKm при следующем входе/обновлении
+      }).catch(function () { /* сети нет — очередь остаётся, попробуем через 20с */ });
+    }
   }
 
   // Тихое обновление кабинета: переиспользует тот же путь, что и обычный
@@ -541,12 +600,23 @@
       .then(function (res) {
         var rest = rqLoad_().filter(function (x) { return x.id !== item.id; });
         rqSave_(rest);
-        if (res && res.ok) {
+        if (res && res.ok && item.payload && item.payload.action === 'driverRegister') {
           // Регистрация наконец прошла, пока пользователь мог уже уйти со
           // страницы — открываем кабинет, если форма ещё видна.
           var errEl = document.getElementById('regError');
           if (errEl) errEl.innerText = '';
           try { showCabinet(res); } catch (e) { /* пользователь уже ушёл с этого экрана — не критично */ }
+        } else if (res && res.ok && item.payload && item.payload.action === 'setOdometer') {
+          // ЭТАП 6 ГПС-плана: пробег наконец подтверждён на сервере — если
+          // кабинет всё ещё открыт (та же машина), обновляем только эти
+          // два поля, не трогая остальной уже отрисованный payload.
+          var samePlate = String(item.payload.plate || '').toUpperCase().replace(/[\s-]/g, '') ===
+                          String(currentPlate || '').toUpperCase().replace(/[\s-]/g, '');
+          if (gpsCabinetData_ && samePlate) {
+            gpsCabinetData_.confirmedOdometer = res.confirmedOdometer;
+            gpsCabinetData_.effectiveMileage = res.effectiveMileage;
+            try { renderGpsMileage_(); } catch (e) { /* кабинет уже закрыт/сменился — не критично */ }
+          }
         }
       })
       .catch(function () { /* сети всё ещё нет — попробуем позже */ })
@@ -589,6 +659,18 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     }).then(function (r) { return r.json(); });
+  }
+
+  // ЭТАП 4 ГПС-плана: подключаем реальную отправку GPS-очереди к уже
+  // существующему apiPost() — сам транспорт (fetchWithRetry_, text/plain,
+  // без preflight) и вся логика "что отправлять/что удалить из очереди
+  // после подтверждения" уже готовы (js/gps-sync.js, js/gps-storage.js,
+  // apps-script/10_Gps.gs), здесь только "провод" между ними. Ставится
+  // один раз при загрузке страницы, а не при каждом входе/логине.
+  if (window.CCSGpsSync) {
+    window.CCSGpsSync.setSyncHandler(function (payload) {
+      return apiPost(payload);
+    });
   }
 
   // ЭТАП 8.4: тот же короткий клиентский кэш данных, что и в to.html —
@@ -693,10 +775,41 @@
   }
 
   function logout() {
+    // "Сменить номер" вызывает эту же функцию — для GPS это тот самый
+    // случай смены автомобиля (AUDIT_REPORT.md §9.2, ТЗ п.31): нельзя
+    // допустить, чтобы трекинг продолжил прибавлять км номеру, от
+    // которого водитель уже отписался.
+    stopGpsBeforeExit_(); // ЭТАП 2
     localStorage.removeItem('driver_plate');
     localStorage.removeItem('driver_device_token');
     clientCacheClearAll_(); // ЭТАП 8.4: не оставлять кабинет прошлой машины в кэше
     location.reload();
+  }
+
+  // ЭТАП 2: единая точка остановки GPS перед logout()/logoutDevice().
+  // ЭТАП 4: как и было задумано на Этапе 2 — здесь появилась best-effort
+  // попытка синхронизации перед reload. Специально НЕ дожидается ответа
+  // (никакого await/блокировки reload) — сама остановленная сессия уже
+  // надёжно легла в durable-очередь (Этап 3, stopSession()), поэтому
+  // даже если этот запрос не успеет уйти до location.reload(), пробег
+  // не потеряется: его отправит обычный цикл синхронизации при
+  // следующем открытии кабинета/тике pollDataVersion_ — на новом номере
+  // это будет уже отдельная, следующая сессия и никак не помешает.
+  function stopGpsBeforeExit_() {
+    try {
+      if (global_hasGpsTracker_() && window.CCSGpsTracker.getStatus().running) {
+        window.CCSGpsTracker.stop('logout');
+      }
+      if (window.CCSGpsSync) {
+        window.CCSGpsSync.trySyncQueue().catch(function () { /* сеть не успела/недоступна — не критично, см. комментарий выше */ });
+      }
+    } catch (e) {
+      // GPS-модуль не должен мешать штатному logout ни при каких условиях.
+    }
+  }
+
+  function global_hasGpsTracker_() {
+    return !!(window.CCSGpsTracker && typeof window.CCSGpsTracker.getStatus === 'function');
   }
 
   // ---- ВХОД ПО ПАРОЛЮ (гос. номер уже зарегистрирован) ----
@@ -934,7 +1047,280 @@
 
   // ---- КАБИНЕТ ----
 
+  // ===== GPS / пробег / маршрутизация =====
+  var gpsCabinetData_ = null;
+  var gpsRouteTimer_ = null;
+
+  // ЭТАП 6 ГПС-плана: раньше контрольная точка одометра хранилась ЧИСТО
+  // ЛОКАЛЬНО (localStorage, ключ на конкретный браузер/устройство) — на
+  // другом телефоне или после переустановки браузера водитель видел
+  // "—" и должен был вводить пробег заново, а рекомендации по ТО (кроме
+  // отдельной пилюли gpsMaintenanceHint) её вообще не учитывали. Теперь
+  // контрольная точка сохраняется на сервере (см. apiSetConfirmedOdometer,
+  // 6_WebApi.gs) и приходит вместе с остальным кабинетом
+  // (data.confirmedOdometer/data.effectiveMileage) — localStorage больше
+  // не используется как источник истины, только как мгновенный локальный
+  // кэш на время до ответа сервера (см. confirmGpsOdometer_ ниже).
+  function gpsBaselineKey_() { return 'ccs_gps_odometer_baseline_' + String(currentPlate || '').toUpperCase(); }
+  function getGpsBaseline_() {
+    if (gpsCabinetData_ && gpsCabinetData_.confirmedOdometer && gpsCabinetData_.confirmedOdometer.km) {
+      return { odometerKm: gpsCabinetData_.confirmedOdometer.km, at: gpsCabinetData_.confirmedOdometer.atMs };
+    }
+    // Ещё нет ответа сервера (например, самый первый рендер сразу после
+    // отправки, до следующего showCabinet) — временно используем
+    // локально сохранённое значение, если оно есть.
+    try { return JSON.parse(localStorage.getItem(gpsBaselineKey_())) || null; } catch (e) { return null; }
+  }
+  function setGpsBaselineLocalCache_(km) {
+    var n = Number(km);
+    if (!isFinite(n) || n <= 0) return false;
+    localStorage.setItem(gpsBaselineKey_(), JSON.stringify({ odometerKm: n, at: Date.now() }));
+    return true;
+  }
+  function fmtKm_(n) { return isFinite(Number(n)) ? Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' км' : '—'; }
+
+  // ===== ЭТАП 8 ГПС-плана: плашка согласия перед автостартом GPS =====
+  // До этого этапа startDriverGps_() запускался автоматически сразу при
+  // каждом входе в кабинет, без явного разрешения водителя — что прямо
+  // противоречит п.8 архитектурного плана. Теперь GPS включается
+  // автоматически только после того, как водитель хотя бы раз нажал
+  // "Разрешить" в этой плашке; отказ запоминается и не спрашивается
+  // заново при каждом входе (водитель сам сможет включить GPS позже
+  // через ссылку "Включить" в карточке).
+  function gpsConsentKey_() { return 'ccs_gps_consent_' + String(currentPlate || '').toUpperCase(); }
+  function getGpsConsent_() {
+    try { return localStorage.getItem(gpsConsentKey_()); } catch (e) { return null; } // 'granted' | 'declined' | null
+  }
+  function setGpsConsent_(value) {
+    try { localStorage.setItem(gpsConsentKey_(), value); } catch (e) { /* приватный режим — просто спросим снова в следующий раз */ }
+  }
+
+  function openGpsConsentModal_() {
+    // Не плодим второй backdrop, если модалка уже открыта (например,
+    // случайный повторный клик по "Включить").
+    if (document.getElementById('gpsConsentBackdrop')) return;
+
+    var backdrop = document.createElement('div');
+    backdrop.className = 'story-modal-backdrop';
+    backdrop.id = 'gpsConsentBackdrop';
+    // Намеренно НЕТ закрытия по клику на фон (в отличие от историй) —
+    // это решение о приватности, а не развлекательный контент; водитель
+    // должен явно выбрать один из двух вариантов, а не случайно
+    // "провалиться" мимо плашки.
+
+    var modal = document.createElement('div');
+    modal.className = 'story-modal';
+    modal.innerHTML =
+      '<div style="font-weight:700; font-size:16px; margin-bottom:8px;">📍 Отслеживание пробега по GPS</div>' +
+      '<div style="font-size:14px; line-height:1.5; margin-bottom:14px;">' +
+      'Чтобы автоматически считать пройденный пробег и точнее подсказывать срок ' +
+      'следующего ТО, приложению нужен доступ к GPS.<br><br>' +
+      '• Работает только пока эта страница открыта на телефоне — после закрытия ' +
+      'вкладки отслеживание останавливается.<br>' +
+      '• Координаты не передаются посторонним — используются только для расчёта ' +
+      'пройденного расстояния и расстояния до China Car Service.<br>' +
+      '• Разрешение можно отозвать в любой момент.' +
+      '</div>' +
+      '<div class="row" style="gap:8px;">' +
+      '<button class="btn-secondary" style="flex:1;" onclick="respondGpsConsent_(false)">Не сейчас</button>' +
+      '<button class="btn-primary" style="flex:1;" onclick="respondGpsConsent_(true)">Разрешить</button>' +
+      '</div>';
+
+    backdrop.appendChild(modal);
+    document.body.appendChild(backdrop);
+  }
+
+  function respondGpsConsent_(allow) {
+    setGpsConsent_(allow ? 'granted' : 'declined');
+    var backdrop = document.getElementById('gpsConsentBackdrop');
+    if (backdrop) backdrop.remove();
+    if (allow) {
+      startDriverGps_();
+    } else {
+      renderGpsConsentDeclinedState_();
+    }
+  }
+
+  function renderGpsConsentDeclinedState_() {
+    document.getElementById('gpsStatusLine').innerText = 'GPS: ⚪ выключен (нет разрешения)';
+    var note = document.getElementById('gpsConsentDeclinedNote');
+    if (note) note.style.display = 'block';
+  }
+
+  // Вызывается вместо прямого startDriverGps_() при каждом открытии
+  // кабинета — решает, можно ли запускать GPS сразу, или сначала нужно
+  // спросить разрешение.
+  function ensureGpsConsentThenStart_() {
+    var consent = getGpsConsent_();
+    var note = document.getElementById('gpsConsentDeclinedNote');
+    if (note) note.style.display = 'none';
+    if (consent === 'granted') {
+      startDriverGps_();
+    } else if (consent === 'declined') {
+      renderGpsMileage_(); // сначала обычный рендер пилюль (сервер/история)…
+      renderGpsConsentDeclinedState_(); // …затем переопределяем статусную строку, чтобы явно объяснить причину
+      updateServiceRoute_();
+    } else {
+      // Ни разу не отвечал — спрашиваем прямо сейчас, до первого автостарта.
+      renderGpsMileage_();
+      document.getElementById('gpsStatusLine').innerText = 'GPS: ⚪ нужно разрешение';
+      updateServiceRoute_();
+      openGpsConsentModal_();
+    }
+  }
+
+  function getLastServiceMileage_(type, rows) {
+    var r = (rows || []).find(function (x) { return x.type === type; });
+    return r ? Number(r.mileage) || 0 : 0;
+  }
+
+  function renderGpsMileage_() {
+    if (!window.CCSGpsTracker || !window.CCSGpsStorage) return;
+    var st = window.CCSGpsTracker.getStatus();
+    var baseline = getGpsBaseline_();
+    var sessionKm = Number(st.distanceKm) || 0;
+    // ЭТАП 6 ГПС-плана: если сервер уже прислал effectiveMileage (учитывает
+    // подтверждённый одометр + весь СИНХРОНИЗИРОВАННЫЙ GPS-пробег), берём
+    // его как более точную базу и добавляем только текущую, ЕЩЁ НЕ
+    // остановленную/несинхронизированную сессию сверху — иначе эти км
+    // задвоились бы (сервер их пока не видел, они попадут в него только
+    // после stop()+trySyncQueue()). Если effectiveMileage от сервера нет
+    // (совсем новая машина, ещё не открывался кабинет) — прежний fallback
+    // на локальный baseline.
+    var serverEffective = (gpsCabinetData_ && isFinite(Number(gpsCabinetData_.effectiveMileage)))
+      ? Number(gpsCabinetData_.effectiveMileage) : null;
+    var est = serverEffective !== null ? (serverEffective + sessionKm)
+      : (baseline ? Number(baseline.odometerKm) + sessionKm : null);
+
+    document.getElementById('gpsSessionKm').innerText = fmtKm_(sessionKm);
+    document.getElementById('gpsEstimatedMileage').innerText = est === null ? '—' : fmtKm_(est);
+    // ЭТАП 4 ГПС-плана: приходит с сервера в самом кабинете
+    // (buildDriverCabinetPayload_ -> gpsTotalKm), обновляется тихо после
+    // каждой успешной синхронизации через silentRefreshCabinet_/dataversion.
+    var serverKmEl = document.getElementById('gpsServerKm');
+    if (serverKmEl) {
+      serverKmEl.innerText = (gpsCabinetData_ && isFinite(Number(gpsCabinetData_.gpsTotalKm)))
+        ? fmtKm_(gpsCabinetData_.gpsTotalKm) : '—';
+    }
+    document.getElementById('gpsStatusLine').innerText = st.running
+      ? ('GPS: 🟢 активен' + (st.lastAccuracy ? ' · точность ~' + Math.round(st.lastAccuracy) + ' м' : ''))
+      : (st.permission === 'denied' ? 'GPS: 🔴 доступ запрещён' : 'GPS: ⚪ не активен');
+
+    var hint = document.getElementById('gpsMaintenanceHint');
+    if (!gpsCabinetData_ || !baseline || est === null) {
+      hint.className = 'rec rec-unknown';
+      hint.innerText = 'Подтвердите текущий пробег одометра — после этого GPS сможет примерно считать пройденные км и оценивать следующее ТО.';
+      return;
+    }
+
+    var rows = gpsCabinetData_.rows || [];
+    var oil = rows.find(function (x) { return x.type === 'Замена масла'; });
+    var filter = rows.find(function (x) { return x.type === 'Замена фильтра'; });
+    var candidates = [];
+    if (oil) candidates.push({ label: 'Масло', last: Number(oil.mileage) || 0, interval: 15000, soon: 12000 });
+    if (filter) candidates.push({ label: 'Фильтр', last: Number(filter.mileage) || 0, interval: 7000, soon: 5000 });
+    if (!candidates.length) {
+      hint.className = 'rec rec-unknown';
+      hint.innerText = 'В истории пока нет замены масла/фильтра — точный интервал ТО определить нельзя.';
+      return;
+    }
+    candidates.sort(function (a, b) { return (a.last + a.interval) - (b.last + b.interval); });
+    var next = candidates[0];
+    var left = Math.max(0, next.last + next.interval - est);
+    var passed = Math.max(0, est - next.last);
+    var status = passed >= next.interval ? 'due' : (passed >= next.soon ? 'soon' : 'ok');
+    hint.className = 'rec rec-' + status;
+    hint.innerText = status === 'due'
+      ? '⚠️ ' + next.label + ': примерно пора менять. Остаток: 0 км (GPS-оценка).'
+      : (status === 'soon'
+        ? '🔔 ' + next.label + ': осталось примерно ' + fmtKm_(left) + ' (GPS-оценка).'
+        : '✅ Следующее обслуживание (' + next.label + '): примерно через ' + fmtKm_(left) + '.');
+  }
+
+  function updateServiceRoute_() {
+    if (!window.CCSRoutingService || !window.CCSGpsTracker) return;
+    var st = window.CCSGpsTracker.getStatus();
+    var line = document.getElementById('serviceDistanceLine');
+    var note = document.getElementById('serviceDistanceNote');
+    if (!st.lastLat || !st.lastLon) {
+      line.innerText = '📍 До China Car Service: включите GPS';
+      note.innerText = 'Бесплатный режим: расстояние рассчитывается по GPS по прямой; API карт не используется.';
+      return;
+    }
+    line.innerText = '📍 До China Car Service: считаем…';
+    window.CCSRoutingService.getRoute(st.lastLat, st.lastLon).then(function (r) {
+      if (!r || !r.ok) { line.innerText = '📍 Расстояние до сервиса недоступно'; return; }
+      line.innerText = '📍 До China Car Service: ' + fmtKm_(r.distanceKm) + (r.durationMin ? ' · ~' + Math.round(r.durationMin) + ' мин' : '');
+      note.innerText = 'Бесплатный режим: локальный расчёт по GPS · без платных API';
+    });
+  }
+
+  function startDriverGps_() {
+    if (!window.CCSGpsTracker) return;
+    window.CCSGpsTracker.init({ testMode: false });
+    window.CCSGpsTracker.onChange(function () { renderGpsMileage_(); });
+    window.CCSGpsTracker.start(currentPlate, localStorage.getItem('driver_device_token') || '');
+    renderGpsMileage_();
+    updateServiceRoute_();
+    if (gpsRouteTimer_) clearInterval(gpsRouteTimer_);
+    // Маршрутизация не вызывается часто: только раз в 10 минут.
+    gpsRouteTimer_ = setInterval(updateServiceRoute_, 10 * 60 * 1000);
+
+    // ЭТАП 4 ГПС-плана: сразу при открытии кабинета пробуем отправить
+    // всё, что успело накопиться в durable-очереди с прошлого визита
+    // (например, водитель ездил вчера офлайн, сессия закрылась, а связь
+    // появилась только сейчас) — не дожидаясь первого 20-секундного
+    // тика pollDataVersion_. Best-effort, не блокирует открытие кабинета.
+    if (window.CCSGpsSync) {
+      window.CCSGpsSync.trySyncQueue().catch(function () { /* нет сети — попробуем в общем цикле опроса */ });
+    }
+  }
+
+  function confirmGpsOdometer_() {
+    var current = prompt('Введите текущий пробег по одометру автомобиля, км:');
+    if (current === null) return;
+    var n = Number(String(current).replace(/\s/g, '').replace(',', '.'));
+    if (!isFinite(n) || n <= 0) { alert('Введите корректный пробег.'); return; }
+
+    // Мгновенный локальный отклик, не дожидаясь ответа сервера — водитель
+    // сразу видит новое значение в пилюлях, даже на медленной связи.
+    setGpsBaselineLocalCache_(n);
+    renderGpsMileage_();
+
+    apiPost({ action: 'setOdometer', plate: currentPlate, km: n }).then(function (res) {
+      if (res && res.ok) {
+        if (gpsCabinetData_) {
+          gpsCabinetData_.confirmedOdometer = res.confirmedOdometer;
+          gpsCabinetData_.effectiveMileage = res.effectiveMileage;
+        }
+        renderGpsMileage_();
+        alert('Пробег ' + fmtKm_(n) + ' сохранён на сервере как контрольная точка. GPS теперь будет добавлять к нему пройденное расстояние — это будет видно с любого устройства.');
+      } else {
+        // Сервер отказал (например, значение меньше уже известного
+        // эффективного пробега) — откатывать локальный кэш не нужно,
+        // просто сообщаем водителю причину.
+        alert('Не удалось сохранить пробег: ' + ((res && res.error) || 'неизвестная ошибка') + '\nПопробуйте ещё раз позже.');
+      }
+    }).catch(function () {
+      // Нет сети — не теряем ввод: сохранённое локально значение уже
+      // отображается, а отправка на сервер повторится через общую
+      // офлайн-очередь (тот же принцип, что и у регистрации, см. RQ_KEY_).
+      rqEnqueue_({ action: 'setOdometer', plate: currentPlate, km: n }, 'подтверждение одометра ' + currentPlate);
+      alert('⚠️ Нет сети. Пробег сохранён локально и отправится на сервер автоматически, как только связь появится.');
+    });
+  }
+
+  function openRoute2gis_() {
+    var st = window.CCSGpsTracker && window.CCSGpsTracker.getStatus ? window.CCSGpsTracker.getStatus() : {};
+    window.CCSRoutingService.open2gisRoute(st.lastLat, st.lastLon);
+  }
+  function openRouteYandex_() {
+    var st = window.CCSGpsTracker && window.CCSGpsTracker.getStatus ? window.CCSGpsTracker.getStatus() : {};
+    window.CCSRoutingService.openYandexRoute(st.lastLat, st.lastLon);
+  }
+
   function showCabinet(data, fromCache) {
+    gpsCabinetData_ = data || {};
     hideAllScreens();
     document.getElementById('cabinet').style.display = 'block';
 
@@ -998,6 +1384,9 @@
     renderHistory(rows);
     loadActs();
     loadStories();
+    // ЭТАП 8 ГПС-плана: GPS больше не запускается автоматически без
+    // явного разрешения — см. ensureGpsConsentThenStart_() выше.
+    ensureGpsConsentThenStart_();
   }
 
   // ЭТАП 13.4: карточка перерисовывается при каждом показе кабинета — как
@@ -1109,6 +1498,9 @@
 
   function checkMileage(btn) {
     var mileage = document.getElementById('currentMileageInput').value;
+    // Ручная проверка одновременно может стать контрольной точкой GPS-одометра.
+    var manualKm = Number(mileage);
+    if (isFinite(manualKm) && manualKm > 0) setGpsBaseline_(manualKm);
     var statusEl = document.getElementById('mileageCheckStatus');
     var resultEl = document.getElementById('mileageCheckResult');
     resultEl.innerHTML = '';
