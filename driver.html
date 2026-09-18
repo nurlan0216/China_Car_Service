@@ -461,29 +461,43 @@
     }
   }
 
+  function newClientRequestId_() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+    return 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+
   // ---- "ЗАПОМНИТЬ УСТРОЙСТВО" (Этап 4) ----
 
   // (улучшение сохранения входа): раньше единственный "не valid" ответ сервера сразу стирал токен и выкидывал на экран пароля — даже если секундой раньше на этом же устройстве уже был честно показан кабинет .
-  function tryDeviceLogin(plate, token, isRetry) {
+  function tryDeviceLogin(plate, token, isRetry, networkAttempt) {
+    networkAttempt = networkAttempt || 0;
     return apiPost({ action: 'deviceLogin', plate: plate, token: token })
       .then(function (res) {
         if (res.ok && res.valid) {
           currentPlate = plate;
           showCabinet(res);
         } else if (!isRetry) {
-          return tryDeviceLogin(plate, token, true);
+          return tryDeviceLogin(plate, token, true, networkAttempt);
         } else {
-          // Токен не подтверждён (устройство новое/токен отозван) —
-          // убираем его и показываем обычный вход по паролю.
+          // Только явный ответ сервера о недействительном токене приводит
+          // к его удалению. Временный SERVER_BUSY/timeout токен НЕ удаляет.
           localStorage.removeItem('driver_device_token');
           checkVehicle(plate, true);
         }
       })
       .catch(function () {
-        // Сетевая ошибка — не удаляем токен (может быть временный сбой);
-        // если уже показали закэшированный кабинет — на этом и остаёмся,
-        // иначе идём обычным путём через ввод пароля.
-        if (!clientCacheGet_('cabinet_' + plate)) checkVehicle(plate, true);
+        if (clientCacheGet_('cabinet_' + plate)) return;
+        if (networkAttempt < 3) {
+          var delay = [1500, 3000, 5000][networkAttempt] || 5000;
+          var status = document.getElementById('gateError');
+          if (status) status.innerText = '⏳ Сервер временно недоступен. Автоматически повторяем вход...';
+          return new Promise(function(resolve){ setTimeout(resolve, delay); })
+            .then(function(){ return tryDeviceLogin(plate, token, isRetry, networkAttempt + 1); });
+        }
+        // После нескольких неудачных сетевых попыток токен всё равно
+        // сохраняем: следующая загрузка страницы сможет восстановить вход.
+        var status2 = document.getElementById('gateError');
+        if (status2) status2.innerText = 'Сервер временно недоступен. Сохранённый вход не удалён — попробуйте обновить страницу позже.';
       });
   }
 
@@ -547,8 +561,8 @@
 
   // ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей
   // паузой — см. подробный комментарий в to.html, тот же приём.
-  var FETCH_TIMEOUT_MS = 15000;
-  var FETCH_BACKOFF_MS = [1500, 4000];
+  var FETCH_TIMEOUT_MS = 5000;
+  var FETCH_BACKOFF_MS = [];
 
   function fetchOnce_(url, options) {
     var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -1009,12 +1023,15 @@
 
     document.getElementById('regStatus').innerText = 'Регистрирую...';
     withButtonBusy_(btn, 'Регистрирую...', function () {
+      var registerRequestId = newClientRequestId_();
       return apiPost({
         action: 'driverRegister',
         plate: currentPlate,
-        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password }
+        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password },
+        clientRequestId: registerRequestId
       }).then(function (res) {
         document.getElementById('regStatus').innerText = '';
+        if (res && res.retryable) throw new Error('SERVER_BUSY');
         if (!res.ok) {
           errEl.innerText = res.error || 'Не удалось зарегистрироваться';
           return;
@@ -1030,7 +1047,8 @@
         rqEnqueue_({
           action: 'driverRegister',
           plate: currentPlate,
-          data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password }
+          data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password },
+          clientRequestId: registerRequestId
         }, 'регистрация ' + currentPlate);
         document.getElementById('regStatus').innerText = '';
         errEl.innerText = '⚠️ Нет сети. Данные сохранены — регистрация отправится автоматически, как только связь восстановится.';
@@ -1339,7 +1357,9 @@
     setGpsBaselineLocalCache_(n);
     renderGpsMileage_();
 
-    apiPost({ action: 'setOdometer', plate: currentPlate, km: n }).then(function (res) {
+    var odometerRequestId = newClientRequestId_();
+    apiPost({ action: 'setOdometer', plate: currentPlate, km: n, clientRequestId: odometerRequestId }).then(function (res) {
+      if (res && res.retryable) throw new Error('SERVER_BUSY');
       if (res && res.ok) {
         if (gpsCabinetData_) {
           gpsCabinetData_.confirmedOdometer = res.confirmedOdometer;
@@ -1357,7 +1377,7 @@
       // Нет сети — не теряем ввод: сохранённое локально значение уже
       // отображается, а отправка на сервер повторится через общую
       // офлайн-очередь (тот же принцип, что и у регистрации, см. RQ_KEY_).
-      rqEnqueue_({ action: 'setOdometer', plate: currentPlate, km: n }, 'подтверждение одометра ' + currentPlate);
+      rqEnqueue_({ action: 'setOdometer', plate: currentPlate, km: n, clientRequestId: odometerRequestId }, 'подтверждение одометра ' + currentPlate);
       alert('⚠️ Нет сети. Пробег сохранён локально и отправится на сервер автоматически, как только связь появится.');
     });
   }

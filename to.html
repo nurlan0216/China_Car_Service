@@ -556,11 +556,25 @@
   // При каждом открытии to.html — если в localStorage уже есть сохранённые имя+токен устройства, сначала тихо пробуем войти по ним (аналог apiDriverDeviceLogin у водителя), и только если токена нет или…
   var savedDeviceName = localStorage.getItem(DEVICE_NAME_KEY) || '';
   var savedDeviceToken = localStorage.getItem(DEVICE_TOKEN_KEY) || '';
-  if (savedDeviceName && savedDeviceToken) tryDeviceLogin_(savedDeviceName, savedDeviceToken);
+  if (savedDeviceName && savedDeviceToken) {
+    var restoreGate = document.getElementById('gate');
+    if (restoreGate) {
+      restoreGate.classList.add('auth-restoring');
+      var restoreErr = document.getElementById('gateError');
+      if (restoreErr) restoreErr.innerText = '⏳ Восстановление сессии...';
+      var loginCard = restoreGate.querySelector('.card');
+      var registerToggle = restoreGate.querySelector('.toggle');
+      var registerCard = document.getElementById('registerCard');
+      if (loginCard) loginCard.style.opacity = '.45';
+      if (registerToggle) registerToggle.style.display = 'none';
+      if (registerCard) registerCard.style.display = 'none';
+    }
+    tryDeviceLogin_(savedDeviceName, savedDeviceToken);
+  }
 
   // п.6 (расширяет ): таймаут + повтор с нарастающей паузой (retry with backoff) для вызовов Apps Script.
-  var FETCH_TIMEOUT_MS = 15000;
-  var FETCH_BACKOFF_MS = [1500, 4000];
+  var FETCH_TIMEOUT_MS = 5000;
+  var FETCH_BACKOFF_MS = [];
 
   function fetchOnce_(url, options) {
     var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -803,9 +817,18 @@
         }
       })
       .catch(function () {
-        // сети сейчас нет — не трогаем сохранённый токен, он ещё может
-        // сработать при следующем открытии с сетью; просто остаёмся на
-        // обычном экране входа сейчас.
+        var gate = document.getElementById('gate');
+        if (gate) {
+          gate.classList.remove('auth-restoring');
+          var card = gate.querySelector('.card');
+          var toggle = gate.querySelector('.toggle');
+          if (card) card.style.opacity = '1';
+          if (toggle) toggle.style.display = '';
+          var reg = document.getElementById('registerCard');
+          if (reg) reg.style.display = 'none';
+          var err = document.getElementById('gateError');
+          if (err) err.innerText = 'Сервер временно недоступен. Сохранённый вход не удалён.';
+        }
       });
   }
 
@@ -1920,6 +1943,7 @@
     withButtonBusy_(btn, 'Сохраняю...', function () {
       return apiPost({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId })
         .then(function (res) {
+          if (res && res.retryable) throw new Error('SERVER_BUSY');
           if (res.ok) {
             // ЭТАП 8.4: сразу после сохранения инвалидируем клиентский
             // кэш поиска этого номера и истории работ — иначе следующий

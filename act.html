@@ -1902,8 +1902,8 @@ var GATE_PW = '';
 var GATE_IS_SUPER = false;
 
 // п.6 (расширяет ): таймаут + повтор с нарастающей паузой .
-var ACT_FETCH_TIMEOUT_MS = 45000;
-var ACT_FETCH_BACKOFF_MS = [2000, 5000];
+var ACT_FETCH_TIMEOUT_MS = 5000;
+var ACT_FETCH_BACKOFF_MS = [];
 
 function fetchOnce_(url, options) {
   var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;

@@ -6,7 +6,7 @@
 // v4 — (PROMPT_stage7_fixes.md): раньше страница-оболочка отдавалась стратегией "кэш сразу, сеть в фоне" — уже открытые/ установленные копии сайта могли сколь угодно долго не увидеть новый код, пока…
 v12 — ЭТАП 4 (маскировка GPS): js/gps-*.js и js/routing-service.js убраны
 // из PRECACHE_URLS (см. комментарий у списка ниже) — сами файлы не удалены.
-var CACHE_NAME = 'ccs-shell-v13-honghi-brand';
+var CACHE_NAME = 'ccs-shell-v14-stability-auth-push';
 
 var PRECACHE_URLS = [
   'index.html',

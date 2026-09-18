@@ -263,11 +263,13 @@
 
 <script>
   // SCRIPT_URL — см. js/config.js
+  var FETCH_TIMEOUT_MS = 5000;
   function fetchWithRetry_(url, options) {
-    return fetch(url, options).catch(function () {
-      return new Promise(function (resolve) { setTimeout(resolve, 1500); })
-        .then(function () { return fetch(url, options); });
-    });
+    var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var opts = options ? Object.assign({}, options) : {};
+    if (controller) opts.signal = controller.signal;
+    var timer = controller ? setTimeout(function(){ controller.abort(); }, FETCH_TIMEOUT_MS) : null;
+    return fetch(url, opts).finally(function(){ if (timer) clearTimeout(timer); });
   }
 
   // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
