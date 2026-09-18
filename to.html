@@ -22,6 +22,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <script src="js/config.js"></script>
 <script src="js/push-card.js"></script>
+<script src="js/request-queue.js"></script>
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -511,6 +512,11 @@
       <div id="broadcastResult" style="margin-top:10px;"></div>
       </div>
     </div>
+
+    <!-- ФИКС (ошибка 6 из плана исправлений): сюда переезжает pushCard, как
+         только push включён — в сжатом виде, без кнопки-призыва, не
+         перекрывая ничего фиксированным позиционированием (см. js/push-card.js). -->
+    <div id="notifBottomAnchor"></div>
   </div>
 
 <script>
@@ -556,25 +562,11 @@
   // При каждом открытии to.html — если в localStorage уже есть сохранённые имя+токен устройства, сначала тихо пробуем войти по ним (аналог apiDriverDeviceLogin у водителя), и только если токена нет или…
   var savedDeviceName = localStorage.getItem(DEVICE_NAME_KEY) || '';
   var savedDeviceToken = localStorage.getItem(DEVICE_TOKEN_KEY) || '';
-  if (savedDeviceName && savedDeviceToken) {
-    var restoreGate = document.getElementById('gate');
-    if (restoreGate) {
-      restoreGate.classList.add('auth-restoring');
-      var restoreErr = document.getElementById('gateError');
-      if (restoreErr) restoreErr.innerText = '⏳ Восстановление сессии...';
-      var loginCard = restoreGate.querySelector('.card');
-      var registerToggle = restoreGate.querySelector('.toggle');
-      var registerCard = document.getElementById('registerCard');
-      if (loginCard) loginCard.style.opacity = '.45';
-      if (registerToggle) registerToggle.style.display = 'none';
-      if (registerCard) registerCard.style.display = 'none';
-    }
-    tryDeviceLogin_(savedDeviceName, savedDeviceToken);
-  }
+  if (savedDeviceName && savedDeviceToken) tryDeviceLogin_(savedDeviceName, savedDeviceToken);
 
   // п.6 (расширяет ): таймаут + повтор с нарастающей паузой (retry with backoff) для вызовов Apps Script.
-  var FETCH_TIMEOUT_MS = 5000;
-  var FETCH_BACKOFF_MS = [];
+  var FETCH_TIMEOUT_MS = 15000;
+  var FETCH_BACKOFF_MS = [1500, 4000];
 
   function fetchOnce_(url, options) {
     var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -668,73 +660,93 @@
     return 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   }
 
-  var RQ_KEY_ = 'to_retry_queue';
+  // Ошибка 5: общая локальная очередь (js/request-queue.js). Раньше здесь была
+  // своя очередь только для addRecords и заявок на согласование — теперь через
+  // неё идут и остальные изменяющие действия. Повторная отправка всегда идёт с
+  // тем же clientRequestId (см. withIdempotency_ в WebApp.gs). Постоянный отказ
+  // сервера (неверный пароль/«не найден») запись из очереди убирает, а не
+  // блокирует остальные; прочие ошибки сервера откладывают только саму запись.
+  var QUEUED_MSG_ = CCSRequestQueue.QUEUED_MESSAGE;
+  var toQueue_ = CCSRequestQueue.create({
+    storageKey: 'to_retry_queue',
+    badgeId: 'retryQueueBadge',
+    // логин/пароль/токен берём из ТЕКУЩЕЙ сессии, а не из сохранённой копии; пока
+    // сессия не открыта (или вошёл другой сотрудник) — запись просто ждёт
+    prepare: function (p) {
+      if (!PW || !ADMIN_NAME) return null;
+      if (p.name && p.name !== ADMIN_NAME) return null;
+      p.pw = PW;
+      return p;
+    },
+    onSent: function (item, res) { queueDelivered_(item, res); },
+    onRejected: function (item, res, info) {
+      var el = document.getElementById('addStatus');
+      var why = info && info.gaveUp ? 'сервер долго не принимает' : (res && res.error) || '';
+      if (el) el.innerText = '⚠️ Отложенная запись «' + (item.label || '') + '» не принята: ' + why;
+    }
+  });
 
-  function rqLoad_() {
-    try { return JSON.parse(localStorage.getItem(RQ_KEY_) || '[]'); } catch (e) { return []; }
-  }
-  function rqSave_(list) {
-    try { localStorage.setItem(RQ_KEY_, JSON.stringify(list)); } catch (e) { /* хранилище недоступно/переполнено */ }
-  }
-  function rqEnqueue_(payload, label) {
-    var list = rqLoad_();
-    list.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), payload: payload, label: label || '', ts: Date.now() });
-    rqSave_(list);
-    updateRetryQueueBadge_();
-  }
-  function updateRetryQueueBadge_() {
-    var el = document.getElementById('retryQueueBadge');
-    if (!el) return;
-    var n = rqLoad_().length;
-    el.style.display = n ? 'block' : 'none';
-    el.innerText = n ? ('⏳ Не отправлено (ждёт сети): ' + n) : '';
-  }
-  var rqFlushing_ = false;
-  function rqFlush_() {
-    if (rqFlushing_) return;
-    var list = rqLoad_();
-    if (!list.length) return;
-    rqFlushing_ = true;
-    var item = list[0];
-    fetchWithRetry_(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(item.payload)
-    }, FETCH_BACKOFF_MS.length) // без повторов внутри самой попытки — очередь уже сама повторяет по таймеру
-      .then(function () {
-        // Успех (дошло до сервера) — убираем из очереди независимо от
-        // содержимого ответа: если сервер вернул ok:false (например,
-        // дублирующая ошибка валидации), повторять тот же payload дальше
-        // уже бессмысленно, а сетевая проблема решена.
-        var rest = rqLoad_().filter(function (x) { return x.id !== item.id; });
-        rqSave_(rest);
-        updateRetryQueueBadge_();
-        var badge = document.getElementById('addStatus');
-        if (badge) badge.innerText = '✅ Отложенная запись «' + item.label + '» отправлена.';
-      })
-      .catch(function () { /* сети всё ещё нет — оставляем в очереди, попробуем позже */ })
-      .finally(function () {
-        rqFlushing_ = false;
-        if (rqLoad_().length) setTimeout(rqFlush_, 1000);
+  // Запись, ждавшая в очереди, наконец принята сервером: показываем итог и
+  // обновляем то, что она меняла.
+  function queueDelivered_(item, res) {
+    var pl = item.payload || {};
+    var a = pl.action;
+    var el = document.getElementById('addStatus');
+    function say(t) { if (el) el.innerText = t; }
+    function safe(fn) { try { fn(); } catch (e) { /* экран уже сменился — не критично */ } }
+    say('✅ Отложенная запись «' + (item.label || '') + '» отправлена.');
+    if (a === 'addRecords') {
+      safe(function () { clientCacheInvalidateAfterSave_(pl.data && pl.data.plate); });
+      safe(function () { loadWorkHistory(historyShowAll_); });
+    } else if (a === 'requestEditRecord' || a === 'requestDeleteRecord') {
+      safe(function () { loadWorkHistory(historyShowAll_); });
+    } else if (a === 'decideApproval') {
+      safe(function () { loadPendingApprovals(); });
+      safe(function () { loadWorkHistory(historyShowAll_); });
+    } else if (a === 'createStory' || a === 'deleteStory') {
+      safe(loadStoriesAdmin);
+    } else if (a === 'taxiparkResetCode') {
+      safe(function () {
+        document.getElementById('taxiparkNewCodeName').innerText = pl.taxiparkName || '';
+        document.getElementById('taxiparkNewCodeValue').innerText = res.code;
+        document.getElementById('taxiparkNewCodeBox').style.display = 'block';
       });
+    } else if (a === 'telegramBroadcast') {
+      safe(function () {
+        document.getElementById('broadcastResult').innerHTML =
+          '<div style="font-weight:600;">✅ Отложенная рассылка отправлена: ' + res.sentCount + ' из ' + res.total + '</div>';
+      });
+    }
   }
-  window.addEventListener('online', rqFlush_);
-  setInterval(rqFlush_, 20000);
-  document.addEventListener('DOMContentLoaded', function () { updateRetryQueueBadge_(); rqFlush_(); });
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
     return fetchWithRetry_(url).then(function (r) { return r.json(); });
   }
 
+  // ДОП. НАХОДКА из плана исправлений: при редеплое Apps Script /exec иногда
+  // ненадолго отвечает 302, а fetch при переходе по редиректу меняет метод
+  // POST на GET — запрос попадает в doGet() вместо doPost() и вместо
+  // реального ответа приходит заглушка doGet ("этот адрес используется как
+  // API для внешнего сайта..."). Это подтверждённо временное явление (пока
+  // передеплой не "устаканится"), поэтому делаем один тихий повтор, прежде
+  // чем показывать это пользователю как настоящий ответ сервера.
+  function looksLikeGetStub_(res) {
+    var msg = ('' + ((res && (res.error || res.message)) || ''));
+    return msg.indexOf('используется как API') !== -1;
+  }
+
   // POST с text/plain, чтобы браузер не слал preflight OPTIONS-запрос —
   // Apps Script Web App его не обрабатывает при обращении с чужого домена.
-  function apiPost(payload) {
+  function apiPost(payload, _isRetryAfterGetStub) {
     return fetchWithRetry_(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      if (!_isRetryAfterGetStub && looksLikeGetStub_(res)) return apiPost(payload, true);
+      return res;
+    });
   }
 
   // короткий клиентский кэш ДАННЫХ (не файлов оболочки — та часть уже сделана в 8.1 через service-worker, стратегией network-first специально для .html/.js/.css).
@@ -802,33 +814,48 @@
   }
 
   // тихий вход по токену устройства, вызывается один раз при открытии страницы (если в localStorage сохранены имя+токен).
-  function tryDeviceLogin_(name, token) {
+  //
+  // ФИКС (ошибка 1 из плана исправлений): сервер различает {ok:true,
+  // valid:false} (токен реально не подтверждён — можно чистить) и
+  // {ok:false, error:...} (сервер упал с ошибкой и вообще не проверил
+  // токен — чистить нельзя, это не вина токена). Раньше оба случая вели
+  // в один and-тот-же else и временный сбой сервера стирал рабочий токен.
+  var ADMIN_DEVICE_LOGIN_RETRY_DELAYS_MS = [1500, 4000];
+  function tryDeviceLogin_(name, token, attempt) {
+    attempt = attempt || 0;
     apiPost({ action: 'adminDeviceLogin', name: name, token: token })
       .then(function (res) {
-        if (res.ok && res.valid) {
+        if (res && res.ok && res.valid) {
           ADMIN_NAME = name;
           PW = token; // сервер и дальше принимает этот же токен вместо пароля во всех запросах
           IS_SUPER = !!res.isSuperAdmin;
           showApp();
-        } else {
-          // токен недействителен/отозван/просрочен — тихо очищаем и
-          // оставляем обычный экран входа для этой попытки.
-          clearDeviceToken_();
+          return;
         }
+
+        if (res && res.ok === false) {
+          // Ошибка сервера, не связанная с валидностью токена — токен не
+          // трогаем, пробуем ещё раз с нарастающей паузой.
+          if (attempt < ADMIN_DEVICE_LOGIN_RETRY_DELAYS_MS.length) {
+            var delay = ADMIN_DEVICE_LOGIN_RETRY_DELAYS_MS[attempt];
+            setTimeout(function () { tryDeviceLogin_(name, token, attempt + 1); }, delay);
+            return;
+          }
+          // Попытки исчерпаны — сервер всё ещё недоступен, но токен всё
+          // равно не трогаем (попробуем снова при следующем открытии
+          // страницы), просто остаёмся на обычном экране входа.
+          return;
+        }
+
+        // res.ok === true && res.valid === false — токен реально не
+        // подтверждён (устройство новое/токен отозван) — вот теперь можно
+        // тихо очистить и оставить обычный экран входа для этой попытки.
+        clearDeviceToken_();
       })
       .catch(function () {
-        var gate = document.getElementById('gate');
-        if (gate) {
-          gate.classList.remove('auth-restoring');
-          var card = gate.querySelector('.card');
-          var toggle = gate.querySelector('.toggle');
-          if (card) card.style.opacity = '1';
-          if (toggle) toggle.style.display = '';
-          var reg = document.getElementById('registerCard');
-          if (reg) reg.style.display = 'none';
-          var err = document.getElementById('gateError');
-          if (err) err.innerText = 'Сервер временно недоступен. Сохранённый вход не удалён.';
-        }
+        // сети сейчас нет — не трогаем сохранённый токен, он ещё может
+        // сработать при следующем открытии с сетью; просто остаёмся на
+        // обычном экране входа сейчас.
       });
   }
 
@@ -908,6 +935,7 @@
   });
 
   function showApp() {
+    if (typeof toQueue_ !== 'undefined') toQueue_.flush(); // сессия открыта — отправляем то, что ждало входа
     document.getElementById('gate').style.display = 'none';
     var mainAppEl = document.getElementById('mainApp');
     mainAppEl.style.display = 'block';
@@ -1175,7 +1203,7 @@
     var r = historyRecordsById_[recordId];
     if (!r) return;
     ensureApprovalModal_();
-    approvalModalState_ = { mode: 'edit', recordId: recordId };
+    approvalModalState_ = { mode: 'edit', recordId: recordId, clientRequestId: newClientRequestId_() };
     document.getElementById('approvalModalTitle').innerText = 'Изменить запись — ' + r.plate;
     document.getElementById('approvalModalFields').innerHTML =
       '<label>Вид работы</label><input id="ea_type" value="' + escapeHtml_(r.type || '') + '">' +
@@ -1192,7 +1220,7 @@
     var r = historyRecordsById_[recordId];
     if (!r) return;
     ensureApprovalModal_();
-    approvalModalState_ = { mode: 'delete', recordId: recordId };
+    approvalModalState_ = { mode: 'delete', recordId: recordId, clientRequestId: newClientRequestId_() };
     document.getElementById('approvalModalTitle').innerText = 'Удалить запись — ' + r.plate;
     document.getElementById('approvalModalFields').innerHTML =
       '<div class="sub" style="margin-bottom:10px;">' + escapeHtml_(r.date) + ' · ' + escapeHtml_(r.type) +
@@ -1219,14 +1247,15 @@
       errEl.innerText = 'Укажите причину — без неё заявка не отправляется.';
       return;
     }
-    errEl.innerText = 'Отправляю...';
+    errEl.innerText = '';
     var btn = document.querySelector('#approvalModal .btn-primary');
-    if (btn) btn.disabled = true;
+    if (btn) { btn.disabled = true; btn.innerText = 'Отправляю...'; }
 
     var payload;
     if (approvalModalState_.mode === 'edit') {
       payload = {
         action: 'requestEditRecord', name: ADMIN_NAME, pw: PW,
+        clientRequestId: approvalModalState_.clientRequestId,
         recordId: approvalModalState_.recordId,
         reason: reason,
         newData: {
@@ -1240,23 +1269,32 @@
     } else {
       payload = {
         action: 'requestDeleteRecord', name: ADMIN_NAME, pw: PW,
+        clientRequestId: approvalModalState_.clientRequestId,
         recordId: approvalModalState_.recordId,
         reason: reason
       };
     }
 
-    apiPost(payload).then(function (res) {
-      if (btn) btn.disabled = false;
+    var approvalLabel = (approvalModalState_.mode === 'edit' ? 'изменение записи' : 'удаление записи') + ' (' + reason + ')';
+    toQueue_.send(payload, { label: approvalLabel }).then(function (o) {
+      if (o.queued) {
+        if (btn) btn.innerText = 'Сохранено, отправим автоматически';
+        errEl.innerText = QUEUED_MSG_ + ' — заявка уйдёт директору автоматически.';
+        setTimeout(closeApprovalModal_, 1200);
+        return;
+      }
+      var res = o.res;
       if (!res.ok) {
+        if (btn) { btn.disabled = false; btn.innerText = 'Отправить директору на согласование'; }
         var msg = ('' + (res.error || ''));
         if (msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1) { handleAuthError({ message: res.error }, 'historyStatus'); closeApprovalModal_(); return; }
         errEl.innerText = 'Ошибка: ' + res.error; return;
       }
-      closeApprovalModal_();
-      loadWorkHistory(historyShowAll_); // сразу показать пометку "на согласовании"
-    }).catch(function () {
-      if (btn) btn.disabled = false;
-      errEl.innerText = 'Ошибка сети — данные формы сохранены, попробуйте отправить ещё раз.';
+      if (btn) btn.innerText = 'Заявка отправлена, ожидайте решения директора';
+      setTimeout(function () {
+        closeApprovalModal_();
+        loadWorkHistory(historyShowAll_); // сразу показать пометку "на согласовании"
+      }, 600);
     });
   }
 
@@ -1941,9 +1979,19 @@
     var clientRequestId = newClientRequestId_();
 
     withButtonBusy_(btn, 'Сохраняю...', function () {
-      return apiPost({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId })
-        .then(function (res) {
-          if (res && res.retryable) throw new Error('SERVER_BUSY');
+      var addLabel = items.length > 1 ? (items.length + ' работ(ы)') : (items[0] && items[0].type) || 'запись';
+      return toQueue_.send({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId }, { label: addLabel })
+        .then(function (o) {
+          if (o.queued) {
+            // Визит лежит в очереди — черновик и поля чистим так же, как после успеха,
+            // иначе повторное нажатие «Сохранить» создало бы второй визит с новым id.
+            document.getElementById('addStatus').innerText = '⚠️ ' + QUEUED_MSG_ + '. Можно продолжать вводить следующую работу.';
+            clearPendingDraft_();
+            renderPendingRows_();
+            resetCurrentWorkRowFields_();
+            return;
+          }
+          var res = o.res;
           if (res.ok) {
             // ЭТАП 8.4: сразу после сохранения инвалидируем клиентский
             // кэш поиска этого номера и истории работ — иначе следующий
@@ -1973,12 +2021,7 @@
             else { document.getElementById('addStatus').innerText = 'Ошибка: ' + res.error; }
           }
         })
-        .catch(function () {
-          // п.6/п.9: все попытки fetchWithRetry_ (с таймаутом и паузами) исчерпаны — сети действительно нет.
-          rqEnqueue_({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId }, items.length > 1 ? (items.length + ' работ(ы)') : (items[0] && items[0].type) || 'запись');
-          document.getElementById('addStatus').innerText =
-            '⚠️ Нет сети. Визит сохранён локально и будет отправлен автоматически при восстановлении связи — можно продолжать вводить следующую работу.';
-        });
+        ;
     });
   }
 
@@ -2045,11 +2088,26 @@
     withButtonBusy_(btn, 'Публикую...', function () {
       statusEl.innerText = pendingStoryImage ? 'Загружаю...' : 'Публикую...';
       if (pendingStoryImage) showUploadProgress_('story');
-      return apiPostWithProgress_({
+      var storyPayload = {
         action: 'createStory', name: ADMIN_NAME, pw: PW,
+        clientRequestId: newClientRequestId_(),
         text: text, media: pendingStoryImage
-      }, function (pct) { updateUploadProgress_('story', pct); },
+      };
+      // Один и тот же payload/id и для прямой отправки, и для очереди.
+      function storyQueued_() {
+        return toQueue_.enqueue(storyPayload, 'публикация Stories').then(function (ok) {
+          hideUploadProgress_('story');
+          if (!ok) { statusEl.innerText = ''; errEl.innerText = 'Нет связи, а сохранить публикацию для автоотправки не удалось — попробуйте позже.'; return; }
+          statusEl.innerText = '⚠️ ' + QUEUED_MSG_ + '.';
+          document.getElementById('storyText').value = '';
+          document.getElementById('storyImageInput').value = '';
+          document.getElementById('storyImagePreview').innerHTML = '';
+          pendingStoryImage = null;
+        });
+      }
+      return apiPostWithProgress_(storyPayload, function (pct) { updateUploadProgress_('story', pct); },
          pendingStoryImage ? pendingStoryImage.fileSize : 0).then(function (res) {
+        if (CCSRequestQueue.isTransient(res)) return storyQueued_();
         hideUploadProgress_('story');
         if (res.ok) {
           statusEl.innerText = '✅ Опубликовано. Удалится автоматически через 24 часа.';
@@ -2062,10 +2120,8 @@
           errEl.innerText = res.error || 'Не удалось опубликовать';
           statusEl.innerText = '';
         }
-      }).catch(function (err) {
-        hideUploadProgress_('story');
-        statusEl.innerText = '';
-        errEl.innerText = (err && err.message) || 'Ошибка сети';
+      }).catch(function () {
+        return storyQueued_();
       });
     });
   }
@@ -2087,7 +2143,10 @@
     if (!confirm('Сбросить пароль сотруднику «' + name + '»? Все его запомненные устройства разлогинятся.')) return;
 
     withButtonBusy_(btn, 'Сбрасываю...', function () {
-      return apiPost({
+      // Новый пароль в локальную очередь не кладём (хранился бы на устройстве в
+      // открытом виде). Но при повторе (обрыв связи и повторное нажатие) id тот же —
+      // сервер не выполнит сброс второй раз.
+      return CCSRequestQueue.stablePost({
         action: 'adminResetPassword', name: ADMIN_NAME, pw: PW,
         targetName: name, newPassword: newPw
       }).then(function (res) {
@@ -2099,7 +2158,7 @@
           errEl.innerText = res.error || 'Не удалось сбросить пароль';
         }
       }).catch(function () {
-        errEl.innerText = 'Ошибка сети';
+        errEl.innerText = 'Ошибка сети — сброс не подтверждён. Нажмите ещё раз: повтор не выполнится дважды.';
       });
     });
   }
@@ -2184,13 +2243,13 @@
     if (!confirm('Выдать новый код доступа таксопарку «' + name + '»? Старый код сразу перестанет работать.')) return;
 
     withButtonBusy_(btn, 'Выдаю...', function () {
-      return apiPost({ action: 'taxiparkResetCode', name: ADMIN_NAME, pw: PW, taxiparkName: name }).then(function (res) {
+      return toQueue_.send({ action: 'taxiparkResetCode', name: ADMIN_NAME, pw: PW, taxiparkName: name }, { label: 'новый код таксопарка «' + name + '»' }).then(function (o) {
+        if (o.queued) { errEl.innerText = QUEUED_MSG_ + ' — новый код появится здесь, когда запрос дойдёт (старый до тех пор работает).'; return; }
+        var res = o.res;
         if (!res.ok) { errEl.innerText = res.error || 'Не удалось выдать новый код'; return; }
         document.getElementById('taxiparkNewCodeName').innerText = name;
         document.getElementById('taxiparkNewCodeValue').innerText = res.code;
         document.getElementById('taxiparkNewCodeBox').style.display = 'block';
-      }).catch(function () {
-        errEl.innerText = 'Ошибка сети';
       });
     });
   }
@@ -2325,13 +2384,27 @@
     withButtonBusy_(btn, 'Отправляю...', function () {
       statusEl.innerText = pendingBroadcastMedia ? 'Загружаю вложение...' : 'Отправляю...';
       if (pendingBroadcastMedia) showUploadProgress_('broadcast');
-      return apiPostWithProgress_({
+      var bcPayload = {
         action: 'telegramBroadcast', name: ADMIN_NAME, pw: PW,
+        clientRequestId: newClientRequestId_(),
         recipients: recipients, text: text, media: pendingBroadcastMedia
-      }, function (pct) {
+      };
+      function bcQueued_() {
+        return toQueue_.enqueue(bcPayload, 'рассылка в Telegram').then(function (ok) {
+          hideUploadProgress_('broadcast');
+          if (!ok) { statusEl.innerText = ''; errEl.innerText = 'Нет связи, а сохранить рассылку для автоотправки не удалось — попробуйте позже.'; return; }
+          statusEl.innerText = '⚠️ ' + QUEUED_MSG_ + '.';
+          document.getElementById('broadcastText').value = '';
+          document.getElementById('broadcastMediaInput').value = '';
+          document.getElementById('broadcastMediaPreview').innerHTML = '';
+          pendingBroadcastMedia = null;
+        });
+      }
+      return apiPostWithProgress_(bcPayload, function (pct) {
         updateUploadProgress_('broadcast', pct);
         if (pct >= 92) statusEl.innerText = 'Файл почти загружен, рассылаю получателям...';
       }, pendingBroadcastMedia ? pendingBroadcastMedia.fileSize : 0).then(function (res) {
+        if (CCSRequestQueue.isTransient(res)) return bcQueued_();
         hideUploadProgress_('broadcast');
         statusEl.innerText = '';
         if (!res.ok) { errEl.innerText = res.error || 'Не удалось отправить рассылку'; return; }
@@ -2349,10 +2422,8 @@
         document.getElementById('bcAllDrivers').checked = false;
         toggleBroadcastGroup_('taxipark');
         toggleBroadcastGroup_('driver');
-      }).catch(function (err) {
-        hideUploadProgress_('broadcast');
-        statusEl.innerText = '';
-        errEl.innerText = (err && err.message) || 'Ошибка сети';
+      }).catch(function () {
+        return bcQueued_();
       });
     });
   }
@@ -2439,12 +2510,12 @@
     if (!confirm((approve ? 'Разрешить' : 'Запретить') + ' эту заявку?')) return;
 
     withButtonBusy_(btn, 'Сохраняю...', function () {
-      return apiPost({ action: 'decideApproval', name: ADMIN_NAME, pw: PW, requestId: requestId, approve: approve }).then(function (res) {
+      return toQueue_.send({ action: 'decideApproval', name: ADMIN_NAME, pw: PW, requestId: requestId, approve: approve }, { label: (approve ? 'разрешение' : 'запрет') + ' заявки' }).then(function (o) {
+        if (o.queued) { errEl.innerText = QUEUED_MSG_ + ' — решение будет применено автоматически.'; return; }
+        var res = o.res;
         if (!res.ok) { errEl.innerText = res.error || 'Не удалось применить решение'; return; }
         loadPendingApprovals();
         loadWorkHistory(historyShowAll_); // отражаем снятую пометку "на согласовании" в общей истории
-      }).catch(function () {
-        errEl.innerText = 'Ошибка сети';
       });
     });
   }
@@ -2490,21 +2561,23 @@
         (s.text ? '<div class="story-admin-text">' + escapeHtml_(s.text) + '</div>' : '') +
         '<div class="story-admin-meta">' + escapeHtml_(s.author) + ' · осталось ~' + hoursLeft + ' ч.</div>' +
         '</div>' +
-        '<button class="story-admin-del" onclick="deleteStoryAdmin(\'' + s.id + '\')">Удалить</button>' +
+        '<button class="story-admin-del" onclick="deleteStoryAdmin(\'' + s.id + '\', this)">Удалить</button>' +
         '</div>';
     }).join('');
   }
 
-  function deleteStoryAdmin(id) {
+  function deleteStoryAdmin(id, btn) {
     if (!confirm('Удалить эту публикацию прямо сейчас?')) return;
-    apiPost({ action: 'deleteStory', name: ADMIN_NAME, pw: PW, id: id }).then(function (res) {
+    if (btn) btn.disabled = true;
+    toQueue_.send({ action: 'deleteStory', name: ADMIN_NAME, pw: PW, id: id }, { label: 'удаление Stories' }).then(function (o) {
+      if (o.queued) { alert(QUEUED_MSG_ + ' — публикация удалится автоматически.'); return; }
+      var res = o.res;
       if (res.ok) {
         loadStoriesAdmin();
       } else {
+        if (btn) btn.disabled = false;
         alert(res.error || 'Не удалось удалить');
       }
-    }).catch(function () {
-      alert('Ошибка сети');
     });
   }
 

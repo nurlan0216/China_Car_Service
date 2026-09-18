@@ -417,6 +417,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <script src="js/config.js"></script>
 <script src="js/push-card.js"></script>
+<script src="js/request-queue.js"></script>
 <script>
   // SCRIPT_URL — см. js/config.js
   // ЭТАП 13.7: см. подробный комментарий к этой же функции в to.html —
@@ -461,43 +462,58 @@
     }
   }
 
-  function newClientRequestId_() {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
-    return 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-  }
-
   // ---- "ЗАПОМНИТЬ УСТРОЙСТВО" (Этап 4) ----
 
   // (улучшение сохранения входа): раньше единственный "не valid" ответ сервера сразу стирал токен и выкидывал на экран пароля — даже если секундой раньше на этом же устройстве уже был честно показан кабинет .
-  function tryDeviceLogin(plate, token, isRetry, networkAttempt) {
-    networkAttempt = networkAttempt || 0;
+  //
+  // ФИКС (ошибка 1 из плана исправлений): сервер различает два разных ответа —
+  //   {ok:true, valid:false}  — токен ДЕЙСТВИТЕЛЬНО не подтверждён (новое
+  //                             устройство/токен отозван) — это надо доверять;
+  //   {ok:false, error:...}   — сервер упал с ошибкой (перегрузка, таймаут
+  //                             блокировки и т.п.) и вообще не смог проверить
+  //                             токен — это НЕ значит, что токен плохой.
+  // Раньше оба случая обрабатывались одинаково и один и тот же временный сбой
+  // сервера стирал рабочий токен и выкидывал водителя на экран пароля.
+  // Теперь при ok:false токен не трогаем и повторяем попытку с задержкой
+  // (backoff), а удаляем токен только при явном ok:true+valid:false.
+  var DEVICE_LOGIN_RETRY_DELAYS_MS = [1500, 4000];
+  function tryDeviceLogin(plate, token, attempt) {
+    attempt = attempt || 0;
     return apiPost({ action: 'deviceLogin', plate: plate, token: token })
       .then(function (res) {
-        if (res.ok && res.valid) {
+        if (res && res.ok && res.valid) {
           currentPlate = plate;
           showCabinet(res);
-        } else if (!isRetry) {
-          return tryDeviceLogin(plate, token, true, networkAttempt);
-        } else {
-          // Только явный ответ сервера о недействительном токене приводит
-          // к его удалению. Временный SERVER_BUSY/timeout токен НЕ удаляет.
-          localStorage.removeItem('driver_device_token');
-          checkVehicle(plate, true);
+          return;
         }
+
+        if (res && res.ok === false) {
+          // Сервер ответил ошибкой (не связанной с токеном) — не трогаем
+          // токен, пробуем ещё раз с нарастающей паузой.
+          if (attempt < DEVICE_LOGIN_RETRY_DELAYS_MS.length) {
+            var delay = DEVICE_LOGIN_RETRY_DELAYS_MS[attempt];
+            return new Promise(function (resolve) { setTimeout(resolve, delay); })
+              .then(function () { return tryDeviceLogin(plate, token, attempt + 1); });
+          }
+          // Попытки исчерпаны, сервер всё ещё недоступен — токен всё равно
+          // не удаляем (попробуем снова при следующем открытии страницы);
+          // если кабинет уже показан из кэша, оставляем как есть, иначе —
+          // обычный экран входа по паролю.
+          if (!clientCacheGet_('cabinet_' + plate)) checkVehicle(plate, true);
+          return;
+        }
+
+        // res.ok === true && res.valid === false — сервер явно подтвердил,
+        // что токен недействителен (устройство новое/токен отозван).
+        // Вот только теперь его можно убирать.
+        localStorage.removeItem('driver_device_token');
+        checkVehicle(plate, true);
       })
       .catch(function () {
-        if (clientCacheGet_('cabinet_' + plate)) return;
-        if (networkAttempt < 3) {
-          var delay = [1500, 3000, 5000][networkAttempt] || 5000;
-          var status = document.getElementById('gateError');
-          if (status) status.innerText = '⏳ Сервер временно недоступен. Автоматически повторяем вход...';
-          return new Promise(function(resolve){ setTimeout(resolve, delay); })
-            .then(function(){ return tryDeviceLogin(plate, token, isRetry, networkAttempt + 1); });
-        }
-        // После нескольких неудачных сетевых попыток токен всё равно
-        // сохраняем: следующая загрузка страницы сможет восстановить вход.
-        var status2 = document.getElementById('gateError');
-        if (status2) status2.innerText = 'Сервер временно недоступен. Сохранённый вход не удалён — попробуйте обновить страницу позже.';
+        // Сетевая ошибка (нет соединения вообще) — токен тоже не трогаем;
+        // если уже показали закэшированный кабинет — на этом и остаёмся,
+        // иначе идём обычным путём через ввод пароля.
+        if (!clientCacheGet_('cabinet_' + plate)) checkVehicle(plate, true);
       });
   }
 
@@ -519,8 +535,13 @@
   }
 
   // п.7: автообновление данных.
+  // ОШИБКА 3 (довыполнение): пока вкладка свёрнута/неактивна — не дёргаем
+  // сервер вообще (ни dataversion, ни GPS-очередь). Экономит квоту
+  // Apps Script и не будит телефон в фоне. Тот же приём, что уже был
+  // у автообновления истории в to.html (scheduleHistoryAutoRefresh_).
   var lastKnownDataVersion_ = null;
   function pollDataVersion_() {
+    if (document.visibilityState !== 'visible') return; // вкладка в фоне — пропускаем этот тик
     var cabEl = document.getElementById('cabinet');
     if (!cabEl || cabEl.style.display === 'none') return; // кабинет ещё не открыт — нечего обновлять
     apiGet({ action: 'dataversion' }).then(function (res) {
@@ -557,12 +578,15 @@
       if (savedTo && t) t.value = savedTo;
     });
   }
-  setInterval(pollDataVersion_, 20000);
+  // ОШИБКА 3 (довыполнение): интервал снижен с 20с до 30с — точная целевая
+  // цифра в проверенном плане не указана, взято разумное среднее (меньше
+  // нагрузки на Apps Script, но обновление кабинета всё ещё быстрое).
+  setInterval(pollDataVersion_, 30000);
 
   // ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей
   // паузой — см. подробный комментарий в to.html, тот же приём.
-  var FETCH_TIMEOUT_MS = 5000;
-  var FETCH_BACKOFF_MS = [];
+  var FETCH_TIMEOUT_MS = 15000;
+  var FETCH_BACKOFF_MS = [1500, 4000];
 
   function fetchOnce_(url, options) {
     var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -582,64 +606,56 @@
     });
   }
 
-  // Очередь исходящих запросов (retry-queue), , п.6 ------- Только для регистрации (payload небольшой, только текстовые поля — в отличие от act.html, где в payload попадают фото/PDF и очередь в…
-  var RQ_KEY_ = 'driver_retry_queue';
-
-  function rqLoad_() {
-    try { return JSON.parse(localStorage.getItem(RQ_KEY_) || '[]'); } catch (e) { return []; }
-  }
-  function rqSave_(list) {
-    try { localStorage.setItem(RQ_KEY_, JSON.stringify(list)); } catch (e) { /* недоступно/переполнено */ }
-  }
-  function rqEnqueue_(payload, label) {
-    var list = rqLoad_();
-    list.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), payload: payload, label: label || '', ts: Date.now() });
-    rqSave_(list);
-  }
-  var rqFlushing_ = false;
-  function rqFlush_() {
-    if (rqFlushing_) return;
-    var list = rqLoad_();
-    if (!list.length) return;
-    rqFlushing_ = true;
-    var item = list[0];
-    fetchWithRetry_(SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(item.payload)
-    }, FETCH_BACKOFF_MS.length)
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        var rest = rqLoad_().filter(function (x) { return x.id !== item.id; });
-        rqSave_(rest);
-        if (res && res.ok && item.payload && item.payload.action === 'driverRegister') {
-          // Регистрация наконец прошла, пока пользователь мог уже уйти со
-          // страницы — открываем кабинет, если форма ещё видна.
-          var errEl = document.getElementById('regError');
-          if (errEl) errEl.innerText = '';
-          try { showCabinet(res); } catch (e) { /* пользователь уже ушёл с этого экрана — не критично */ }
-        } else if (res && res.ok && item.payload && item.payload.action === 'setOdometer') {
-          // ЭТАП 6 ГПС-плана: пробег наконец подтверждён на сервере — если
-          // кабинет всё ещё открыт (та же машина), обновляем только эти
-          // два поля, не трогая остальной уже отрисованный payload.
-          var samePlate = String(item.payload.plate || '').toUpperCase().replace(/[\s-]/g, '') ===
-                          String(currentPlate || '').toUpperCase().replace(/[\s-]/g, '');
-          if (gpsCabinetData_ && samePlate) {
-            gpsCabinetData_.confirmedOdometer = res.confirmedOdometer;
-            gpsCabinetData_.effectiveMileage = res.effectiveMileage;
-            try { renderGpsMileage_(); } catch (e) { /* кабинет уже закрыт/сменился — не критично */ }
-          }
+  // Ошибка 5: общая локальная очередь (js/request-queue.js). Через неё идут
+  // регистрация, подтверждение одометра и донаполнение анкеты. Раньше постоянный
+  // отказ сервера (неверный пароль, «не найден») навсегда оставался первой
+  // записью и блокировал все следующие — теперь такая запись убирается из
+  // очереди, а прочие ошибки сервера откладывают только саму запись.
+  // Повтор всегда идёт с тем же clientRequestId (см. withIdempotency_ в WebApp.gs).
+  var QUEUED_MSG_ = CCSRequestQueue.QUEUED_MESSAGE;
+  var driverQueue_ = CCSRequestQueue.create({
+    storageKey: 'driver_retry_queue',
+    prepare: function (p) {
+      // токен «запомненного устройства» мог обновиться, пока запись ждала
+      if (p.action === 'driverUpdateProfile') {
+        var t = localStorage.getItem('driver_device_token');
+        if (t) p.deviceToken = t;
+      }
+      return p;
+    },
+    onSent: function (item, res) {
+      var pl = item.payload || {};
+      if (pl.action === 'driverRegister') {
+        // Регистрация наконец прошла, пока пользователь мог уже уйти со
+        // страницы — открываем кабинет, если форма ещё видна.
+        var errEl = document.getElementById('regError');
+        if (errEl) errEl.innerText = '';
+        try { showCabinet(res); } catch (e) { /* пользователь уже ушёл с этого экрана — не критично */ }
+      } else if (pl.action === 'setOdometer') {
+        // ЭТАП 6 ГПС-плана: пробег наконец подтверждён на сервере — если
+        // кабинет всё ещё открыт (та же машина), обновляем только эти
+        // два поля, не трогая остальной уже отрисованный payload.
+        var samePlate = String(pl.plate || '').toUpperCase().replace(/[\s-]/g, '') ===
+                        String(currentPlate || '').toUpperCase().replace(/[\s-]/g, '');
+        if (gpsCabinetData_ && samePlate) {
+          gpsCabinetData_.confirmedOdometer = res.confirmedOdometer;
+          gpsCabinetData_.effectiveMileage = res.effectiveMileage;
+          try { renderGpsMileage_(); } catch (e) { /* кабинет уже закрыт/сменился — не критично */ }
         }
-      })
-      .catch(function () { /* сети всё ещё нет — попробуем позже */ })
-      .finally(function () {
-        rqFlushing_ = false;
-        if (rqLoad_().length) setTimeout(rqFlush_, 1000);
-      });
-  }
-  window.addEventListener('online', rqFlush_);
-  setInterval(rqFlush_, 20000);
-  document.addEventListener('DOMContentLoaded', rqFlush_);
+      } else if (pl.action === 'driverUpdateProfile') {
+        var samePlate2 = String(pl.plate || '').toUpperCase().replace(/[\s-]/g, '') ===
+                         String(currentPlate || '').toUpperCase().replace(/[\s-]/g, '');
+        if (samePlate2) { try { showCabinet(res); } catch (e) { /* не критично */ } }
+      }
+    },
+    onRejected: function (item, res, info) {
+      var why = info && info.gaveUp ? 'сервер долго не принимает запрос' : ((res && res.error) || '');
+      var msg = '⚠️ Отложенная отправка («' + (item.label || 'запрос') + '») не принята: ' + why;
+      var errEl = document.getElementById('regError');
+      if (item.payload && item.payload.action === 'driverRegister' && errEl) errEl.innerText = msg;
+      else alert(msg);
+    }
+  });
 
   function apiGet(params) {
     var url = SCRIPT_URL + '?' + new URLSearchParams(params).toString();
@@ -659,13 +675,25 @@
   }
   initWaMaster_();
 
+  // ДОП. НАХОДКА из плана исправлений: см. подробный комментарий в to.html —
+  // редеплой Apps Script может ненадолго превращать POST в GET через 302,
+  // запрос попадает в doGet() вместо doPost(). Один тихий повтор перед тем,
+  // как показать это пользователю как настоящий ответ сервера.
+  function looksLikeGetStub_(res) {
+    var msg = ('' + ((res && (res.error || res.message)) || ''));
+    return msg.indexOf('используется как API') !== -1;
+  }
+
   // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
-  function apiPost(payload) {
+  function apiPost(payload, _isRetryAfterGetStub) {
     return fetchWithRetry_(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      if (!_isRetryAfterGetStub && looksLikeGetStub_(res)) return apiPost(payload, true);
+      return res;
+    });
   }
 
   // ГПС-плана: подключаем реальную отправку GPS-очереди к уже существующему apiPost() — сам транспорт (fetchWithRetry_, text/plain, без preflight) и вся логика "что отправлять/что удалить из очереди…
@@ -1023,15 +1051,18 @@
 
     document.getElementById('regStatus').innerText = 'Регистрирую...';
     withButtonBusy_(btn, 'Регистрирую...', function () {
-      var registerRequestId = newClientRequestId_();
-      return apiPost({
+      return driverQueue_.send({
         action: 'driverRegister',
         plate: currentPlate,
-        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password },
-        clientRequestId: registerRequestId
-      }).then(function (res) {
+        data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password }
+      }, { label: 'регистрация ' + currentPlate }).then(function (o) {
         document.getElementById('regStatus').innerText = '';
-        if (res && res.retryable) throw new Error('SERVER_BUSY');
+        if (o.queued) {
+          // Форма НЕ очищается; регистрация лежит в очереди и уйдёт сама.
+          errEl.innerText = '⚠️ ' + QUEUED_MSG_ + ' — регистрация завершится автоматически.';
+          return;
+        }
+        var res = o.res;
         if (!res.ok) {
           errEl.innerText = res.error || 'Не удалось зарегистрироваться';
           return;
@@ -1039,19 +1070,6 @@
         // Сервер сразу возвращает полные данные кабинета — открываем без
         // лишнего повторного запроса.
         showCabinet(res);
-      }).catch(function () {
-        // ЭТАП 10, п.6: все попытки (с таймаутом и паузами) исчерпаны —
-        // сети действительно нет. Форма НЕ очищается и НЕ теряет введённые
-        // данные; сама регистрация уходит в очередь и повторится
-        // автоматически, когда сеть/скрипт снова станут доступны.
-        rqEnqueue_({
-          action: 'driverRegister',
-          plate: currentPlate,
-          data: { fio: fio, taxiOrPrivate: taxiOrPrivate, taxiPark: taxiPark, vin: vin, whatsapp: whatsapp, model: model, password: password },
-          clientRequestId: registerRequestId
-        }, 'регистрация ' + currentPlate);
-        document.getElementById('regStatus').innerText = '';
-        errEl.innerText = '⚠️ Нет сети. Данные сохранены — регистрация отправится автоматически, как только связь восстановится.';
       });
     });
   }
@@ -1120,14 +1138,16 @@
 
     document.getElementById('pcStatus').innerText = 'Сохраняю...';
     withButtonBusy_(btn, 'Сохраняю...', function () {
-      return apiPost({
+      return driverQueue_.send({
         action: 'driverUpdateProfile',
         plate: currentPlate,
         // Пароль на клиенте после входа по "запомненному устройству" не хранится (сознательно, см.
         deviceToken: localStorage.getItem('driver_device_token') || '',
         fields: fields
-      }).then(function (res) {
+      }, { label: 'анкета ' + currentPlate }).then(function (o) {
         document.getElementById('pcStatus').innerText = '';
+        if (o.queued) { errEl.innerText = '⚠️ ' + QUEUED_MSG_ + ' — данные анкеты отправятся автоматически.'; return; }
+        var res = o.res;
         if (!res.ok) {
           errEl.innerText = res.error || 'Не удалось сохранить';
           return;
@@ -1135,9 +1155,6 @@
         // Сервер отдаёт полный обновлённый кабинет — просто перерисовываем
         // (карточка донаполнения сама скроется, т.к. поля больше не пустые).
         showCabinet(res);
-      }).catch(function () {
-        document.getElementById('pcStatus').innerText = '';
-        errEl.innerText = '⚠️ Нет сети. Попробуйте сохранить ещё раз чуть позже.';
       });
     });
   }
@@ -1357,9 +1374,13 @@
     setGpsBaselineLocalCache_(n);
     renderGpsMileage_();
 
-    var odometerRequestId = newClientRequestId_();
-    apiPost({ action: 'setOdometer', plate: currentPlate, km: n, clientRequestId: odometerRequestId }).then(function (res) {
-      if (res && res.retryable) throw new Error('SERVER_BUSY');
+    driverQueue_.send({ action: 'setOdometer', plate: currentPlate, km: n }, { label: 'подтверждение одометра ' + currentPlate }).then(function (o) {
+      if (o.queued) {
+        // Локальное значение уже показано; на сервер уйдёт автоматически.
+        alert('⚠️ ' + QUEUED_MSG_ + '. Пробег уже отображается здесь и будет подтверждён на сервере автоматически.');
+        return;
+      }
+      var res = o.res;
       if (res && res.ok) {
         if (gpsCabinetData_) {
           gpsCabinetData_.confirmedOdometer = res.confirmedOdometer;
@@ -1373,12 +1394,6 @@
         // просто сообщаем водителю причину.
         alert('Не удалось сохранить пробег: ' + ((res && res.error) || 'неизвестная ошибка') + '\nПопробуйте ещё раз позже.');
       }
-    }).catch(function () {
-      // Нет сети — не теряем ввод: сохранённое локально значение уже
-      // отображается, а отправка на сервер повторится через общую
-      // офлайн-очередь (тот же принцип, что и у регистрации, см. RQ_KEY_).
-      rqEnqueue_({ action: 'setOdometer', plate: currentPlate, km: n, clientRequestId: odometerRequestId }, 'подтверждение одометра ' + currentPlate);
-      alert('⚠️ Нет сети. Пробег сохранён локально и отправится на сервер автоматически, как только связь появится.');
     });
   }
 
@@ -1500,7 +1515,7 @@
 
     loadingEl.innerText = 'Получаю ссылку...';
     withButtonBusy_(btn, 'Получаю ссылку...', function () {
-      return apiPost({ action: 'driverGenerateTelegramLink', plate: currentPlate, password: password, deviceToken: savedToken || '' })
+      return CCSRequestQueue.stablePost({ action: 'driverGenerateTelegramLink', plate: currentPlate, password: password, deviceToken: savedToken || '' })
         .then(function (res) {
           loadingEl.innerText = '';
           if (!res.ok) { errEl.innerText = res.error || 'Не удалось получить ссылку'; return; }
@@ -1519,8 +1534,10 @@
   // service-worker для driver.html не нужен, доп. настройка не требуется.
 
   // 16.9: логика в js/push-card.js — initPushCard_. Сворачивание карточки
-  // (16.11) идёт через общий .push-card-collapsed, а не через
-  // moveNotifCard_/notif-compact (это осталось только у tgLinkCard выше).
+  // идёт через applyCollapsedPlacement_ (классы .push-card-compact/
+  // .push-card-hide-cta) и переезд к #notifBottomAnchor (см. moveCard_ в
+  // js/push-card.js) — устаревший комментарий про общий класс
+  // .push-card-collapsed поправлен (такого класса в коде уже нет).
   var DRIVER_PUSH_TOKEN_KEY = 'driver_push_token';
   function initDriverPushUi_() {
     initPushCard_({

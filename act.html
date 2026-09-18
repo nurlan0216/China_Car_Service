@@ -25,6 +25,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <script src="js/config.js"></script>
 <script src="js/push-card.js"></script>
+<script src="js/request-queue.js"></script>
 <style>
   :root{
     --bg:#0e1318; --panel:#161d24; --panel2:#1d252e; --line:#2a333d;
@@ -411,14 +412,14 @@
           <!-- ЭТАП 10, п.6/9: при сбое отправки (сеть/сервер) PDF и все
                введённые данные акта остаются в памяти — ничего заново
                вводить не нужно, достаточно нажать "Повторить отправку". -->
-          <button class="btn" id="btnRetrySheet" type="button" style="display:none;margin-top:8px" onclick="sendSheet()">🔁 Повторить отправку</button>
+          <button class="btn" id="btnRetrySheet" type="button" style="display:none;margin-top:8px" onclick="retrySendSheet_(this)">🔁 Повторить отправку</button>
           <div class="status-line" id="st_wa"><div class="dot"></div><div>Подготовка ссылки WhatsApp</div></div>
         </div>
       </div>
       <div id="doneView" style="display:none">
         <div class="final-icon">✅</div>
         <h2 style="text-align:center">Акт оформлен</h2>
-        <p class="hint" style="text-align:center">Готовый PDF-документ можно скачать ниже.</p>
+        <p class="hint" id="doneHint" style="text-align:center">Готовый PDF-документ можно скачать ниже.</p>
         <div class="card" id="doneSummary"></div>
         <button class="btn" id="btnDownloadPdf" type="button">⬇ Скачать PDF</button>
         <button class="btn" id="btnSendWhatsapp" type="button">📲 Отправить клиенту в WhatsApp</button>
@@ -429,6 +430,12 @@
     </section>
 
   </main>
+
+  <!-- ФИКС (ошибка 6 из плана исправлений): сюда переезжает pushCard, как
+       только push включён — сжато, без кнопки-призыва, и БЕЗ
+       position:fixed, так что кнопки в footer.nav под ней остаются
+       кликабельными (см. js/push-card.js). -->
+  <div id="notifBottomAnchor" style="max-width:640px; margin:0 auto; padding:0 18px;"></div>
 
   <footer class="nav" id="navBar">
     <button class="btn secondary" id="btnBack" type="button">Назад</button>
@@ -1141,8 +1148,11 @@ document.getElementById('f_plate').addEventListener('input', scheduleCheckLinked
 document.getElementById('f_plate').addEventListener('blur', checkLinkedIntake_);
 
 // п.7: автообновление данных.
+// ОШИБКА 3 (довыполнение): не опрашиваем, пока вкладка свёрнута — тот же
+// приём, что в driver.html/to.html.
 var lastKnownDataVersion_ = null;
 function pollDataVersion_(){
+  if (document.visibilityState !== 'visible') return; // вкладка в фоне — пропускаем этот тик
   if(state.actType !== 'issue' || state.step !== 1) return;
   gateApiPost({ action: 'dataversion' }).then(function(res){
     if(!res || !res.ok) return;
@@ -1152,7 +1162,9 @@ function pollDataVersion_(){
     lastKnownDataVersion_ = res.version;
   }).catch(function(){ /* сети сейчас нет — пропускаем этот опрос, попробуем через 20с снова */ });
 }
-setInterval(pollDataVersion_, 20000);
+// ОШИБКА 3 (довыполнение): интервал снижен с 20с до 30с, см. тот же
+// комментарий в driver.html.
+setInterval(pollDataVersion_, 30000);
 
 /* показывает нужный вид блока «Тип оплаты»/«Сумма и оплата» в зависимости от того, найден ли для «Выдачи» незакрытый акт «Получения» (state.linkedIntake), и как он был оплачен: - не найден (или тип… */
 function updatePaymentUIForActType_(){
@@ -1247,31 +1259,40 @@ function updateNoPaymentIntakeUI_(){
 document.getElementById('f_amount').addEventListener('input', updateNoPaymentIntakeUI_);
 
 document.getElementById('btnNext').addEventListener('click', async ()=>{
+  if(state._sending) return; // защита от двойного нажатия «Подписать и отправить»
   if(!validateStep(state.step)) return;
   if(state.step===5){
-    // защита перед финальной отправкой акта «Выдачи» — если по факту вводятся деньги (paid>0) вручную, а связка с открытым актом «Получения» не найдена, стоит ещё раз попытаться найти акт непосредственно…
-    if(state.actType==='issue' && !state.linkedIntake && Number(state.paid)>0){
-      await checkLinkedIntake_(); // повторная попытка прямо перед сохранением
-      if(state.linkedIntake){
-        // Акт нашёлся только сейчас — данные шага «Сумма и оплата» уже
-        // устарели (заполнялись как для несвязанной сделки), сохранять
-        // их как есть нельзя. Возвращаем сотрудника на этот шаг, чтобы
-        // он заполнил его заново уже с учётом найденного акта.
-        toast('Найден открытый акт получения по этому номеру — проверьте шаг «Сумма и оплата» заново');
-        state.step = 1;
-        renderStep();
-        window.scrollTo(0,0);
-        return;
+    state._sending = true; // ставим сразу, до любых await — иначе второй тап успеет пройти
+    const nextBtn_ = document.getElementById('btnNext');
+    if(nextBtn_) nextBtn_.disabled = true;
+    try {
+      // защита перед финальной отправкой акта «Выдачи» — если по факту вводятся деньги (paid>0) вручную, а связка с открытым актом «Получения» не найдена, стоит ещё раз попытаться найти акт непосредственно…
+      if(state.actType==='issue' && !state.linkedIntake && Number(state.paid)>0){
+        await checkLinkedIntake_(); // повторная попытка прямо перед сохранением
+        if(state.linkedIntake){
+          // Акт нашёлся только сейчас — данные шага «Сумма и оплата» уже
+          // устарели (заполнялись как для несвязанной сделки), сохранять
+          // их как есть нельзя. Возвращаем сотрудника на этот шаг, чтобы
+          // он заполнил его заново уже с учётом найденного акта.
+          toast('Найден открытый акт получения по этому номеру — проверьте шаг «Сумма и оплата» заново');
+          state.step = 1;
+          renderStep();
+          window.scrollTo(0,0);
+          return;
+        }
+        const proceed = confirm(
+          'Открытый акт получения по этому гос. номеру не найден — это точно верный гос. номер?\n\n' +
+          'Если продолжить, «Выдача» будет сохранена как отдельная сделка без привязки к акту «Получения».'
+        );
+        if(!proceed) return;
       }
-      const proceed = confirm(
-        'Открытый акт получения по этому гос. номеру не найден — это точно верный гос. номер?\n\n' +
-        'Если продолжить, «Выдача» будет сохранена как отдельная сделка без привязки к акту «Получения».'
-      );
-      if(!proceed) return;
+      state.step=6;
+      renderStep();
+      await runSendPipeline();
+    } finally {
+      state._sending = false;
+      if(nextBtn_) nextBtn_.disabled = false;
     }
-    state.step=6;
-    renderStep();
-    await runSendPipeline();
     return;
   }
   state.step = Math.min(state.step+1, 6);
@@ -1746,11 +1767,14 @@ async function blobToBase64(blob){
 
 /* раньше здесь отдельно вызывался сторонний сервис tmpfiles.org, чтобы получить ссылку на PDF для WhatsApp . */
 async function sendSheet(pdfBlob){
+  pdfBlob = pdfBlob || state.pdfBlob; // кнопка «Повторить отправку» вызывает sendSheet() без аргументов — берём уже сформированный PDF
   if(!CFG.sheetUrl){ setStatus('st_sheet','fail','Google Таблица не настроена'); return; }
   setStatus('st_sheet','busy','Запись в таблицу и загрузка PDF…');
+  let payload = null;
   try{
     const pos = state._signPos;
-    const payload = {
+    payload = {
+      clientRequestId: state.clientRequestId,
       actId: state.actId, actType: state.actType, createdAt: fmtDT(state.createdAt),
       fio: state.client.fio, iin: state.client.iin, vu: state.client.vu, phone: state.client.phone,
       plate: state.vehicle.plate, vin: state.vehicle.vin, mileage: state.vehicle.mileage,
@@ -1785,8 +1809,24 @@ async function sendSheet(pdfBlob){
     const res = await sheetApiPostWithProgress_(payload, function (pct) {
       setActProgress(80 + Math.round(pct * 0.18), 'Загрузка PDF… ' + pct + '%');
     }, approxBytes);
+    // сервер занят (блокировка/«уже обрабатывается») — не теряем акт, кладём в очередь
+    if(res && CCSRequestQueue.isTransient(res)){
+      if(await queueAct_(payload)) return;
+    }
     setActProgress(98, 'Сервер обрабатывает акт…');
+    if(!res || res.ok === false){
+      // сервер ответил отказом (или «запрос ещё обрабатывается») — это НЕ успех
+      var failMsg = (res && res.inProgress)
+        ? 'Сервер ещё обрабатывает этот акт — подождите несколько секунд и нажмите «Повторить отправку»'
+        : ('Сервер не принял акт: ' + ((res && res.error) || 'неизвестная ошибка') + ' — акт не потерян, можно повторить');
+      setStatus('st_sheet','fail', failMsg);
+      var retryBtn3 = document.getElementById('btnRetrySheet');
+      if (retryBtn3) retryBtn3.style.display = 'block';
+      return;
+    }
     state.driveUrl = (res && res.driveUrl) || '';
+    actQueue_.removeByRequestId(state.clientRequestId); // если этот же акт уже лежал в очереди — убираем
+    state.queuedAct = false;
     // сервер теперь возвращает pdfSaveError, если сама запись в таблицу прошла успешно, а вот PDF на Диск сохранить не удалось — раньше в этом случае статус всё равно показывал "готово", и сотрудник…
     if(res && res.pdfSaveError){
       setStatus('st_sheet','fail','Акт записан, но PDF НЕ сохранён на Диск — водитель его не увидит');
@@ -1796,11 +1836,49 @@ async function sendSheet(pdfBlob){
       if (retryBtn) retryBtn.style.display = 'none';
     }
   }catch(e){
+    // акт с PDF не теряем: сохраняем в очередь на устройстве, она отправит сама
+    if(payload && await queueAct_(payload)) return;
     // п.9: все попытки (таймаут+backoff) исчерпаны — ничего из уже введённых/сфотографированных данных не теряется (state и сформированный PDF остаются как есть), просто показываем кнопку "Повторить…
     setStatus('st_sheet','fail','Ошибка сети — акт не потерян, нажмите «Повторить отправку»');
     var retryBtn2 = document.getElementById('btnRetrySheet');
     if (retryBtn2) retryBtn2.style.display = 'block';
   }
+}
+
+// ОБЩЕЕ ТРЕБОВАНИЕ ПЛАНА (пункт 5 общей инструкции): тот же helper, что уже
+// есть в driver.html/to.html/taxipark.html. В act.html кнопка «Далее» на
+// шаге отправки уже защищена вручную (state._sending + disabled, см.
+// обработчик btnNext ниже) и после старта отправки вообще скрывается
+// (renderStep прячет navBar на шаге 6) — но кнопка «Повторить отправку»
+// (btnRetrySheet) раньше вызывала sendSheet() напрямую БЕЗ какой-либо
+// защиты от повторного нажатия, пока идёт предыдущий запрос — теперь и она
+// обёрнута через withButtonBusy_.
+function withButtonBusy_(btn, busyText, fn) {
+  if (!btn) return fn();
+  var origText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = busyText;
+  var restore = function () { btn.disabled = false; btn.textContent = origText; };
+  var result = fn();
+  if (result && typeof result.finally === 'function') {
+    return result.finally(restore);
+  }
+  restore();
+  return result;
+}
+
+function retrySendSheet_(btn) {
+  return withButtonBusy_(btn, 'Отправка…', function () { return sendSheet(); });
+}
+
+async function queueAct_(payload){
+  const ok = await actQueue_.enqueue(payload, 'акт ' + payload.actId);
+  if(!ok) return false;
+  state.queuedAct = true;
+  setStatus('st_sheet','busy', CCSRequestQueue.QUEUED_MESSAGE + ' (акт с PDF сохранён на этом устройстве)');
+  var rb = document.getElementById('btnRetrySheet');
+  if(rb){ rb.style.display = 'block'; rb.textContent = '🔁 Отправить сейчас'; }
+  return true;
 }
 
 /* Готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и готовый текст со ссылкой на PDF (ссылка на Google Диск, полученная в sendSheet выше). */
@@ -1825,6 +1903,9 @@ function setActProgress(percent, label){
 
 async function runSendPipeline(){
   state.actId = 'ACT-'+Date.now().toString(36).toUpperCase();
+  // один id на весь акт: и автоповтор при обрыве сети, и кнопка «Повторить
+  // отправку» шлют его же, поэтому сервер не создаст второй акт/PDF.
+  state.clientRequestId = newClientRequestId_();
   state.createdAt = new Date();
   state.pdfName = `Akt_${state.actType}_${state.vehicle.plate.replace(/\s+/g,'')}_${state.actId}.pdf`;
 
@@ -1842,13 +1923,21 @@ async function runSendPipeline(){
 
   setActProgress(80, 'Загрузка PDF…');
   await sendSheet(blob);
-  setStatus('st_tg','done','Отправлено сервером в Telegram');
+  if(state.queuedAct){
+    setStatus('st_tg','busy','Сервер отправит в Telegram, когда получит акт');
+  } else {
+    setStatus('st_tg','done','Отправлено сервером в Telegram');
+  }
   buildWhatsappLink();
 
   setActProgress(100, 'Готово');
   document.getElementById('sendingView').style.display='none';
   const done = document.getElementById('doneView');
   done.style.display='block';
+  if(state.queuedAct){
+    var hintEl = document.getElementById('doneHint');
+    if(hintEl) hintEl.textContent = 'Акт сохранён на этом устройстве и отправится на сервер автоматически, когда он освободится. PDF можно скачать ниже.';
+  }
   document.getElementById('doneSummary').innerHTML = `
     <div class="summary-row"><span>Номер акта</span><span>${escapeHtml_(state.actId)}</span></div>
     <div class="summary-row"><span>Сотрудник</span><span>${escapeHtml_(GATE_NAME)}</span></div>
@@ -1902,8 +1991,8 @@ var GATE_PW = '';
 var GATE_IS_SUPER = false;
 
 // п.6 (расширяет ): таймаут + повтор с нарастающей паузой .
-var ACT_FETCH_TIMEOUT_MS = 5000;
-var ACT_FETCH_BACKOFF_MS = [];
+var ACT_FETCH_TIMEOUT_MS = 45000;
+var ACT_FETCH_BACKOFF_MS = [2000, 5000];
 
 function fetchOnce_(url, options) {
   var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -1923,12 +2012,77 @@ function fetchWithRetry_(url, options, attempt) {
   });
 }
 
-function gateApiPost(payload) {
+// ДОП. НАХОДКА из плана исправлений: см. подробный комментарий в to.html —
+// редеплой Apps Script может ненадолго превращать POST в GET через 302,
+// запрос попадает в doGet() вместо doPost(). Один тихий повтор перед тем,
+// как показать это пользователю как настоящий ответ сервера.
+function looksLikeGetStub_(res) {
+  var msg = ('' + ((res && (res.error || res.message)) || ''));
+  return msg.indexOf('используется как API') !== -1;
+}
+
+// Ошибка 4: уникальный id изменяющего запроса. Сервер (withIdempotency_ в
+// WebApp.gs) по нему отсекает повторы. При повторной отправке того же
+// действия id НЕЛЬЗЯ менять — иначе защита не сработает.
+function newClientRequestId_() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  return 'cr_' + Date.now() + '_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+}
+
+// Ошибка 5: локальная очередь акта (js/request-queue.js). Акт вместе с PDF
+// (несколько МБ) не помещается в localStorage, поэтому хранилище — IndexedDB.
+// Если сервер не ответил или занят, акт остаётся на устройстве и уходит сам —
+// с тем же clientRequestId, так что второй акт/PDF/уведомление не создаются.
+var actQueue_ = CCSRequestQueue.create({
+  storageKey: 'act_retry_queue',
+  storage: 'idb',
+  timeoutMs: 60000,
+  keepRejected: true, // акт с PDF не выбрасываем даже при отказе сервера — он остаётся на устройстве
+  // логин/токен берём из ТЕКУЩЕЙ сессии; акт другого сотрудника не отправляем под чужим логином
+  prepare: function (p) {
+    if (!GATE_PW || !GATE_NAME) return null;
+    if (p.name && p.name !== GATE_NAME) return null;
+    p.pw = GATE_PW;
+    return p;
+  },
+  onSent: function (item, res) {
+    var pl = item.payload || {};
+    if (state.actId && pl.actId === state.actId) {
+      // акт, который сотрудник оформляет прямо сейчас, дошёл — дооформляем экран
+      state.queuedAct = false;
+      state.driveUrl = (res && res.driveUrl) || '';
+      if (res && res.pdfSaveError) {
+        setStatus('st_sheet', 'fail', 'Акт записан, но PDF НЕ сохранён на Диск — водитель его не увидит');
+      } else {
+        setStatus('st_sheet', 'done', 'Записано в Google Таблицу, PDF сохранён на Диск');
+      }
+      setStatus('st_tg', 'done', 'Отправлено сервером в Telegram');
+      var rb = document.getElementById('btnRetrySheet');
+      if (rb) rb.style.display = 'none';
+      var hint = document.getElementById('doneHint');
+      if (hint) hint.textContent = 'Акт дошёл до сервера. Готовый PDF-документ можно скачать ниже.';
+      try { buildWhatsappLink(); } catch (e) { /* не критично */ }
+    } else {
+      toast('✅ Отложенный акт ' + (pl.actId || '') + ' отправлен на сервер', 5000);
+    }
+  },
+  onRejected: function (item, res, info) {
+    var why = info && info.gaveUp ? 'сервер долго не принимает запрос' : ((res && res.error) || '');
+    toast('⚠️ Акт ' + ((item.payload && item.payload.actId) || '') + ' не принят сервером: ' + why + '. Он сохранён на устройстве.', 9000);
+  }
+});
+
+function gateApiPost(payload, _isRetryAfterGetStub) {
   return fetchWithRetry_(CFG.sheetUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
     body: JSON.stringify(payload)
-  }).then(function (r) { return r.json(); });
+  }).then(function (r) { return r.json(); }).then(function (res) {
+    if (!_isRetryAfterGetStub && looksLikeGetStub_(res)) return gateApiPost(payload, true);
+    return res;
+  });
 }
 
 /* (было) → -fix (сейчас, «CORS сломал реальный прогресс-бар»): изначально стоял xhr.upload.onprogress — настоящий процент по факту отправленных байт PDF. */
@@ -2031,6 +2185,7 @@ function showActApp() {
   appEl.style.display = 'flex';
   appEl.style.animation = 'fade .25s ease';
   initPushUi_(); // ЭТАП 15.4, п.2: показать/обновить карточку push-уведомлений
+  actQueue_.flush(); // сессия открыта — отправляем акты, ждавшие сети/входа
   fetchIP();
   setupMasterField();
   // (баг «чёрный экран на акте выдачи»): applyForcedIssueParams_ разбирает ?mode=issue&plate=...&linkedActId=...
@@ -2064,17 +2219,42 @@ function gateLoginFailed() {
 // ЭТАП 8.2: тихий вход по токену устройства (аналог tryDeviceLogin_ в
 // to.html) — если в localStorage уже есть общие с to.html имя+токен,
 // пробуем войти ими молча, прежде чем показывать форму пароля.
-function tryGateDeviceLogin_(name, token) {
+// ФИКС (ошибка 1 из плана исправлений): сервер различает {ok:true,
+// valid:false} (токен реально не подтверждён) и {ok:false, error:...}
+// (сервер упал с ошибкой и вообще не проверил токен). Раньше оба случая
+// вели в gateLoginFailed(), который стирает токен (см. ниже) — то есть
+// обычный временный сбой сервера выкидывал сотрудника из "запомненного"
+// входа. Теперь при ok:false токен не трогаем и повторяем попытку.
+var GATE_DEVICE_LOGIN_RETRY_DELAYS_MS = [1500, 4000];
+function tryGateDeviceLogin_(name, token, attempt) {
+  attempt = attempt || 0;
   gateApiPost({ action: 'adminDeviceLogin', name: name, token: token })
     .then(function (res) {
-      if (res.ok && res.valid) {
+      if (res && res.ok && res.valid) {
         GATE_NAME = name;
         GATE_PW = token; // сервер и дальше принимает этот же токен вместо пароля (loginAdmin)
         GATE_IS_SUPER = !!res.isSuperAdmin;
         showActApp();
-      } else {
-        gateLoginFailed();
+        return;
       }
+
+      if (res && res.ok === false) {
+        // Ошибка сервера, не связанная с валидностью токена — токен не
+        // трогаем, пробуем ещё раз с нарастающей паузой.
+        if (attempt < GATE_DEVICE_LOGIN_RETRY_DELAYS_MS.length) {
+          var delay = GATE_DEVICE_LOGIN_RETRY_DELAYS_MS[attempt];
+          setTimeout(function () { tryGateDeviceLogin_(name, token, attempt + 1); }, delay);
+          return;
+        }
+        // Попытки исчерпаны — сервер всё ещё недоступен, но токен не
+        // трогаем; просто показываем экран входа для этой попытки.
+        document.getElementById('gate').style.display = 'block';
+        return;
+      }
+
+      // res.ok === true && res.valid === false — токен реально не
+      // подтверждён, вот теперь его можно чистить через gateLoginFailed().
+      gateLoginFailed();
     })
     .catch(function () {
       // сети сейчас нет — оставляем экран входа для этой попытки, токен

@@ -121,6 +121,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
 <script src="js/config.js"></script>
 <script src="js/push-card.js"></script>
+<script src="js/request-queue.js"></script>
 </head>
 <body>
 
@@ -233,6 +234,13 @@
 
     <div id="vehiclesWrap"></div>
 
+    <!-- ФИКС (ошибка 6 из плана исправлений): сюда переезжает pushCard,
+         как только push включён — сжато, без кнопки-призыва (см.
+         applyCollapsedPlacement_ в js/push-card.js). Тот же приём, что
+         уже есть в driver.html/to.html/act.html — раньше якоря здесь не
+         было, и карточка просто сжималась на месте вместо переезда вниз. -->
+    <div id="notifBottomAnchor"></div>
+
     <!-- ЭТАП 10, п.5: соцсети. -->
     <div class="social-footer">
       <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
@@ -263,23 +271,83 @@
 
 <script>
   // SCRIPT_URL — см. js/config.js
-  var FETCH_TIMEOUT_MS = 5000;
-  function fetchWithRetry_(url, options) {
+  // ДОП. НАХОДКА из плана исправлений: раньше здесь был свой упрощённый
+  // fetchWithRetry_ — один повтор без таймаута/AbortController и БЕЗ
+  // проверки на 302-редирект (Apps Script при передеплое иногда ненадолго
+  // отвечает 302, а fetch на редиректе меняет POST на GET — запрос попадает
+  // в doGet() и вместо реального ответа приходит заглушка "этот адрес
+  // используется как API для внешнего сайта..."). Портировано то же
+  // решение, что уже есть в to.html/act.html/driver.html: таймаут +
+  // повтор с нарастающей паузой, плюс один тихий повтор конкретно при
+  // обнаружении такой заглушки.
+  var FETCH_TIMEOUT_MS = 15000;
+  var FETCH_BACKOFF_MS = [1500, 4000];
+
+  function fetchOnce_(url, options) {
     var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
     var opts = options ? Object.assign({}, options) : {};
     if (controller) opts.signal = controller.signal;
-    var timer = controller ? setTimeout(function(){ controller.abort(); }, FETCH_TIMEOUT_MS) : null;
-    return fetch(url, opts).finally(function(){ if (timer) clearTimeout(timer); });
+    var timer = controller ? setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS) : null;
+    return fetch(url, opts).finally(function () { if (timer) clearTimeout(timer); });
+  }
+
+  function fetchWithRetry_(url, options, attempt) {
+    attempt = attempt || 0;
+    return fetchOnce_(url, options).catch(function (err) {
+      if (attempt >= FETCH_BACKOFF_MS.length) throw err;
+      var pause = FETCH_BACKOFF_MS[attempt];
+      return new Promise(function (resolve) { setTimeout(resolve, pause); })
+        .then(function () { return fetchWithRetry_(url, options, attempt + 1); });
+    });
+  }
+
+  function looksLikeGetStub_(res) {
+    var msg = ('' + ((res && (res.error || res.message)) || ''));
+    return msg.indexOf('используется как API') !== -1;
   }
 
   // POST с text/plain, чтобы не было preflight OPTIONS (Apps Script его не обрабатывает)
-  function apiPost(payload) {
+  function apiPost(payload, _isRetryAfterGetStub) {
     return fetchWithRetry_(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
-    }).then(function (r) { return r.json(); });
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      if (!_isRetryAfterGetStub && looksLikeGetStub_(res)) return apiPost(payload, true);
+      return res;
+    });
   }
+
+  // Ошибка 4/5: защита от дублей и локальная очередь (js/request-queue.js).
+  // Профиль и добавление машины идут через очередь: при обрыве связи или
+  // занятом сервере запрос сохраняется на устройстве и уходит сам, с ТЕМ ЖЕ
+  // clientRequestId (сервер по нему отсекает дубли — withIdempotency_ в WebApp.gs).
+  var QUEUED_MSG_ = CCSRequestQueue.QUEUED_MESSAGE;
+  var taxiQueue_ = CCSRequestQueue.create({
+    storageKey: 'taxipark_retry_queue',
+    prepare: function (p) {
+      // название/код берём из текущего входа; запись другого таксопарка не трогаем
+      if (!TP_NAME || !TP_CODE) return null;
+      if (p.name && p.name !== TP_NAME) return null;
+      p.code = TP_CODE;
+      return p;
+    },
+    onSent: function (item, res) {
+      var pl = item.payload || {};
+      try {
+        if (pl.action === 'taxiparkSetProfile') {
+          document.getElementById('profileScreen').style.display = 'none';
+          showCabinet(res);
+        } else if (pl.action === 'taxiparkAddVehicle') {
+          renderTaxiparkData_(res);
+        }
+      } catch (e) { /* экран уже сменился — не критично */ }
+    },
+    onRejected: function (item, res, info) {
+      var why = info && info.gaveUp ? 'сервер долго не принимает запрос' : ((res && res.error) || '');
+      alert('⚠️ Отложенное действие («' + (item.label || 'запрос') + '») не принято: ' + why);
+    }
+  });
 
   // ЭТАП 3 (промт «Push + Telegram для Stories»): раньше в этом файле не
   // было ни одного GET-запроса (всё шло через apiPost) — понадобился для
@@ -443,13 +511,14 @@
     if (!name || !address || !phone) { errEl.innerText = 'Заполните все три поля'; return; }
 
     withButtonBusy_(btn, 'Сохраняю...', function () {
-      return apiPost({ action: 'taxiparkSetProfile', name: TP_NAME, code: TP_CODE, contactName: name, address: address, phone: phone })
-        .then(function (res) {
+      return taxiQueue_.send({ action: 'taxiparkSetProfile', name: TP_NAME, code: TP_CODE, contactName: name, address: address, phone: phone }, { label: 'профиль таксопарка' })
+        .then(function (o) {
+          if (o.queued) { errEl.innerText = '⚠️ ' + QUEUED_MSG_ + ' — профиль сохранится автоматически.'; return; }
+          var res = o.res;
           if (!res.ok) { errEl.innerText = res.error || 'Не удалось сохранить'; return; }
           document.getElementById('profileScreen').style.display = 'none';
           showCabinet(res);
-        })
-        .catch(function () { errEl.innerText = 'Ошибка сети — попробуйте ещё раз.'; });
+        });
     });
   }
 
@@ -492,7 +561,7 @@
     errEl.innerText = '';
     loadingEl.innerText = 'Получаю ссылку...';
     withButtonBusy_(btn, 'Получаю ссылку...', function () {
-      return apiPost({ action: 'taxiparkGenerateTelegramLink', name: TP_NAME, code: TP_CODE })
+      return CCSRequestQueue.stablePost({ action: 'taxiparkGenerateTelegramLink', name: TP_NAME, code: TP_CODE })
         .then(function (res) {
           loadingEl.innerText = '';
           if (!res.ok) { errEl.innerText = res.error || 'Не удалось получить ссылку'; return; }
@@ -545,15 +614,24 @@
   }
 
   // ЭТАП 10 (п.7 промта — автообновление у всех): пока кабинет открыт,
-  // данные обновляются сами каждые 20 секунд — если сотрудник СТО внёс
-  // новую работу по одной из машин таксопарка, она появится без
-  // ручного обновления страницы.
+  // данные обновляются сами — если сотрудник СТО внёс новую работу по
+  // одной из машин таксопарка, она появится без ручного обновления
+  // страницы.
+  // ОШИБКА 3 (довыполнение): 1) интервал снижен с 20с до 30с (тот же
+  // компромисс, что в driver.html/act.html); 2) пока вкладка свёрнута —
+  // не дёргаем apiPost вообще, а просто откладываем проверку на
+  // следующий тик — тот же приём, что уже был у scheduleHistoryAutoRefresh_
+  // в to.html (там это учтено, здесь — нет, отсюда и расхождение).
   var tpAutoRefreshTimer_ = null;
   function scheduleTaxiparkAutoRefresh_() {
     if (tpAutoRefreshTimer_) clearTimeout(tpAutoRefreshTimer_);
     tpAutoRefreshTimer_ = setTimeout(function () {
-      reloadTaxiparkData(true);
-    }, 20000);
+      if (document.visibilityState === 'visible') {
+        reloadTaxiparkData(true);
+      } else {
+        scheduleTaxiparkAutoRefresh_();
+      }
+    }, 30000);
   }
 
   function currentFilters_() {
@@ -620,9 +698,18 @@
 
     statusEl.innerText = 'Добавляю...';
     withButtonBusy_(btn, 'Добавляю...', function () {
-      return apiPost({ action: 'taxiparkAddVehicle', name: TP_NAME, code: TP_CODE, plate: plate, model: model, vin: vin })
-        .then(function (res) {
+      return taxiQueue_.send({ action: 'taxiparkAddVehicle', name: TP_NAME, code: TP_CODE, plate: plate, model: model, vin: vin }, { label: 'добавление машины ' + plate })
+        .then(function (o) {
           statusEl.innerText = '';
+          if (o.queued) {
+            // форму очищаем — запрос лежит в очереди, повторное нажатие создало бы второй
+            document.getElementById('avPlate').value = '';
+            document.getElementById('avModel').value = '';
+            document.getElementById('avVin').value = '';
+            errEl.innerText = '⚠️ ' + QUEUED_MSG_ + ' — машина добавится автоматически.';
+            return;
+          }
+          var res = o.res;
           if (!res.ok) { errEl.innerText = res.error || 'Не удалось добавить машину'; return; }
           document.getElementById('avPlate').value = '';
           document.getElementById('avModel').value = '';
@@ -635,8 +722,7 @@
           // списка машин.
           var body = document.getElementById('addVehicleBody');
           if (body.classList.contains('open')) toggleAddVehicle_();
-        })
-        .catch(function () { statusEl.innerText = ''; errEl.innerText = 'Ошибка сети — попробуйте ещё раз.'; });
+        });
     });
   }
 

@@ -6,7 +6,8 @@
 // v4 — (PROMPT_stage7_fixes.md): раньше страница-оболочка отдавалась стратегией "кэш сразу, сеть в фоне" — уже открытые/ установленные копии сайта могли сколь угодно долго не увидеть новый код, пока…
 v12 — ЭТАП 4 (маскировка GPS): js/gps-*.js и js/routing-service.js убраны
 // из PRECACHE_URLS (см. комментарий у списка ниже) — сами файлы не удалены.
-var CACHE_NAME = 'ccs-shell-v14-stability-auth-push';
+// v14 — ошибка 5: добавлен js/request-queue.js (общая локальная очередь), без него страницы офлайн не откроются.
+var CACHE_NAME = 'ccs-shell-v14-request-queue';
 
 var PRECACHE_URLS = [
   'index.html',
@@ -25,7 +26,8 @@ var PRECACHE_URLS = [
   'icons/icon-512-staff.png',
   'icons/icon-512-maskable.png',
   'icons/apple-touch-icon.png',
-  'icons/site-logo.png'
+  'icons/site-logo.png',
+  'js/request-queue.js'
   // (маскировка GPS): подключение js/gps-*.js и js/routing-service.js в driver.html закомментировано , поэтому эти файлы больше не используются на странице — предзагружать их в кэш незачем.
 ];
 

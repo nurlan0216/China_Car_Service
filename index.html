@@ -158,6 +158,13 @@
          см. act.html). Ссылка на act.html доступна сотруднику из раздела
          "Учёт ТО" (to.html) после входа. -->
 
+    <!-- ФИКС (ошибка 6 из плана исправлений): сюда переезжает pushCard,
+         как только разрешение выдано — сжато, без кнопки-призыва (см.
+         applyCollapsedPlacement_ в js/push-card.js). Тот же приём, что уже
+         есть в driver.html/to.html/act.html — раньше якоря здесь не было,
+         и карточка просто сжималась на месте, не переезжая вниз. -->
+    <div id="notifBottomAnchor"></div>
+
     <!-- ЭТАП 10, п.5: соцсети. -->
     <div class="social-footer">
       <a href="https://www.instagram.com/hongqi_29" target="_blank" rel="noopener" aria-label="Instagram">
