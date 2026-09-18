@@ -1,0 +1,32 @@
+{
+  "id": "taxipark",
+  "name": "Honghi EV Service — Таксопарк",
+  "short_name": "Honghi EV Таксопарк",
+  "description": "Кабинет таксопарка — учёт машин и водителей, история ТО",
+  "start_url": "taxipark.html",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0e1318",
+  "theme_color": "#0e1318",
+  "icons": [
+    {
+      "src": "icons/icon-192-taxipark.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-taxipark.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<!-- 16.14: maximum-scale=1 оставлен только здесь — на странице есть canvas подписи, где pinch-zoom мешает рисовать. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Акт приёма-передачи ТС — Honghi EV Service</title>
 <link rel="manifest" href="manifest-staff.json">
@@ -17,6 +18,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- ЭТАП 15.4, п.2 (промт «Push-карточка везде»): та же пара SDK, что уже
+     подключена в to.html/driver.html — нужна карточке push-уведомлений
+     ниже (см. #pushCard и JS в конце файла). -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
+<script src="js/config.js"></script>
+<script src="js/push-card.js"></script>
 <style>
   :root{
     --bg:#0e1318; --panel:#161d24; --panel2:#1d252e; --line:#2a333d;
@@ -35,6 +43,8 @@
   .progress{height:3px;background:var(--line);margin-top:12px;border-radius:2px;overflow:hidden;}
   .progress > div{height:100%;background:var(--amber);transition:width .3s;}
   main{flex:1;padding:18px 18px 100px;}
+  /* 16.14: планшет/десктоп — #app и footer.nav уже ограничены max-width:640px выше; здесь только чуть просторнее отступы карточек. Мобильная раскладка (≤480px) не меняется. */
+  @media (min-width:481px){ .card{padding:20px;} main{padding:24px 24px 110px;} }
   .step{display:none;}
   .step.active{display:block;animation:fade .25s ease;}
   @keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
@@ -42,7 +52,7 @@
   label{display:block;font-size:12.5px;color:var(--text-dim);margin:0 0 6px;font-weight:500;}
   input[type=text],input[type=tel],input[type=number],input[type=password],textarea,select{
     width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
-    border-radius:8px;padding:11px 12px;font-size:15px;margin-bottom:14px;font-family:inherit;
+    border-radius:8px;padding:11px 12px;font-size:16px;margin-bottom:14px;font-family:inherit;
   }
   input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber);}
   /* ЭТАП 9.4: поле гос. номера при «Выдаче», начатой из to.html, — не
@@ -51,7 +61,9 @@
   input[readonly]{opacity:.65;cursor:not-allowed;}
   textarea{resize:vertical;min-height:60px;}
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--amber);color:#1a1204;
-    border:none;border-radius:9px;padding:13px 18px;font-size:15px;font-weight:600;cursor:pointer;width:100%;font-family:'Inter';}
+    border:none;border-radius:9px;padding:13px 18px;font-size:15px;font-weight:600;cursor:pointer;width:100%;font-family:'Inter';
+    transition:transform .1s ease;}
+  .btn:active{transform:scale(.97);}
   .btn.secondary{background:var(--panel2);color:var(--text);border:1px solid var(--line);}
   .btn.ghost{background:transparent;color:var(--amber);border:1px solid var(--amber-dim);}
   .btn.danger{background:transparent;color:var(--danger);border:1px solid var(--danger);}
@@ -98,8 +110,10 @@
   .hint{font-size:11.5px;color:var(--text-dim);margin:-8px 0 14px;line-height:1.4;}
   footer.nav{position:fixed;bottom:0;left:0;right:0;background:var(--bg);border-top:1px solid var(--line);padding:12px 18px;
     max-width:640px;margin:0 auto;display:flex;gap:10px;z-index:20;}
-  .toast{position:fixed;bottom:90px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);
-    padding:10px 16px;border-radius:20px;font-size:13px;z-index:200;display:none;box-shadow:0 4px 20px rgba(0,0,0,.4);}
+  .toast{position:fixed;bottom:90px;left:50%;background:var(--panel2);border:1px solid var(--line);
+    padding:10px 16px;border-radius:20px;font-size:13px;z-index:200;box-shadow:0 4px 20px rgba(0,0,0,.4);
+    opacity:0;pointer-events:none;transform:translateX(-50%) translateY(8px);transition:opacity .25s ease,transform .25s ease;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
   .spinner{width:16px;height:16px;border:2px solid rgba(0,0,0,.25);border-top-color:#1a1204;border-radius:50%;animation:spin .7s linear infinite;display:inline-block;}
   @keyframes spin{to{transform:rotate(360deg);}}
   .status-line{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:9px 0;color:var(--text-dim);}
@@ -119,14 +133,7 @@
 </head>
 <body>
 
-<!-- ЭКРАН ВХОДА: ЭТАП 9.3 (PROMPT_stage9.md) — единственная штатная точка
-     входа с логином/паролем теперь to.html; act.html больше не
-     предлагает собственный вход как основной путь, а тихо подхватывает
-     уже проверенное устройство (см. tryGateDeviceLogin_/INIT ниже). Этот
-     экран показывается только когда подхватить нечего: либо в
-     localStorage вообще нет общего с to.html токена устройства (прямой
-     заход в act.html, минуя to.html, либо новое устройство), либо тихий
-     вход по нему не удался (просрочен/отозван) — см. gateLoginFailed(). -->
+<!-- ЭКРАН ВХОДА: (PROMPT_stage9.md) — единственная штатная точка входа с логином/паролем теперь to.html; act.html больше не предлагает собственный вход как основной путь, а тихо подхватывает уже проверенное устройство . -->
 <div id="gate" style="display:none;">
   <div id="gateNoSession">
     <h2>🔒 Нужен вход через to.html</h2>
@@ -174,6 +181,19 @@
     <div class="progress"><div id="progressBar" style="width:14%"></div></div>
   </header>
 
+  <!-- п.2 : та же карточка push-уведомлений, что и в to.html — здесь нужна тем сотрудникам, кто открывает акт напрямую (например, по ссылке), не заходя предварительно в to.html. -->
+  <div style="max-width:640px; margin:0 auto; padding:14px 18px 0;">
+    <div class="card" id="pushCard" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:600;">🔔 Push-уведомления</div>
+          <div class="sub" id="pushStatus" style="margin:2px 0 0; color:var(--text-dim); font-size:12.5px;">Проверка...</div>
+        </div>
+        <button class="btn" id="pushToggleBtn" style="width:auto; padding:10px 16px;">…</button>
+      </div>
+    </div>
+  </div>
+
   <main>
 
     <!-- STEP 0: choose act type -->
@@ -181,18 +201,7 @@
       <h2>Тип акта</h2>
       <p class="hint" style="margin-top:0">Выберите, что сейчас происходит с автомобилем.</p>
 
-      <!-- ЭТАП 9.1 (найденный попутно баг): значения data-type здесь ниже
-           по коду читаются в state.actType (см. click-обработчик
-           .choice-card) и сравниваются с 'intake'/'issue' повсюду в
-           файле (checkLinkedIntake_, updatePaymentUIForActType_, расчёт
-           остатка и т.д.). Карточка «Выдача» раньше имела
-           data-type="return" — ни разу не совпадало с 'issue', поэтому
-           весь сценарий поиска/привязки акта «Получения» при ручном
-           выборе типа в этой карточке никогда не срабатывал (это,
-           по всей видимости, и есть настоящая причина бага "долг не
-           минусуется при полной оплате" из Этапа 9.2, п.3 — код,
-           который должен был это считать, просто не запускался).
-           Исправлено на data-type="issue". -->
+      <!-- (найденный попутно баг): значения data-type здесь ниже по коду читаются в state.actType и сравниваются с 'intake'/'issue' повсюду в файле (checkLinkedIntake_, updatePaymentUIForActType_, расчёт остатка и т.д.). -->
       <div class="choice-card" data-type="intake">
         <div class="ico">🔧</div>
         <h3>Получение ТС на СТО (от водителя)</h3>
@@ -230,11 +239,7 @@
       <div class="card">
         <label>Гос. номер <span style="color:var(--danger)">*</span></label>
         <input type="text" id="f_plate" placeholder="напр. 123 ABC 02">
-        <!-- ЭТАП 9.2 (баг 1 из PROMPT_stage9.md): раньше проверка связанного
-             акта «Получения» шла молча — не было видно, что что-то вообще
-             происходит, и не было сообщения при сетевой ошибке (см.
-             checkLinkedIntake_/scheduleCheckLinkedIntake_ ниже). Виден
-             только когда актуален (тип акта «Выдача»). -->
+        <!-- (баг 1 из PROMPT_stage9.md): раньше проверка связанного акта «Получения» шла молча — не было видно, что что-то вообще происходит, и не было сообщения при сетевой ошибке . -->
         <div id="linkedIntakeStatus" style="display:none; font-size:12.5px; margin:-8px 0 12px; color:var(--text-dim);"></div>
 
         <label>VIN-код (необязательно)</label>
@@ -252,16 +257,7 @@
         <input type="text" id="f_contract" placeholder="напр. №1526/CCC/BYD от 01.09.2026">
       </div>
 
-      <!-- ЭТАП 5 (обновление, Часть 1 нового ТЗ): "Мастер" — тот же
-           человек, что выполнил работу. Для обычного сотрудника поле
-           нередактируемое и заполняется его же именем автоматически
-           (никакого отдельного ввода имени сотрудника не показываем —
-           см. Этап 4). Супер-админ вводит имя мастера в обычное
-           текстовое поле — можно сразу печатать любое имя; список уже
-           существующих мастеров (тот же источник — лист "Админ")
-           подставлен как подсказки через <datalist> и ничего не
-           блокирует, просто помогает не печатать вручную, если мастер
-           уже есть в списке. -->
+      <!-- (обновление, Часть 1 нового ТЗ): "Мастер" — тот же человек, что выполнил работу. -->
       <h2>Мастер</h2>
       <div class="card">
         <div id="masterAutoWrap">
@@ -284,11 +280,7 @@
         <div id="amountFieldWrap">
           <label>Сумма работы и запчастей <span id="amountRequiredMark" style="color:var(--danger)">*</span></label>
           <input type="number" id="f_amount" inputmode="numeric" placeholder="напр. 50000" min="0" step="1">
-          <!-- ЭТАП 7 (промт stage7 fixes, п.4): для акта «Получения» сумму
-               можно оставить пустой/0 — не все водители платят или
-               оставляют задаток при сдаче машины на СТО. Для «Выдачи» без
-               найденного открытого акта «Получения» сумма по-прежнему
-               обязательна (см. updatePaymentUIForActType_/validateStep). -->
+          <!-- для акта «Получения» сумму можно оставить пустой/0 — не все водители платят или оставляют задаток при сдаче машины на СТО. -->
           <div id="amountOptionalHint" class="hint" style="display:none">Оставьте поле пустым или 0, если оплата при получении не вносится.</div>
         </div>
 
@@ -309,12 +301,7 @@
             </label>
           </div>
 
-          <!-- ЭТАП 2.2 (промт «Мастер / Комбинированная оплата»): при 2-3
-               отмеченных способах — поля суммы только для отмеченных, с
-               автораспределением остатка (пользователь никогда не считает
-               сумму последнего поля сам). При ровно 1 способе эти поля
-               скрыты — вся сумма акта автоматически считается оплаченной
-               этим единственным способом, отдельно вводить не нужно. -->
+          <!-- при 2-3 отмеченных способах — поля суммы только для отмеченных, с автораспределением остатка (пользователь никогда не считает сумму последнего поля сам). -->
           <div id="paySplitWrap" style="display:none;flex-direction:column;gap:10px;margin-bottom:6px">
             <div id="paySplitKaspiWrap" style="display:none">
               <label style="margin:0 0 4px">💳 Kaspi перевод, ₸</label>
@@ -333,13 +320,7 @@
         </div>
       </div>
 
-      <!-- ЭТАП 3 (промт «Мастер / Комбинированная оплата / Задаток»):
-           тип оплаты — полный расчёт или задаток. При «Выдаче» ТС, если
-           найден незакрытый акт «Получения» по этому гос. номеру, вместо
-           ручного ввода показывается блок #paymentTypeLinked с уже
-           внесённой суммой/остатком (см. fetchLinkedIntake_). ЭТАП 7:
-           при «Получении» без денег (см. amountOptionalHint выше) весь
-           этот блок тоже скрывается — id="paymentTypeHeading" ниже. -->
+      <!-- тип оплаты — полный расчёт или задаток. -->
       <h2 id="paymentTypeHeading">Тип оплаты</h2>
       <div class="card" id="paymentTypeWrap">
         <div id="paymentTypeManual">
@@ -419,15 +400,7 @@
       <div id="sendingView">
         <h2>Формирование и отправка акта…</h2>
         <div class="card">
-          <!-- ЭТАП 2 (было) / ЭТАП 13.16-fix (сейчас): отдельный
-               прогресс-бар формирования АКТА (не путать с прогресс-баром
-               навигации по шагам сверху экрана и с прогрессом загрузки
-               отдельных фото). 0→80% — этапный процент по быстрым локальным
-               шагам без сети (20% — подготовка/сжатие фотографий, 50% —
-               формирование самого PDF-документа); 80→98% — ОЦЕНКА по
-               времени, исходя из размера PDF (честный побайтовый прогресс
-               через xhr.upload.onprogress ломает CORS с Apps Script — см.
-               sheetApiPostOnce_); 100% — акт полностью готов. -->
+          <!-- (было) / -fix (сейчас): отдельный прогресс-бар формирования АКТА (не путать с прогресс-баром навигации по шагам сверху экрана и с прогрессом загрузки отдельных фото). -->
           <div class="progress" style="margin-bottom:6px">
             <div id="actProgressBar" style="width:0%"></div>
           </div>
@@ -467,19 +440,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-/* ЭТАП 9.6 (баг «чёрный экран на акте выдачи»): #gate и #app по разметке
-   скрыты (display:none) и показываются только в конце этого скрипта —
-   в showActApp()/showGateNoSession_(). Раньше ЛЮБАЯ необработанная
-   JS-ошибка где угодно по пути (например, в разборе параметров ссылки
-   ?mode=issue&plate=...&linkedActId=... из to.html) обрывала выполнение
-   скрипта ДО этих строк — экран так и оставался полностью пустым, без
-   единого видимого элемента, то есть просто тёмным фоном без контента.
-   Этот обработчик — подстраховка "на самый край": если что-то всё же
-   упадёт, вместо немого чёрного экрана сотрудник увидит текст ошибки
-   (который можно сфотографировать и переслать для разбора), а не просто
-   пустую страницу без единой зацепки. Сам факт срабатывания этого
-   обработчика не устраняет причину ошибки — он лишь делает её видимой.
-*/
+/* (баг «чёрный экран на акте выдачи»): #gate и #app по разметке скрыты (display:none) и показываются только в конце этого скрипта — в showActApp()/showGateNoSession_(). */
 window.addEventListener('error', function (e) {
   try {
     if (document.getElementById('fatalErrorBox')) return; // не дублируем
@@ -512,7 +473,7 @@ const CFG = {
   // всем в открытом исходнике на GitHub Pages. Отправка в Telegram теперь
   // выполняется только на сервере (Apps Script, см. telegram.gs), сразу
   // после того как акт приходит на sheetUrl ниже.
-  sheetUrl: "https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec",   // напр. "https://script.google.com/macros/s/AKfycb.../exec"
+  sheetUrl: SCRIPT_URL,   // см. js/config.js
   // CallMeBot (cmbPhone/cmbKey) больше не используется: вместо стороннего API
   // с открытым ключом теперь используется прямая ссылка-чат wa.me, которая
   // строится автоматически из номера клиента (см. buildWhatsappLink ниже).
@@ -522,6 +483,12 @@ const CFG = {
 };
 
 /* ===================== STATE ===================== */
+function escapeHtml_(s){
+  return (s===null||s===undefined?'':String(s)).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
 const PHOTO_SLOTS = [
   {key:'front', label:'Спереди', req:true},
   {key:'back', label:'Сзади', req:true},
@@ -601,9 +568,9 @@ function formatPaySplitLines_(){
 
 function toast(msg, ms=2600){
   const t=document.getElementById('toast');
-  t.textContent=msg; t.style.display='block';
+  t.textContent=msg; t.classList.add('show');
   clearTimeout(t._h);
-  t._h=setTimeout(()=>t.style.display='none', ms);
+  t._h=setTimeout(()=>t.classList.remove('show'), ms);
 }
 function fileToDataUrl(file){
   return new Promise((res,rej)=>{
@@ -630,12 +597,7 @@ function dataUrlToBlob(dataUrl){
   return new Blob([arr], {type:mime});
 }
 
-/**
- * Сжимает фото до разумного размера перед сохранением в акт.
- * Без этого некоторые телефоны отдают фото по 4-8 МБ, из-за чего
- * итоговый PDF раздувается и формируется заметно дольше (особенно
- * фото VIN-кода, которое раньше сохранялось «как есть», без сжатия).
- */
+/* Сжимает фото до разумного размера перед сохранением в акт. */
 async function compressImage(file, maxW=1000, quality=0.72){
   const rawUrl = await fileToDataUrl(file);
   const img = await loadImg(rawUrl);
@@ -657,20 +619,7 @@ async function fetchIP(){
   }catch(e){ state.ip = 'не определён'; }
 }
 
-/* Geolocation + reverse geocode
- * ЭТАП 9.7 (жалоба «долго грузится при составлении/выдаче»): раньше
- * stampPhoto() и prepSignatureStep() каждый вызывали getPosition()
- * (навигационный GPS-фикс, до 8 секунд ожидания при enableHighAccuracy)
- * и reverseGeocode() (внешний сетевой запрос) ПО ОТДЕЛЬНОСТИ на КАЖДОЕ
- * фото — 5-6 фото ТС плюс фото дефектов плюс сам шаг подписи. В боксе
- * СТО (часто со слабым/отсутствующим GPS-сигналом в помещении) это
- * превращалось в 8+ секунд ожидания на КАЖДОЕ фото подряд — то есть
- * реальная причина ощущения «долго грузится» как при «Получении», так
- * и при «Выдаче» (фотографии снимаются одинаково в обоих случаях).
- * Машина за время заполнения одного акта не переезжает, поэтому
- * координаты нужно определить только ОДИН раз на весь акт и переиспользовать
- * во всех фото и на шаге подписи — см. getGeoContextCached_ ниже.
- */
+/* Geolocation + reverse geocode (жалоба «долго грузится при составлении/выдаче»): раньше stampPhoto() и prepSignatureStep() каждый вызывали getPosition() (навигационный GPS-фикс, до 8 секунд ожидания… */
 function getPosition(){
   return new Promise((resolve)=>{
     if(!navigator.geolocation){ resolve(null); return; }
@@ -689,11 +638,7 @@ async function reverseGeocode(lat,lon){
   }catch(e){ return ''; }
 }
 
-// ЭТАП 9.7: результат (позиция + готовый текст geoText) определяется один
-// раз за сессию заполнения акта и переиспользуется — сам промис кладём в
-// кэш ДО его разрешения, чтобы параллельные вызовы (например, быстрая
-// съёмка нескольких фото подряд) не запустили несколько одновременных
-// запросов геолокации, а просто дождались одного и того же результата.
+// результат (позиция + готовый текст geoText) определяется один раз за сессию заполнения акта и переиспользуется — сам промис кладём в кэш ДО его разрешения, чтобы параллельные вызовы (например…
 let geoContextPromise_ = null;
 function getGeoContextCached_(){
   if(!geoContextPromise_){
@@ -714,12 +659,7 @@ async function stampPhoto(file){
   const rawUrl = await fileToDataUrl(file);
   const img = await loadImg(rawUrl);
   const canvas = document.createElement('canvas');
-  // ЭТАП 3: было maxW=1280 / quality=0.85 — для фото ТС (5-6 шт. в акте)
-  // и фото дефектов этого достаточно, но при телефонных фото по 3000+ px
-  // итоговый PDF всё ещё выходил заметно тяжелее, чем нужно для акта на
-  // подпись клиенту. Снижено до 1000px/0.72 — тех же значений, что уже
-  // используются для фото VIN-кода (см. compressImage выше), — картинка
-  // на экране/в PDF остаётся чёткой, а вес каждого кадра падает в разы.
+  // было maxW=1280 / quality=0.85 — для фото ТС (5-6 шт.
   const maxW = 1000;
   const quality = 0.72;
   const scale = Math.min(1, maxW/img.width);
@@ -776,12 +716,7 @@ function renderStep(){
   if(state.step===5) prepSignatureStep();
 }
 
-/**
- * Приводит номер телефона к формату +7XXXXXXXXXX, чтобы ссылка wa.me
- * всегда открывалась без ошибки. Если написали с 8 (например,
- * 87071234567) — заменяем на +7. Если ввели 10 цифр без кода страны
- * (7071234567) — тоже добавляем +7. Если уже с +7 — оставляем как есть.
- */
+/* Приводит номер телефона к формату +7XXXXXXXXXX, чтобы ссылка wa.me всегда открывалась без ошибки. */
 function normalizePhone(raw){
   let digits = (raw || '').replace(/[^0-9]/g, '');
   if(digits.length === 11 && digits[0] === '8'){ digits = '7' + digits.slice(1); }
@@ -789,13 +724,7 @@ function normalizePhone(raw){
   return digits ? '+' + digits : '';
 }
 
-/**
- * ЭТАП 1 (обновлено) — проверка VIN.
- * Требования из ТЗ: ровно 17 символов, буквы I, O, Q запрещены (в
- * реальных VIN они не используются во избежание путаницы с 1/0). VIN
- * по-прежнему необязателен — эта функция вызывается только если
- * сотрудник вообще что-то ввёл в поле.
- */
+/* (обновлено) — проверка VIN. */
 function isValidVin_(vin){
   const v = (vin || '').trim().toUpperCase();
   if(v.length !== 17) return false;
@@ -839,11 +768,7 @@ function validateStep(step){
     }
     state.master = master;
 
-    // ЭТАП 3: «Выдача», закрывающая найденный незакрытый акт «Получения»
-    // — сумма и (при задатке) остаток подтягиваются с сервера, повторно
-    // вводить их не нужно (см. checkLinkedIntake_/updatePaymentUIForActType_).
-    // Иначе (Получение, либо Выдача без найденного акта) — обычный ручной
-    // ввод суммы, способа(ов) оплаты и типа оплаты, как и раньше.
+    // «Выдача», закрывающая найденный незакрытый акт «Получения» — сумма и (при задатке) остаток подтягиваются с сервера, повторно вводить их не нужно .
     const isLinkedIssue = state.actType==='issue' && !!state.linkedIntake;
 
     if(isLinkedIssue){
@@ -861,13 +786,7 @@ function validateStep(step){
         state.paymentMethods = [];
         state.amountByMethod = {kaspi:0,cash:0,ip:0};
       } else if(li.balance <= 0){
-        // ЭТАП 5 (исправление): остаток уже списан работами ТО (0) или
-        // ушёл в долг (<0, см. Этап 4 — решение "разрешить"). Поля
-        // способа оплаты принимают только неотрицательные суммы, а
-        // отрицательный/нулевой остаток невозможно корректно в них
-        // ввести — раньше это делало «Выдачу» такой машины несохраняемой.
-        // Новых денег сейчас не собираем, шаг чисто информационный (как
-        // и при paymentType==='full').
+        // (исправление): остаток уже списан работами ТО (0) или ушёл в долг (<0, см.
         state.paymentType = 'deposit';
         state.deposit = li.deposit;
         state.balance = li.balance;
@@ -912,12 +831,7 @@ function validateStep(step){
     } else {
       state.linkedActId = '';
 
-      // ЭТАП 7 (промт stage7 fixes, п.4): сумма акта «Получения» больше
-      // не обязана быть > 0 — многие водители ничего не платят и не
-      // оставляют задаток при сдаче машины на СТО. Для «Выдачи» без
-      // найденного открытого акта «Получения» (обычный ручной ввод, как
-      // и раньше) сумма по-прежнему обязательна и должна быть > 0 — это
-      // отдельный, самостоятельный сценарий продажи/расчёта.
+      // сумма акта «Получения» больше не обязана быть > 0 — многие водители ничего не платят и не оставляют задаток при сдаче машины на СТО.
       const amountRaw = document.getElementById('f_amount').value.trim();
       const amountNum = amountRaw ? Number(amountRaw) : 0;
       if(isNaN(amountNum) || amountNum<0){ toast('Укажите корректную сумму'); return false; }
@@ -977,11 +891,7 @@ function validateStep(step){
         if(!methods.length){ toast('Выберите способ оплаты'); return false; }
         state.paymentMethods = methods;
 
-        // ЭТАП 2.2/3: при одном способе — вся уплачиваемая сейчас сумма
-        // (paidNum) автоматически считается оплаченной этим способом. При
-        // 2-3 способах — сумма полей разбивки обязана совпадать именно с
-        // paidNum (не с полной суммой акта при задатке) — сервер это тоже
-        // проверит.
+        // /3: при одном способе — вся уплачиваемая сейчас сумма (paidNum) автоматически считается оплаченной этим способом.
         if(methods.length===1){
           state.amountByMethod = {
             kaspi: document.getElementById('pay_kaspi').checked ? paidNum : 0,
@@ -1036,16 +946,7 @@ function checkedPayMethods_(){
   return PAY_METHOD_FIELDS_.filter(f=>document.getElementById(f.cb).checked);
 }
 
-/**
- * ЭТАП 3: сумма, которую сейчас распределяют способы оплаты — это НЕ
- * всегда полная сумма акта. При «Выдаче», закрывающей найденный акт
- * «Получения» — это остаток к оплате (0, если было оплачено полностью
- * при получении, и способы оплаты вообще не нужны). При обычном вводе
- * (Получение либо Выдача без найденного акта) — либо вся сумма (тип
- * «Полный расчёт»), либо сумма задатка (тип «Задаток») — именно это
- * распределяют способы оплаты, а не полная стоимость (см. Часть 3
- * промта: «разбивка распределяет именно paid, а не cost»).
- */
+/* сумма, которую сейчас распределяют способы оплаты — это НЕ всегда полная сумма акта. */
 function currentPaySplitTarget_(){
   if(state.actType==='issue' && state.linkedIntake){
     return state.linkedIntake.paymentType==='full' ? 0 : state.linkedIntake.balance;
@@ -1134,24 +1035,7 @@ document.getElementById('pt_deposit').addEventListener('change', ()=>{
 });
 document.getElementById('f_deposit').addEventListener('input', updatePaySplitVisibility_);
 
-/**
- * ЭТАП 9.2 (баг 1 из PROMPT_stage9.md — "поиск по гос номеру тупит"):
- * раньше checkLinkedIntake_() вызывалась только по blur, без debounce,
- * без индикатора "Ищу...", без защиты от race condition при нескольких
- * подряд идущих запросах (напечатал номер, стёр, напечатал другой —
- * ответы могли прийти в другом порядке и перезаписать состояние
- * устаревшими данными), без явного сообщения об ошибке сети (падало в
- * тихое state.linkedIntake=null, будто акта просто нет). Исправлено:
- *  - вызов теперь идёт и по 'input' (см. scheduleCheckLinkedIntake_,
- *    debounce 500мс — не бомбим сервер на каждое нажатие клавиши) и по
- *    'blur' (сразу, без ожидания debounce — сотрудник ушёл с поля,
- *    результат нужен как можно быстрее);
- *  - linkedIntakeReqToken_ — номер последнего отправленного запроса;
- *    если к моменту ответа он уже не совпадает с текущим (успел уйти
- *    более новый запрос) — ответ игнорируется, не перетирает состояние;
- *  - #linkedIntakeStatus показывает "Ищу..." на время запроса и явное
- *    сообщение об ошибке сети при неудаче, вместо молчаливого сброса.
- */
+/* (баг 1 из PROMPT_stage9.md — "поиск по гос номеру тупит"): раньше checkLinkedIntake_() вызывалась только по blur, без debounce, без индикатора "Ищу...", без защиты от race condition при нескольких… */
 let linkedIntakeDebounceTimer_ = null;
 let linkedIntakeReqToken_ = 0;
 
@@ -1164,17 +1048,7 @@ function setLinkedIntakeStatus_(text, isError){
   el.textContent = text;
 }
 
-/**
- * ЭТАП 9.4: подставляет в поля шага «Данные Заказчика» (ФИО, ИИН, ВУ,
- * WhatsApp) значения из найденного акта «Получения», чтобы сотрудник не
- * вводил их заново при «Выдаче» — заполняются автоматически, но поля
- * остаются обычными редактируемыми input'ами: сотрудник может поправить
- * любое из них (например, если у клиента поменялся номер телефона).
- * Не редактируются в этом сценарии только гос. номер автомобиля (см.
- * applyForcedIssueParams_ — f_plate.readOnly) и сам факт того, какой
- * именно акт «Получения» найден и привязан — это определяет сервер по
- * гос. номеру, выбрать другой акт вручную нельзя.
- */
+/* подставляет в поля шага «Данные Заказчика» (ФИО, ИИН, ВУ, WhatsApp) значения из найденного акта «Получения», чтобы сотрудник не вводил их заново при «Выдаче» — заполняются автоматически, но поля… */
 function autofillClientFromLinkedIntake_(li){
   if(!li) return;
   if(li.fio) document.getElementById('f_fio').value = li.fio;
@@ -1227,11 +1101,7 @@ async function checkLinkedIntake_(){
         vu: res.vu || '',
         phone: res.phone || ''
       };
-      // ЭТАП 9.4 (промт «Автоподтягивание данных клиента при Выдаче»):
-      // подставляем ФИО/ИИН/ВУ/WhatsApp из найденного акта «Получения» —
-      // только один раз на каждый вновь найденный акт, чтобы не затирать
-      // то, что сотрудник уже мог поправить руками вручную после
-      // подстановки (см. state._autofilledIntakeActId).
+      // подставляем ФИО/ИИН/ВУ/WhatsApp из найденного акта «Получения» — только один раз на каждый вновь найденный акт, чтобы не затирать то, что сотрудник уже мог поправить руками вручную после подстановки
       if(state._autofilledIntakeActId !== res.actId){
         autofillClientFromLinkedIntake_(state.linkedIntake);
         state._autofilledIntakeActId = res.actId;
@@ -1251,12 +1121,7 @@ async function checkLinkedIntake_(){
   }
   updatePaymentUIForActType_();
 }
-// ЭТАП 13.7: см. подробный комментарий к этой же функции в to.html —
-// autocapitalize="characters" не гарантирует верхний регистр (особенно на
-// компьютере), поэтому принудительно переводим value в верхний регистр по
-// событию 'input', сохраняя позицию курсора. Регистрируем ДО остальных
-// input-обработчиков поля, чтобы scheduleCheckLinkedIntake_ уже видел
-// нормализованное значение.
+// см. подробный комментарий к этой же функции в to.html — autocapitalize="characters" не гарантирует верхний регистр (особенно на компьютере), поэтому принудительно переводим value в верхний регистр по…
 function forceUppercasePlate_(input) {
   if (!input) return;
   input.addEventListener('input', function () {
@@ -1275,15 +1140,7 @@ forceUppercasePlate_(document.getElementById('f_plate'));
 document.getElementById('f_plate').addEventListener('input', scheduleCheckLinkedIntake_);
 document.getElementById('f_plate').addEventListener('blur', checkLinkedIntake_);
 
-// ЭТАП 10, п.7: автообновление данных. Пока сотрудник находится на шаге
-// "Данные Заказчика" с типом акта "Выдача", остаток по связанному акту
-// "Получения" может измениться (например, другой сотрудник в to.html
-// только что добавил запись ТО по этой же машине) — раз в 20 секунд
-// проверяем лёгкую "версию данных" и, если она изменилась, тихо
-// перезапрашиваем найденный акт (checkLinkedIntake_ уже сам по себе
-// безопасен для повторного вызова — обновляет только информационный
-// блок остатка/оплаты, не трогает поля, которые сотрудник заполняет
-// руками). Вне этого шага/типа акта опрос ничего не делает.
+// п.7: автообновление данных.
 var lastKnownDataVersion_ = null;
 function pollDataVersion_(){
   if(state.actType !== 'issue' || state.step !== 1) return;
@@ -1297,20 +1154,7 @@ function pollDataVersion_(){
 }
 setInterval(pollDataVersion_, 20000);
 
-/**
- * ЭТАП 3: показывает нужный вид блока «Тип оплаты»/«Сумма и оплата» в
- * зависимости от того, найден ли для «Выдачи» незакрытый акт
- * «Получения» (state.linkedIntake), и как он был оплачен:
- * - не найден (или тип акта — «Получение»): обычный ручной ввод суммы,
- *   способа(ов) оплаты и типа оплаты (полный расчёт/задаток) — как и
- *   было в Этапах 6-7 и в разделе 3.1 этого промта;
- * - найден, был полный расчёт: акт «Получения» уже закрыт финансово —
- *   показываем только информационную строку, ни сумма, ни способ
- *   оплаты повторно не вводятся;
- * - найден, был задаток: показываем внесённый ранее задаток и остаток
- *   к оплате, а поля способа(ов) оплаты остаются — но распределяют
- *   именно этот остаток, а не исходную стоимость.
- */
+/* показывает нужный вид блока «Тип оплаты»/«Сумма и оплата» в зависимости от того, найден ли для «Выдачи» незакрытый акт «Получения» (state.linkedIntake), и как он был оплачен: - не найден (или тип… */
 function updatePaymentUIForActType_(){
   const linked = (state.actType==='issue') ? state.linkedIntake : null;
   const amountFieldWrap = document.getElementById('amountFieldWrap');
@@ -1333,13 +1177,7 @@ function updatePaymentUIForActType_(){
       amountPayHeading.style.display='none';
       amountPayCard.style.display='none'; // ни сумма, ни способ оплаты повторно не нужны
     } else if(linked.balance <= 0){
-      // ЭТАП 5 (исправление, найдено при сквозном тестировании): остаток
-      // по задатку уже полностью списан работами ТО (balance===0) либо
-      // ушёл в долг (balance<0, разрешено Этапом 4 — открытый вопрос №1
-      // "разрешить"). В обоих случаях новых денег при выдаче не собираем —
-      // поля способа оплаты принимают только положительные числа (min=0),
-      // поэтому при отрицательном остатке форму было физически невозможно
-      // отправить. Показываем информационный блок, как при полном расчёте.
+      // (исправление, найдено при сквозном тестировании): остаток по задатку уже полностью списан работами ТО (balance===0) либо ушёл в долг (balance<0, разрешено Этапом 4 — открытый вопрос №1 "разрешить").
       linkedFullBlock.style.display='none';
       linkedDepositBlock.style.display='block';
       document.getElementById('linkedDepositAmount').textContent = linked.deposit.toLocaleString('ru-RU')+' ₸';
@@ -1373,14 +1211,7 @@ function updatePaymentUIForActType_(){
   updatePaySplitVisibility_();
 }
 
-/**
- * ЭТАП 7 (промт stage7 fixes, п.4): при обычном ручном вводе (акт
- * «Получения», либо «Выдача» без найденного открытого акта «Получения»)
- * — если это акт «Получения» и сумма оставлена пустой/0, весь блок
- * способа оплаты и типа оплаты не нужен и скрывается (водитель ничего
- * не платит при сдаче машины). Для «Выдачи» без найденной привязки эти
- * блоки всегда показываются — там сумма по-прежнему обязательна.
- */
+/* при обычном ручном вводе (акт «Получения», либо «Выдача» без найденного открытого акта «Получения») — если это акт «Получения» и сумма оставлена пустой/0, весь блок способа оплаты и типа оплаты не… */
 function updateNoPaymentIntakeUI_(){
   const paymentTypeManual = document.getElementById('paymentTypeManual');
   const paymentTypeHeading = document.getElementById('paymentTypeHeading');
@@ -1418,13 +1249,7 @@ document.getElementById('f_amount').addEventListener('input', updateNoPaymentInt
 document.getElementById('btnNext').addEventListener('click', async ()=>{
   if(!validateStep(state.step)) return;
   if(state.step===5){
-    // ЭТАП 7 (промт stage7 fixes, п.5.4): защита перед финальной отправкой
-    // акта «Выдачи» — если по факту вводятся деньги (paid>0) вручную, а
-    // связка с открытым актом «Получения» не найдена, стоит ещё раз
-    // попытаться найти акт непосредственно перед сохранением (а не
-    // полагаться только на событие blur/выбор типа акта), и, если
-    // по-прежнему не нашли — явно спросить сотрудника, точно ли это
-    // верный гос. номер, а не тихо сохранять акт без привязки.
+    // защита перед финальной отправкой акта «Выдачи» — если по факту вводятся деньги (paid>0) вручную, а связка с открытым актом «Получения» не найдена, стоит ещё раз попытаться найти акт непосредственно…
     if(state.actType==='issue' && !state.linkedIntake && Number(state.paid)>0){
       await checkLinkedIntake_(); // повторная попытка прямо перед сохранением
       if(state.linkedIntake){
@@ -1479,20 +1304,7 @@ document.querySelectorAll('.choice-card').forEach(card=>{
   });
 });
 
-/**
- * ЭТАП 9.1: если сюда пришли из to.html по кнопке «Выдача авто»
- * (act.html?mode=issue&plate=...&linkedActId=...[&vin=...]) —
- * подставляем гос. номер (и VIN, если передан), сразу выбираем и
- * блокируем тип акта «Выдача» и пропускаем шаг 0 — сразу открывается
- * шаг 1, где renderStep() (как и в обычном ручном сценарии) сам вызовет
- * checkLinkedIntake_(), потому что state.actType уже 'issue'. Данными
- * из query-строки (сумма/остаток) намеренно не пользуемся напрямую —
- * они должны браться только из свежего ответа сервера, см. п.6 промта
- * "работать только со свежими данными".
- * linkedActId из ссылки используется только для наглядности и как
- * контроль ожидания — реально привязка акта берётся из ответа
- * findopenintake, а не из query-параметра.
- */
+/* если сюда пришли из to.html по кнопке «Выдача авто» (act.html?mode=issue&plate=...&linkedActId=...[&vin=...]) — подставляем гос. */
 const forcedIssueParams = new URLSearchParams(location.search);
 const forcedIssuePlate = (forcedIssueParams.get('plate') || '').trim();
 const forcedIssueVin = (forcedIssueParams.get('vin') || '').trim();
@@ -1602,7 +1414,7 @@ function buildDefectList(){
       <div class="row">
         ${thumb}
         <div style="flex:1">
-          <textarea placeholder="Какая деталь повреждена, характер дефекта..." data-i="${i}" class="defect-comment">${d.comment}</textarea>
+          <textarea placeholder="Какая деталь повреждена, характер дефекта..." data-i="${i}" class="defect-comment">${escapeHtml_(d.comment || '')}</textarea>
           <button class="rm" data-i="${i}">Удалить</button>
         </div>
       </div>`;
@@ -1629,13 +1441,13 @@ function buildReview(){
     // аккаунту, которым он вошёл (GATE_NAME) — отдельного поля для ввода
     // имени сотрудника нет и не должно быть.
     ['Сотрудник', GATE_NAME],
-    ['Мастер', state.master||'—'],
-    ['ФИО', state.client.fio],
-    ['ИИН', state.client.iin],
-    ['ВУ', state.client.vu||'—'],
-    ['WhatsApp', state.client.phone||'—'],
-    ['Гос. номер', state.vehicle.plate],
-    ['VIN', state.vehicle.vin||'—'],
+    ['Мастер', escapeHtml_(state.master||'—')],
+    ['ФИО', escapeHtml_(state.client.fio)],
+    ['ИИН', escapeHtml_(state.client.iin)],
+    ['ВУ', escapeHtml_(state.client.vu||'—')],
+    ['WhatsApp', escapeHtml_(state.client.phone||'—')],
+    ['Гос. номер', escapeHtml_(state.vehicle.plate)],
+    ['VIN', escapeHtml_(state.vehicle.vin||'—')],
     ['Пробег', state.vehicle.mileage?state.vehicle.mileage+' км':'—'],
     ['Договор', state.vehicle.contract||'—'],
     ['Топливо/заряд', state.vehicle.fuel||'—'],
@@ -1819,14 +1631,7 @@ async function buildPDF(){
   doc.addPage(); y=16;
   text('ФОТОФИКСАЦИЯ АВТОМОБИЛЯ', M, 13, true);
   hr();
-  // ЭТАП 3: если один и тот же кадр случайно оказался в акте дважды
-  // (например, сотрудник по ошибке выбрал тот же файл сначала для
-  // фото VIN, а потом ещё и для одного из слотов общей сетки, или тот
-  // же снимок дважды прикрепил к разным дефектам) — такой повтор просто
-  // раздувает PDF без новой информации. Сравниваем сами data:URL картинок
-  // (после сжатия это обычный JPEG на 50–300 КБ, сравнение строк такого
-  // размера в паре десятков штук ничего не стоит) и второй раз тот же
-  // кадр в PDF не вставляем.
+  // если один и тот же кадр случайно оказался в акте дважды (например, сотрудник по ошибке выбрал тот же файл сначала для фото VIN, а потом ещё и для одного из слотов общей сетки, или тот же снимок…
   const seenImageUrls = new Set();
   function isDuplicateImage_(dataUrl){
     if(seenImageUrls.has(dataUrl)) return true;
@@ -1925,20 +1730,9 @@ function setStatus(id, mode, label){
   if(label) el.querySelector('div:last-child').textContent = label;
 }
 
-/* ЭТАП 0: прямая отправка в Telegram из браузера (sendTelegram/sendDefectVideos)
-   удалена — токен бота нельзя хранить в клиентском коде. Уведомление в
-   Telegram теперь отправляет сервер (Apps Script, telegram.gs) сам, как
-   только акт приходит в sendSheet() ниже — см. doPost -> notifyActTelegram_.
-   ЭТАП 2: теперь вместе с данными акта на сервер уходит и сам PDF (см.
-   blobToBase64/sendSheet ниже) — сервер сохраняет именно его на Диск и
-   шлёт его же в Telegram, вместо генерации своей отдельной копии. */
+/* прямая отправка в Telegram из браузера (sendTelegram/sendDefectVideos) удалена — токен бота нельзя хранить в клиентском коде. */
 
-/* ЭТАП 2: переводим Blob в base64, чтобы отправить готовый PDF (с фото и
-   подписью, тот же файл, что видел клиент) вместе с данными акта — сервер
-   сохранит его на Диск и пропишет ссылку в лист "Акты" (см. doPost ->
-   saveActPdfFromBase64_ в PdfGenerator.gs). Раньше сервер отдельно
-   генерировал свою, более простую копию через Google Docs — теперь это
-   не нужно, PDF ровно один. */
+/* переводим Blob в base64, чтобы отправить готовый PDF (с фото и подписью, тот же файл, что видел клиент) вместе с данными акта — сервер сохранит его на Диск и пропишет ссылку в лист "Акты" . */
 async function blobToBase64(blob){
   const buf = await blob.arrayBuffer();
   const bytes = new Uint8Array(buf);
@@ -1950,14 +1744,7 @@ async function blobToBase64(blob){
   return btoa(binary);
 }
 
-/* ЭТАП 3: раньше здесь отдельно вызывался сторонний сервис tmpfiles.org,
-   чтобы получить ссылку на PDF для WhatsApp (см. buildWhatsappLink ниже).
-   Он больше не нужен: PDF и так сохраняется на Google Диск (см.
-   saveActPdfFromBase64_ в PdfGenerator.gs), и сервер теперь возвращает
-   готовую ссылку на Диск прямо в ответе на sendSheet() — используем её.
-   Для этого POST отправляется уже без mode:'no-cors' (он не даёт читать
-   ответ сервера); Content-Type остаётся text/plain, поэтому браузер
-   по-прежнему не шлёт preflight OPTIONS. */
+/* раньше здесь отдельно вызывался сторонний сервис tmpfiles.org, чтобы получить ссылку на PDF для WhatsApp . */
 async function sendSheet(pdfBlob){
   if(!CFG.sheetUrl){ setStatus('st_sheet','fail','Google Таблица не настроена'); return; }
   setStatus('st_sheet','busy','Запись в таблицу и загрузка PDF…');
@@ -1990,34 +1777,17 @@ async function sendSheet(pdfBlob){
       geo: pos ? `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}` : '',
       pdfName: state.pdfName,
       pdfBase64: pdfBlob ? await blobToBase64(pdfBlob) : null,
-      // ЭТАП 4: сервер сам определяет и проверяет сотрудника по этому
-      // логину/паролю (тот же аккаунт, которым сотрудник вошёл на экране
-      // входа — см. GATE_NAME/GATE_PW) и подставляет проверенное имя в
-      // колонку "staffName" листа "Акты" — присланное здесь имя нигде не
-      // используется напрямую как источник истины, только для проверки.
+      // сервер сам определяет и проверяет сотрудника по этому логину/паролю (тот же аккаунт, которым сотрудник вошёл на экране входа — см.
       name: GATE_NAME, pw: GATE_PW
     };
-    // ЭТАП 13.16-fix: 80→98% двигается ОЦЕНОЧНО по времени (реальный
-    // побайтовый прогресс через xhr.upload.onprogress ломает CORS с
-    // Apps Script — см. комментарий у sheetApiPostOnce_ ниже), исходя
-    // из размера PDF в base64. 98→100% зарезервированы под обработку
-    // ответа сервера (запись в Таблицу, сохранение на Диск), которая
-    // уже не показывает процент, но занимает заметное время. Один
-    // автоматический повтор при сетевой ошибке остаётся (см.
-    // sheetApiPostWithProgress_) — отправка акта самая "дорогая"
-    // операция (несёт PDF в base64), обидно, если именно она сорвётся
-    // из-за одного случайного обрыва сети.
+    // fix: 80→98% двигается ОЦЕНОЧНО по времени (реальный побайтовый прогресс через xhr.upload.onprogress ломает CORS с Apps Script — см.
     const approxBytes = (payload.pdfBase64 && payload.pdfBase64.length) || 0;
     const res = await sheetApiPostWithProgress_(payload, function (pct) {
       setActProgress(80 + Math.round(pct * 0.18), 'Загрузка PDF… ' + pct + '%');
     }, approxBytes);
     setActProgress(98, 'Сервер обрабатывает акт…');
     state.driveUrl = (res && res.driveUrl) || '';
-    // ЭТАП 2: сервер теперь возвращает pdfSaveError, если сама запись в
-    // таблицу прошла успешно, а вот PDF на Диск сохранить не удалось —
-    // раньше в этом случае статус всё равно показывал "готово", и
-    // сотрудник узнавал, что водитель не может скачать акт, только
-    // постфактум. Показываем предупреждение сразу же.
+    // сервер теперь возвращает pdfSaveError, если сама запись в таблицу прошла успешно, а вот PDF на Диск сохранить не удалось — раньше в этом случае статус всё равно показывал "готово", и сотрудник…
     if(res && res.pdfSaveError){
       setStatus('st_sheet','fail','Акт записан, но PDF НЕ сохранён на Диск — водитель его не увидит');
     } else {
@@ -2026,23 +1796,14 @@ async function sendSheet(pdfBlob){
       if (retryBtn) retryBtn.style.display = 'none';
     }
   }catch(e){
-    // ЭТАП 10, п.9: все попытки (таймаут+backoff) исчерпаны — ничего из
-    // уже введённых/сфотографированных данных не теряется (state и
-    // сформированный PDF остаются как есть), просто показываем кнопку
-    // "Повторить отправку" вместо того, чтобы заставлять заполнять акт
-    // заново с нуля.
+    // п.9: все попытки (таймаут+backoff) исчерпаны — ничего из уже введённых/сфотографированных данных не теряется (state и сформированный PDF остаются как есть), просто показываем кнопку "Повторить…
     setStatus('st_sheet','fail','Ошибка сети — акт не потерян, нажмите «Повторить отправку»');
     var retryBtn2 = document.getElementById('btnRetrySheet');
     if (retryBtn2) retryBtn2.style.display = 'block';
   }
 }
 
-/* Готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и
-   готовый текст со ссылкой на PDF (ссылка на Google Диск, полученная в
-   sendSheet выше). Открыть её может сотрудник СТО одним тапом на экране
-   "Готово" (кнопка btnSendWhatsapp) — WhatsApp сам не даёт отправлять
-   сообщения без участия человека без сервера с открытой сессией, но
-   весь текст и получатель уже подставлены автоматически. */
+/* Готовим прямую ссылку-чат wa.me — она сама содержит номер клиента и готовый текст со ссылкой на PDF (ссылка на Google Диск, полученная в sendSheet выше). */
 function buildWhatsappLink(){
   if(!state.client.phone){ setStatus('st_wa','fail','Не указан WhatsApp клиента — ссылка не создана'); return; }
   setStatus('st_wa','busy','Готовим ссылку для WhatsApp…');
@@ -2054,24 +1815,7 @@ function buildWhatsappLink(){
   setStatus('st_wa','done','Ссылка для WhatsApp готова');
 }
 
-/* ЭТАП 2 (было): этапный индикатор прогресса формирования акта —
-   фиксированные этапы (20/50/80/100%), потому что реального процента у
-   fetch() при загрузке нет (fetch не отдаёт промежуточный прогресс
-   ОТПРАВКИ тела запроса, только скачивания ответа).
-   ЭТАП 13.14 (было) → ЭТАП 13.16-fix (сейчас, «CORS сломал реальный
-   прогресс-бар»): пробовали двигать 80→100% по-настоящему через
-   xhr.upload.onprogress — оказалось, что сама подписка на это событие
-   у кросс-доменного запроса (act.html на GitHub Pages → Apps Script на
-   script.google.com) заставляет браузер слать перед запросом
-   CORS-preflight (OPTIONS), а Apps Script не умеет отвечать на OPTIONS
-   правильными заголовками (нет doOptions()) — запрос падал с "blocked
-   by CORS policy" ВООБЩЕ, даже без вложений. Тот же самый баг, что
-   сломал рассылку и Stories в to.html — все три места используют один
-   Apps Script и одно и то же браузерное ограничение.
-   Раз честного побайтового процента здесь не может быть в принципе,
-   отрезок 80→98% теперь тикает по ВРЕМЕНИ (оценка по размеру PDF и
-   заведомо консервативной скорости), а не по факту отправленных байт —
-   см. sendSheet ниже. 0→80% остаётся этапным, как и было. */
+/* (было): этапный индикатор прогресса формирования акта — фиксированные этапы (20/50/80/100%), потому что реального процента у fetch() при загрузке нет (fetch не отдаёт промежуточный прогресс ОТПРАВКИ… */
 function setActProgress(percent, label){
   const bar = document.getElementById('actProgressBar');
   const lbl = document.getElementById('actProgressLabel');
@@ -2106,11 +1850,11 @@ async function runSendPipeline(){
   const done = document.getElementById('doneView');
   done.style.display='block';
   document.getElementById('doneSummary').innerHTML = `
-    <div class="summary-row"><span>Номер акта</span><span>${state.actId}</span></div>
-    <div class="summary-row"><span>Сотрудник</span><span>${GATE_NAME}</span></div>
-    <div class="summary-row"><span>Мастер</span><span>${state.master||'—'}</span></div>
-    <div class="summary-row"><span>Автомобиль</span><span>${state.vehicle.plate}${state.vehicle.vin ? ' · '+state.vehicle.vin : ''}</span></div>
-    <div class="summary-row"><span>Заказчик</span><span>${state.client.fio}</span></div>
+    <div class="summary-row"><span>Номер акта</span><span>${escapeHtml_(state.actId)}</span></div>
+    <div class="summary-row"><span>Сотрудник</span><span>${escapeHtml_(GATE_NAME)}</span></div>
+    <div class="summary-row"><span>Мастер</span><span>${escapeHtml_(state.master||'—')}</span></div>
+    <div class="summary-row"><span>Автомобиль</span><span>${escapeHtml_(state.vehicle.plate)}${state.vehicle.vin ? ' · '+escapeHtml_(state.vehicle.vin) : ''}</span></div>
+    <div class="summary-row"><span>Заказчик</span><span>${escapeHtml_(state.client.fio)}</span></div>
     ${state.linkedActId ? `<div class="summary-row"><span>Акт получения</span><span>${state.linkedActId}</span></div>` : ''}
     ${(state.actType==='issue' && state.linkedIntake && state.linkedIntake.paymentType==='full') ? `
       <div class="summary-row"><span>Оплата</span><span>Оплачено при получении: ${state.amount.toLocaleString('ru-RU')} ₸</span></div>
@@ -2143,35 +1887,11 @@ document.getElementById('btnSendWhatsapp').addEventListener('click', ()=>{
   else{ alert('Ссылка для WhatsApp не готова: проверьте, что у клиента указан номер WhatsApp.'); }
 });
 
-/* ЭТАП 9.4: кнопка "Поделиться PDF" (системное меню navigator.share)
-   убрана — вместо выбора приложения вручную сразу готова прямая ссылка
-   на чат с клиентом в WhatsApp (выше), уже с текстом и ссылкой на PDF
-   на Google Диске, подставленными автоматически. Такая же готовая
-   ссылка на WhatsApp дополнительно приходит и в служебное уведомление
-   в Telegram (см. apps-script/4_Telegram.gs -> notifyActTelegram_) —
-   сотрудник может отправить клиенту сообщение прямо оттуда, даже не
-   открывая сам act.html. */
+/* кнопка "Поделиться PDF" (системное меню navigator.share) убрана — вместо выбора приложения вручную сразу готова прямая ссылка на чат с клиентом в WhatsApp (выше), уже с текстом и ссылкой на PDF на… */
 
 document.getElementById('btnNewAct').addEventListener('click', ()=>location.reload());
 
-/* ===================== ВХОД СОТРУДНИКА (та же учётка, что в to.html) =====================
- * Акт приёма-передачи теперь оформляет только вошедший сотрудник СТО.
- * Проверка идёт той же серверной функцией adminLogin (action: 'adminLogin'),
- * что используется в to.html.
- *
- * ЭТАП 8.2: раньше сессия хранилась в sessionStorage под теми же ключами
- * (to_name/to_pw), что и to.html, — то есть сырой пароль сотрудника
- * дублировался на диске браузера, и общий вход работал только пока обе
- * страницы открыты в ОДНОЙ вкладке за одну сессию браузера. Теперь
- * act.html использует тот же самый токен "запомнить устройство"
- * (localStorage, ключи to_device_name/to_device_token — НАМЕРЕННО те же,
- * что и в to.html, чтобы вход, выполненный в одном из двух файлов,
- * автоматически подхватывался и в другом): если сотрудник уже входил в
- * to.html на этом устройстве, act.html тоже войдёт тихо, без пароля, и
- * это будет работать даже после перезапуска браузера, а не только в
- * рамках одной вкладки. Сам пароль нигде не сохраняется дольше момента
- * явного входа.
- */
+/* ===================== ВХОД СОТРУДНИКА (та же учётка, что в to.html) ===================== Акт приёма-передачи теперь оформляет только вошедший сотрудник СТО. */
 var GATE_DEVICE_NAME_KEY = 'to_device_name';
 var GATE_DEVICE_TOKEN_KEY = 'to_device_token';
 var GATE_NAME = '';
@@ -2181,18 +1901,7 @@ var GATE_PW = '';
 // в листе "Админ", если он изменится между визитами.
 var GATE_IS_SUPER = false;
 
-// ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей паузой
-// (см. подробный комментарий в to.html). Таймаут здесь заметно больше
-// (45с), чем в to.html/driver.html (15с) — сюда, в отличие от них,
-// уходит целый PDF в base64 (обычно 1-3 МБ), и на слабом мобильном
-// интернете сама загрузка может занимать больше времени, чем обычный
-// короткий запрос без вложений.
-// Очередь-в-localStorage (как в to.html/driver.html) здесь намеренно НЕ
-// применяется: такой payload легко превысит лимит localStorage (~5МБ),
-// а несколько неотправленных актов сразу могли бы его переполнить.
-// Вместо этого при исчерпании попыток данные остаются в памяти вкладки
-// (state), PDF уже сформирован локально, и сотруднику показывается
-// кнопка "Повторить отправку" — см. sendSheet().
+// п.6 (расширяет ): таймаут + повтор с нарастающей паузой .
 var ACT_FETCH_TIMEOUT_MS = 45000;
 var ACT_FETCH_BACKOFF_MS = [2000, 5000];
 
@@ -2222,26 +1931,7 @@ function gateApiPost(payload) {
   }).then(function (r) { return r.json(); });
 }
 
-/* ЭТАП 13.14 (было) → ЭТАП 13.16-fix (сейчас, «CORS сломал реальный
-   прогресс-бар»): изначально стоял xhr.upload.onprogress — настоящий
-   процент по факту отправленных байт PDF. Оказалось, что сама подписка
-   на событие прогресса ЗАГРУЗКИ у кросс-доменного XHR (act.html на
-   GitHub Pages → Apps Script на script.google.com) заставляет браузер
-   слать перед запросом CORS-preflight (OPTIONS), а Apps Script не умеет
-   отвечать на OPTIONS правильными заголовками (нет doOptions()) —
-   реальный запрос вообще не уходил, с любым актом, "Ошибка сети" на
-   самом деле означала "blocked by CORS policy: ...preflight". Тот же
-   баг сломал рассылку и Stories в to.html — see комментарий там.
-   Раз честного побайтового процента с Apps Script как бэкендом в
-   принципе не бывает, xhr.upload здесь больше НЕ трогаем вообще (ни
-   .onprogress, ни другие события) — это и есть то, что раньше спасало
-   fetch()-запросы (вход, addRecords и т.п.) от той же проблемы. Полосу
-   на отрезке 80→98% двигает ОЦЕНКА по времени (исходя из размера PDF и
-   заведомо консервативной скорости), см. estimatedTotalMs ниже; таймаут
-   всего запроса тоже завязан на размер PDF, а не на "бездействие"
-   (бездействие раньше отслеживалось именно через xhr.upload.onprogress,
-   без него отследить его нечем). Автоповтор при сетевой ошибке
-   сохранён, как и раньше (ЭТАП 7). */
+/* (было) → -fix (сейчас, «CORS сломал реальный прогресс-бар»): изначально стоял xhr.upload.onprogress — настоящий процент по факту отправленных байт PDF. */
 var ACT_UPLOAD_ESTIMATE_KBPS = 150; // консервативно: плохой мобильный интернет
 var ACT_UPLOAD_TIMEOUT_MIN_MS = 45000;
 var ACT_UPLOAD_TIMEOUT_PER_MB_MS = 20000;
@@ -2291,12 +1981,7 @@ function sheetApiPostWithProgress_(payload, onProgress, approxBytes) {
   });
 }
 
-/* ЭТАП 5 (обновление, Часть 1 нового ТЗ): показываем нередактируемое
-   поле "Мастер" = сам сотрудник обычным сотрудникам, а супер-админу —
-   обычное текстовое поле, которое сразу принимает любой ввод; список
-   уже существующих мастеров, полученный с сервера, подставляется как
-   подсказки <datalist> — печатать вручную нужно, только если мастера
-   ещё нет в списке. */
+/* (обновление, Часть 1 нового ТЗ): показываем нередактируемое поле "Мастер" = сам сотрудник обычным сотрудникам, а супер-админу — обычное текстовое поле, которое сразу принимает любой ввод; список уже… */
 function setupMasterField() {
   const autoWrap = document.getElementById('masterAutoWrap');
   const adminWrap = document.getElementById('masterAdminWrap');
@@ -2326,20 +2011,29 @@ function setupMasterField() {
     .catch(function () { /* не критично: супер-админ всё ещё может ввести мастера вручную */ });
 }
 
+/* ===================== PUSH-УВЕДОМЛЕНИЯ ===================== 16.9: логика в js/push-card.js — initPushCard_ */
+var PUSH_TOKEN_KEY = 'to_push_token'; // НАМЕРЕННО тот же ключ, что в to.html — один и тот же сотрудник/устройство
+function initPushUi_() {
+  initPushCard_({
+    cardId: 'pushCard',
+    tokenKey: PUSH_TOKEN_KEY,
+    registerAction: 'registerPushToken',
+    unregisterAction: 'unregisterPushToken',
+    post: gateApiPost,
+    buildParams: function () { return { name: GATE_NAME, pw: GATE_PW }; }
+  });
+}
+/* ================== /PUSH-УВЕДОМЛЕНИЯ ================== */
+
 function showActApp() {
   document.getElementById('gate').style.display = 'none';
-  document.getElementById('app').style.display = 'flex';
+  var appEl = document.getElementById('app');
+  appEl.style.display = 'flex';
+  appEl.style.animation = 'fade .25s ease';
+  initPushUi_(); // ЭТАП 15.4, п.2: показать/обновить карточку push-уведомлений
   fetchIP();
   setupMasterField();
-  // ЭТАП 9.6 (баг «чёрный экран на акте выдачи»): applyForcedIssueParams_
-  // разбирает ?mode=issue&plate=...&linkedActId=... из ссылки «Выдача
-  // авто» (to.html) — именно этот путь сотрудники используют чаще всего
-  // для акта «Выдачи». Раньше ошибка здесь (например, из-за неожиданного
-  // содержимого параметра ссылки) обрывала showActApp() ДО renderStep(),
-  // и форма акта, уже показанная строкой выше (#app.style.display='flex'),
-  // оставалась пустой — видна была только шапка без единого шага, что на
-  // тёмной теме выглядит как «чёрный экран». Теперь ошибка не мешает
-  // показать хотя бы обычный, незаполненный автоматически шаг формы.
+  // (баг «чёрный экран на акте выдачи»): applyForcedIssueParams_ разбирает ?mode=issue&plate=...&linkedActId=...
   try {
     applyForcedIssueParams_(); // ЭТАП 9.1 — до renderStep(), чтобы шаг 1 сразу открылся в режиме «Выдача»
   } catch (e) {
@@ -2357,11 +2051,7 @@ function showGateNoSession_() {
 }
 
 function gateLoginFailed() {
-  // ЭТАП 8.2: раньше здесь чистился sessionStorage (to_name/to_pw) —
-  // теперь общие с to.html данные для тихого входа лежат в localStorage
-  // как токен устройства; если сервер его отверг (отозван/просрочен),
-  // сбрасываем именно его, иначе оба файла продолжили бы пытаться тихо
-  // войти одним и тем же недействительным токеном.
+  // раньше здесь чистился sessionStorage (to_name/to_pw) — теперь общие с to.html данные для тихого входа лежат в localStorage как токен устройства; если сервер его отверг (отозван/просрочен), сбрасываем…
   localStorage.removeItem(GATE_DEVICE_NAME_KEY);
   localStorage.removeItem(GATE_DEVICE_TOKEN_KEY);
   // ЭТАП 9.3: раньше здесь сразу показывалась собственная форма
@@ -2466,31 +2156,18 @@ if (gateShowNoSessionLink) {
 }
 
 /* ===================== INIT ===================== */
-// Экран составления акта скрыт (см. #app{display:none} в разметке) до тех
-// пор, пока не подтверждён вход сотрудника. Если в localStorage уже есть
-// общий с to.html токен устройства — проверяем его молча (ЭТАП 8.2);
-// иначе (ЭТАП 9.3) показываем сообщение "сначала войдите в to.html", а
-// не собственную форму логин/пароль.
+// Экран составления акта скрыт до тех пор, пока не подтверждён вход сотрудника.
 try {
   var gateSavedDeviceName = localStorage.getItem(GATE_DEVICE_NAME_KEY) || '';
   var gateSavedDeviceToken = localStorage.getItem(GATE_DEVICE_TOKEN_KEY) || '';
   if (gateSavedDeviceName && gateSavedDeviceToken) {
     tryGateDeviceLogin_(gateSavedDeviceName, gateSavedDeviceToken);
   } else {
-    // ЭТАП 9.2 (баг 2): #gate скрыт по умолчанию — раньше он был виден
-    // всегда, из-за чего форма логина на мгновение "торчала" поверх/до
-    // формы акта на время тихого входа. Показываем её явно только здесь
-    // (токена нет вовсе, тихий вход даже не будет пытаться выполниться).
-    // ЭТАП 9.3: содержимое самого экрана теперь — не форма пароля, а
-    // сообщение с переходом в to.html (см. showGateNoSession_).
+    // (баг 2): #gate скрыт по умолчанию — раньше он был виден всегда, из-за чего форма логина на мгновение "торчала" поверх/до формы акта на время тихого входа.
     showGateNoSession_();
   }
 } catch (initErr) {
-  // ЭТАП 9.6: если разбор параметров ссылки/автовход упал раньше, чем
-  // что-либо успело показаться на экране, — не оставляем чёрный экран:
-  // показываем как минимум обычный экран входа, чтобы сотрудник мог
-  // продолжить работу вручную, а window.onerror выше покажет текст
-  // самой ошибки для разбора.
+  // если разбор параметров ссылки/автовход упал раньше, чем что-либо успело показаться на экране, — не оставляем чёрный экран: показываем как минимум обычный экран входа, чтобы сотрудник мог продолжить…
   try { showGateNoSession_(); } catch (e2) { /* совсем ничего не поделать */ }
   throw initErr;
 }

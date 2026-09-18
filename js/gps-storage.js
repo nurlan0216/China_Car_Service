@@ -1,36 +1,4 @@
-/**
- * js/gps-storage.js — ЭТАП 2 + ЭТАП 3 (IndexedDB и offline)
- * -------------------------------------------------------------
- * НОВЫЙ файл, ничего существующего не меняет и не удаляет.
- *
- * ЭТАП 2 (не изменено): "горячий" путь — состояние ТЕКУЩЕЙ активной
- * сессии по номеру (CCSGpsStorage.getState/setState/startSession/
- * stopSession/stopAllExcept/addDistance/getPendingDistanceKm/markSynced).
- * Это остаётся синхронным поверх localStorage — gps-tracker.js вызывает
- * addDistance() на КАЖДОЙ засчитанной точке, и этот путь должен быть
- * быстрым и синхронным; объём данных здесь заведомо маленький (агрегаты,
- * не поток координат), поэтому localStorage безопасен и на Этапе 3
- * (см. AUDIT_REPORT.md — то же обоснование, что и на Этапе 2). Публичный
- * интерфейс этих функций НЕ менялся — gps-tracker.js и gps-sync.js не
- * тронуты.
- *
- * ЭТАП 3 (новое): честная реализация "надёжного локального накопления"
- * из ТЗ п.10 — отдельная, ДОПОЛНИТЕЛЬНАЯ durable-очередь завершённых, но
- * ещё не отправленных сессий (CCSGpsStorage.getPendingQueue/
- * removeFromQueue). Она наполняется автоматически из stopSession()/
- * stopAllExcept() и живёт в IndexedDB (переживает закрытие вкладки,
- * перезапуск браузера, долгий offline) — а НЕ в горячем пути с каждой
- * GPS-точкой. Если IndexedDB недоступна (feature detection, старые
- * браузеры/приватный режим) — автоматический fallback на компактный
- * localStorage-массив с тем же контрактом (п.35 ТЗ: никогда не ломать
- * fallback). Оба варианта хранят только агрегаты по сессии (км, время),
- * НЕ координаты и НЕ поток точек — приватность (п.43 ТЗ) не пострадала.
- *
- * Ключи в localStorage изолированы префиксом 'ccs_gps_', чтобы не
- * пересекаться с существующими ключами driver.html
- * (driver_plate, driver_device_token, driver_retry_queue,
- * driver_cache_*) — те не читаются и не изменяются этим файлом.
- */
+/* js/gps-storage.js — + (IndexedDB и offline) ------------------------------------------------------------- НОВЫЙ файл, ничего существующего не меняет и не удаляет. */
 (function (global) {
   'use strict';
 
@@ -66,17 +34,7 @@
     try { localStorage.removeItem(key); } catch (e) { /* не критично */ }
   }
 
-  /**
-   * Структура состояния сессии по номеру машины:
-   * {
-   *   plate, sessionId, deviceToken,
-   *   startedAt, lastPointAt,
-   *   distanceKm,           // накопленное, ещё не подтверждённое сервером
-   *   syncedDistanceKm,     // сколько из distanceKm уже успешно ушло (Этап 4)
-   *   lastLat, lastLon, lastAccuracy,
-   *   status                // 'active' | 'stopped'
-   * }
-   */
+  /* Структура состояния сессии по номеру машины: { plate, sessionId, deviceToken, startedAt, lastPointAt, distanceKm, // накопленное, ещё не подтверждённое сервером syncedDistanceKm, // сколько из… */
 
   function getState(plate) {
     return safeGet(keyFor(plate));
@@ -297,14 +255,7 @@
     safeSet(LS_QUEUE_KEY, arr);
   }
 
-  /**
-   * Кладёт в durable-очередь агрегат по завершённой (stopped) сессии,
-   * если в ней осталось неотправленное расстояние. Best-effort и
-   * fire-and-forget по отношению к вызывающему коду (stopSession/
-   * stopAllExcept остаются синхронными, как в Этапе 2) — запись в
-   * IndexedDB/localStorage происходит асинхронно в фоне и никогда не
-   * бросает исключений наружу.
-   */
+  /* Кладёт в durable-очередь агрегат по завершённой (stopped) сессии, если в ней осталось неотправленное расстояние. */
   function enqueuePendingIfAny_(state) {
     if (!state) return;
     var pendingKm = Math.max(0, Math.round((state.distanceKm - state.syncedDistanceKm) * 1000) / 1000);
@@ -330,13 +281,7 @@
     });
   }
 
-  /**
-   * Возвращает Promise<Array<record>> — все завершённые сессии, которые
-   * ещё не подтверждены сервером как отправленные. Этап 4 будет вызывать
-   * это перед синхронизацией. Каждая запись помечена internal-полем
-   * `_backend` ('idb' | 'ls'), чтобы removeFromQueue() знал, откуда её
-   * убрать после подтверждённой отправки.
-   */
+  /* Возвращает Promise<Array<record>> — все завершённые сессии, которые ещё не подтверждены сервером как отправленные. */
   function getPendingQueue() {
     return idbGetAll_().then(function (idbRecords) {
       if (idbRecords !== null) {
@@ -358,12 +303,7 @@
     });
   }
 
-  /**
-   * Убирает запись из очереди ПОСЛЕ подтверждённого ответа сервера
-   * (Этап 4). Идемпотентно: повторный вызов с тем же id ничего не
-   * ломает, если запись уже удалена — поэтому повторная (задвоенная)
-   * попытка синхронизации не может задвоить пробег на клиенте.
-   */
+  /* Убирает запись из очереди ПОСЛЕ подтверждённого ответа сервера (Этап 4). */
   function removeFromQueue(record) {
     if (!record || !record.id) return Promise.resolve(false);
     if (record._backend === 'ls') {

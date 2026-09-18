@@ -2,12 +2,17 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Honghi EV Service</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#0e1318">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Honghi EV Service">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<script src="js/push-card.js"></script>
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -31,8 +36,9 @@
     display:block; width:100%; text-align:left; background:var(--card);
     border:1px solid var(--border); border-radius:14px; padding:18px 16px;
     margin-bottom:14px; cursor:pointer; text-decoration:none; color:var(--text);
+    transition:transform .1s ease;
   }
-  .choice:active{border-color:var(--accent);}
+  .choice:active{border-color:var(--accent); transform:scale(.98);}
   .choice .emoji{font-size:26px; margin-bottom:6px; display:block;}
   .choice .title{font-size:16px; font-weight:700; margin-bottom:2px;}
   .choice .desc{font-size:13px; color:var(--muted);}
@@ -53,9 +59,9 @@
   .install-btn{
     display:block; width:100%; background:var(--accent); color:#fff; border:none;
     border-radius:10px; padding:12px; font-size:15px; font-weight:700;
-    cursor:pointer;
+    cursor:pointer; transition:transform .1s ease, opacity .1s ease;
   }
-  .install-btn:active{opacity:0.85;}
+  .install-btn:active{opacity:0.85; transform:scale(.97);}
 
   .ios-steps{
     display:none; margin-top:12px; padding-top:12px; border-top:1px solid var(--border);
@@ -70,8 +76,10 @@
   }
   .installed-note.show{display:block;}
 
-  /* ЭТАП 10, п.5: соцсети — общий стиль для index.html/driver.html/
-     taxipark.html, чтобы кнопки выглядели одинаково во всех кабинетах. */
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:16px; margin-bottom:16px; text-align:left;
+  }
   .social-footer{
     display:flex; justify-content:center; gap:14px; margin-top:22px;
     padding-top:16px; border-top:1px solid var(--border);
@@ -96,6 +104,19 @@
     <div class="sub">Выберите, кто вы</div>
 
     <div class="installed-note" id="installedNote">✅ Приложение уже установлено на этом устройстве</div>
+
+    <!-- 16.10: та же карточка push-уведомлений, что в кабинетах, только
+         здесь ещё нет вошедшего аккаунта — только запрос разрешения
+         браузера заранее (permissionOnly в initPushCard_). -->
+    <div class="card" id="pushCard" style="display:none;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:700;">🔔 Уведомления</div>
+          <div class="sub" id="pushStatus" style="color:var(--muted); font-size:13px; margin-top:2px;">Проверка...</div>
+        </div>
+        <button class="install-btn" id="pushToggleBtn" style="width:auto; padding:10px 16px;">…</button>
+      </div>
+    </div>
 
     <div class="install-banner" id="installBanner">
       <div class="title">📲 Установите приложение</div>
@@ -211,6 +232,17 @@
       });
     });
   }
+
+  // 16.9/16.10: логика в js/push-card.js — initPushCard_ (permissionOnly:
+  // только запрос разрешения, без регистрации токена — для неё нужен
+  // вошедший сотрудник/водитель/таксопарк, которого на этой странице ещё нет).
+  initPushCard_({
+    cardId: 'pushCard',
+    tokenKey: 'index_push_permission',
+    permissionOnly: true,
+    enabledText: 'Разрешено — в любом кабинете ниже включение пройдёт сразу, без лишнего запроса',
+    disabledText: 'Разрешите заранее — включение в кабинете пройдёт без лишнего запроса'
+  });
 
   var installBanner = document.getElementById('installBanner');
   var installBtn = document.getElementById('installBtn');

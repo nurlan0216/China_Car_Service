@@ -1,15 +1,4 @@
-/**
- * Honghi EV Service — FREE routing service
- *
- * No paid API keys, no paid routing requests and no dependency on 2GIS/Yandex APIs.
- * Core distance calculation uses phone GPS locally (Haversine).
- * Route buttons simply open the free web/app route pages of 2GIS or Yandex.
- *
- * IMPORTANT:
- * - GPS mileage is approximate; official odometer remains the source of truth.
- * - This file never sends GPS coordinates to a routing API.
- * - If internet is unavailable, local distance calculation still works.
- */
+/* Honghi EV Service — FREE routing service No paid API keys, no paid routing requests and no dependency on 2GIS/Yandex APIs. */
 (function (global) {
   'use strict';
 

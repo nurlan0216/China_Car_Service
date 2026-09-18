@@ -2,11 +2,12 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Кабинет таксопарка — Honghi EV Service</title>
-<link rel="manifest" href="manifest-driver.json">
+<link rel="manifest" href="manifest-taxipark.json">
 <meta name="theme-color" content="#0e1318">
-<link rel="icon" href="icons/icon-192-driver.png">
+<link rel="icon" href="icons/icon-192-taxipark.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-title" content="CCS Таксопарк">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -31,13 +32,14 @@
   .row{display:flex; gap:8px;}
   input, select{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
-    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
+    background:#0d141e; color:var(--text); font-size:16px; margin-bottom:10px;
   }
   input:focus, select:focus{outline:1px solid var(--accent);}
   button{
     padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
-    cursor:pointer;
+    cursor:pointer; transition:transform .1s ease;
   }
+  button:active{transform:scale(.97);}
   .btn-primary{background:var(--accent); color:#fff;}
   .btn-full{width:100%;}
   label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
@@ -55,13 +57,17 @@
   .error{color:var(--danger); font-size:13px; margin-top:4px;}
   .toggle{color:var(--accent); font-size:14px; cursor:pointer; user-select:none; margin-top:8px;}
   #gate{max-width:340px; margin:40px auto 0;}
+  @keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+  /* 16.14: планшет/десктоп — кабинет пошире; мобильная раскладка (≤480px) не меняется. */
+  @media (min-width:481px){ #cabinet{max-width:820px; margin:0 auto;} .card{padding:20px;} }
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
   .veh-card{background:#0d141e; border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px;}
   .veh-head{display:flex; justify-content:space-between; align-items:center; cursor:pointer;}
   .veh-title{font-size:15px; font-weight:700;}
   .veh-sub{color:var(--muted); font-size:12px;}
   .veh-body{display:none; margin-top:10px;}
-  .veh-body.open{display:block;}
+  .veh-body.open{display:block; animation:secFade .2s ease;}
+  @keyframes secFade{from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:translateY(0);}}
   .chev{color:var(--muted); font-size:13px;}
 
   /* ЭТАП 10, п.5: соцсети — тот же стиль, что и в index.html/driver.html. */
@@ -108,6 +114,13 @@
   .story-modal-text{white-space:pre-wrap; font-size:15px; margin-bottom:10px; line-height:1.4;}
   .story-modal-meta{color:var(--muted); font-size:12px; margin-bottom:14px;}
 </style>
+<!-- ЭТАП 15.4, п.2 (промт «Push-карточка везде»): та же пара SDK, что уже
+     подключена в to.html/driver.html/act.html — нужна карточке push-
+     уведомлений в кабинете (см. #pushCard и JS ниже). -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
+<script src="js/config.js"></script>
+<script src="js/push-card.js"></script>
 </head>
 <body>
 
@@ -147,12 +160,7 @@
     <h1 id="tpTitle">🚖 Таксопарк</h1>
     <div class="sub" id="tpSubStatus"></div>
 
-    <!-- ЭТАП 3 (промт «Push + Telegram для Stories»): раньше Stories
-         показывались только в driver.html — теперь, раз таксопарк тоже
-         получает уведомление о новой публикации (см. notifyNewStoryTelegram_,
-         9_Stories.gs), ему нужно куда-то по этому уведомлению перейти.
-         Та же лента и то же модальное окно, что и в кабинете водителя,
-         просто без специфичных для водителя полей. -->
+    <!-- раньше Stories показывались только в driver.html — теперь, раз таксопарк тоже получает уведомление о новой публикации , ему нужно куда-то по этому уведомлению перейти. -->
     <div id="storiesWrap"></div>
 
     <!-- ЭТАП 11 (промт «Номер мастера для таксопарков»): контактный номер
@@ -169,16 +177,23 @@
       </a>
     </div>
 
-    <!-- ЭТАП 13.4 (промт «Отказ от WhatsApp-рассылки, подключение к
-         Telegram-боту через уникальную ссылку»): вместо звонка/сообщения
-         директору — одним нажатием подключаем уведомления в Telegram
-         лично этому таксопарку. Текст/кнопка меняются в зависимости от
-         payload.telegramConnected (см. renderTelegramLinkCard_ ниже). -->
+    <!-- вместо звонка/сообщения директору — одним нажатием подключаем уведомления в Telegram лично этому таксопарку. -->
     <div class="card" id="tgLinkCard" style="padding:12px 16px;">
       <div id="tgLinkStatus" style="margin-bottom:8px;"></div>
       <button class="btn-primary btn-full" id="tgLinkBtn" onclick="generateTelegramLink_(this)">Подключить уведомления в Telegram</button>
       <div class="loading" id="tgLinkLoading"></div>
       <div class="error" id="tgLinkError"></div>
+    </div>
+
+    <!-- п.2 : та же карточка push-уведомлений, что и в to.html/act.html (сотрудник) и driver.html (водитель), только токен сохраняется в отдельный лист "TaxiparkPushTokens" (apps-script/Push.gs, WebApi.gs) … -->
+    <div class="card" id="pushCard" style="display:none; padding:12px 16px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+        <div>
+          <div style="font-weight:600;">🔔 Push-уведомления</div>
+          <div class="sub" id="pushStatus" style="margin:2px 0 0;">Проверка...</div>
+        </div>
+        <button class="btn-primary" id="pushToggleBtn">…</button>
+      </div>
     </div>
 
     <div class="card">
@@ -197,18 +212,7 @@
       <div class="loading" id="dataStatus"></div>
     </div>
 
-    <!-- ЭТАП 13.10 (промт «Таксопарк может добавлять свои машины», версия с
-         правкой «сделать шторкой»): таксопарк не знает пароль будущего
-         водителя, поэтому машина заводится без пароля — точно так же, как
-         уже происходит, когда сотрудник СТО первым заносит запись работ по
-         новому гос. номеру (findOrCreateVehicle, 2_Sheets.gs). Пароль
-         появится позже, когда сам водитель зайдёт в driver.html и увидит
-         экран «Гос. номер уже в базе, но пароль ещё не задан»
-         (apiDriverSetPassword) — здесь ничего заново не придумывается.
-         Раздел сворачиваемый — тот же принцип, что уже используется для
-         карточек машин ниже (veh-head/veh-body + класс open,
-         toggleVehicle_), по умолчанию свёрнут, чтобы не занимать место на
-         экране, когда таксопарк просто хочет посмотреть список машин. -->
+    <!-- таксопарк не знает пароль будущего водителя, поэтому машина заводится без пароля — точно так же, как уже происходит, когда сотрудник СТО первым заносит запись работ по новому гос. -->
     <div class="card">
       <div class="veh-head" onclick="toggleAddVehicle_()">
         <div class="veh-title">➕ Добавить машину</div>
@@ -240,12 +244,7 @@
     </div>
   </div>
 
-  <!-- ЭТАП 11 (промт «Профиль таксопарка при первом входе»): показывается
-       вместо кабинета сразу после первого успешного входа, пока
-       needsProfile===true (см. buildTaxiparkCabinetPayload_,
-       6_WebApi.gs) — запрашивает контактное лицо, адрес офиса и телефон
-       ровно один раз; дальше эти данные видны только директору СТО (в
-       Таблице, лист "Taxiparks") и в само приложение больше не выводятся. -->
+  <!-- показывается вместо кабинета сразу после первого успешного входа, пока needsProfile===true — запрашивает контактное лицо, адрес офиса и телефон ровно один раз; дальше эти данные видны только… -->
   <div id="profileScreen" style="display:none; max-width:340px; margin:40px auto 0;">
     <h1 style="text-align:center">👋 Ещё пара слов о вас</h1>
     <div class="sub" style="text-align:center">Это первый вход этого таксопарка — укажите контактные данные один раз, дальше кабинет будет открываться сразу</div>
@@ -263,8 +262,7 @@
   </div>
 
 <script>
-  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
-
+  // SCRIPT_URL — см. js/config.js
   function fetchWithRetry_(url, options) {
     return fetch(url, options).catch(function () {
       return new Promise(function (resolve) { setTimeout(resolve, 1500); })
@@ -290,18 +288,13 @@
     return fetchWithRetry_(url).then(function (r) { return r.json(); });
   }
 
-  function escapeHtml(s) {
+  function escapeHtml_(s) {
     return String(s === null || s === undefined ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
-  /* ===================== STORIES — временная доска объявлений =====================
-     ЭТАП 3 (промт «Push + Telegram для Stories»): та же лента и то же
-     модальное окно, что и в driver.html (см. там же подробный комментарий
-     у STORY_LIFETIME_MS_/apiGetActiveStories, 9_Stories.gs) — управление
-     публикациями по-прежнему только из to.html (супер-админ), здесь
-     только чтение через action:'stories'. */
+  /* ===================== STORIES — временная доска объявлений ===================== : та же лента и то же модальное окно, что и в driver.html — управление публикациями по-прежнему только из to.html… */
   var STORIES_DATA_ = [];
 
   function loadStories() {
@@ -328,7 +321,7 @@
         : '<div class="story-thumb text-only">📢</div>';
       var label = s.text ? s.text : 'Объявление';
       html += '<div class="story-card" onclick="openStory_(' + idx + ')">' + thumb +
-        '<div class="story-label">' + escapeHtml(label) + '</div></div>';
+        '<div class="story-label">' + escapeHtml_(label) + '</div></div>';
     });
     html += '</div>';
     wrap.innerHTML = html;
@@ -357,8 +350,8 @@
 
     var html = '';
     if (s.imageUrl) html += '<img src="' + s.imageUrl + '" alt="">';
-    if (s.text) html += '<div class="story-modal-text">' + escapeHtml(s.text) + '</div>';
-    html += '<div class="story-modal-meta">' + escapeHtml(s.author || '') +
+    if (s.text) html += '<div class="story-modal-text">' + escapeHtml_(s.text) + '</div>';
+    html += '<div class="story-modal-meta">' + escapeHtml_(s.author || '') +
       ' · ' + formatStoryTimeAgo_(s.createdAt) + ' · ' + formatStoryTimeLeft_(s.expiresAt) + '</div>';
     html += '<button class="btn-primary btn-full" onclick="this.closest(\'.story-modal-backdrop\').remove()">Закрыть</button>';
 
@@ -368,11 +361,7 @@
   }
   /* ===================== /STORIES ===================== */
 
-  // ЭТАП 13.7/13.10: autocapitalize="characters" — только подсказка
-  // виртуальной клавиатуре телефона, ничего не гарантирует и не работает
-  // на компьютере. Принудительно переводим значение поля гос. номера в
-  // верхний регистр по событию 'input', сохраняя позицию курсора (тот же
-  // код, что уже используется в to.html/driver.html/act.html).
+  // /13.10: autocapitalize="characters" — только подсказка виртуальной клавиатуре телефона, ничего не гарантирует и не работает на компьютере.
   function forceUppercasePlate_(input) {
     if (!input) return;
     input.addEventListener('input', function () {
@@ -438,7 +427,9 @@
   function showProfileScreen_() {
     document.getElementById('gate').style.display = 'none';
     document.getElementById('cabinet').style.display = 'none';
-    document.getElementById('profileScreen').style.display = 'block';
+    var pf = document.getElementById('profileScreen');
+    pf.style.display = 'block';
+    pf.style.animation = 'fadeIn .25s ease';
   }
 
   function saveTaxiparkProfile(btn) {
@@ -469,18 +460,18 @@
   function showCabinet(payload) {
     document.getElementById('gate').style.display = 'none';
     document.getElementById('profileScreen').style.display = 'none';
-    document.getElementById('cabinet').style.display = 'block';
+    var cab = document.getElementById('cabinet');
+    var wasHidden = cab.style.display === 'none' || !cab.style.display;
+    cab.style.display = 'block';
+    if (wasHidden) cab.style.animation = 'fadeIn .25s ease';
     document.getElementById('tpTitle').innerText = '🚖 ' + payload.taxiparkName;
+    initTaxiparkPushUi_(); // ЭТАП 15.4, п.2: показать/обновить карточку push-уведомлений
     renderServicePhone_(payload.servicePhone, payload.taxiparkName);
     renderTaxiparkData_(payload);
     scheduleTaxiparkAutoRefresh_();
   }
 
-  // ЭТАП 13.4: карточка перерисовывается при каждом показе кабинета И при
-  // каждом тихом автообновлении (см. renderTaxiparkData_ ниже), поэтому
-  // как только чат реально подключится (пользователь перейдёт по ссылке
-  // и напишет боту /start), статус в кабинете обновится сам, без
-  // перезахода — в течение ближайших 20 секунд, как и остальные данные.
+  // карточка перерисовывается при каждом показе кабинета И при каждом тихом автообновлении , поэтому как только чат реально подключится (пользователь перейдёт по ссылке и напишет боту /start), статус в…
   function renderTelegramLinkCard_(payload) {
     var statusEl = document.getElementById('tgLinkStatus');
     var btn = document.getElementById('tgLinkBtn');
@@ -512,18 +503,26 @@
     });
   }
 
+  /* 16.9: логика в js/push-card.js — initPushCard_. */
+  var TAXIPARK_PUSH_TOKEN_KEY = 'taxipark_push_token';
+  function initTaxiparkPushUi_() {
+    initPushCard_({
+      cardId: 'pushCard',
+      tokenKey: TAXIPARK_PUSH_TOKEN_KEY,
+      registerAction: 'taxiparkRegisterPushToken',
+      unregisterAction: 'taxiparkUnregisterPushToken',
+      post: apiPost,
+      buildParams: function () { return { name: TP_NAME, code: TP_CODE }; }
+    });
+  }
+  /* ================== /PUSH-УВЕДОМЛЕНИЯ ================== */
+
   // ЭТАП 11 (промт «Номер мастера для таксопарков»): показываем блок,
   // только если номер вообще задан в настройках СТО — иначе он просто
   // не заполнен, показывать пустую строку незачем.
   function renderServicePhone_(phone, taxiparkName) {
     var card = document.getElementById('servicePhoneCard');
-    // ЭТАП 13.1 (доработка): если в SERVICE_PHONE всё ещё стоит заглушка
-    // из шаблона setupConfig() (например, "+7 (___) ___-__-__" — с
-    // подчёркиваниями вместо цифр) — это НЕ настоящий номер. Раньше в
-    // этом случае карточка всё равно показывалась с "номером"-заглушкой
-    // и ссылка на WhatsApp получалась битой (набиралась всего 1 цифра).
-    // Теперь считаем это тем же самым, что и пустой SERVICE_PHONE —
-    // просто не показываем блок вовсе, пока не впишут реальный номер.
+    // (доработка): если в SERVICE_PHONE всё ещё стоит заглушка из шаблона setupConfig() (например, "+7 (___) ___-__-__" — с подчёркиваниями вместо цифр) — это НЕ настоящий номер.
     var digitsOnly = String(phone || '').replace(/[^0-9]/g, '');
     if (!phone || phone.indexOf('_') !== -1 || digitsOnly.length < 10) {
       card.style.display = 'none';
@@ -592,16 +591,18 @@
   function toggleAddVehicle_() {
     var body = document.getElementById('addVehicleBody');
     var chev = document.getElementById('addVehicleChev');
-    var isOpen = body.classList.toggle('open');
-    chev.textContent = isOpen ? '▲' : '▼';
+    var willOpen = !body.classList.contains('open');
+    if (willOpen) {
+      body.classList.add('open');
+    } else {
+      // 16.15: короткий fade-out перед display:none, а не мгновенное скрытие
+      body.style.animation = 'secFade .15s ease reverse';
+      setTimeout(function () { body.classList.remove('open'); body.style.animation = ''; }, 150);
+    }
+    chev.textContent = willOpen ? '▲' : '▼';
   }
 
-  // ЭТАП 13.10 (промт «Таксопарк может добавлять свои машины»): серверный
-  // метод сам проверяет verifyTaxiparkLogin_ и подставляет название
-  // таксопарка из уже проверенной сессии — форма его никуда не передаёт.
-  // Машина заводится без пароля (см. apiTaxiparkAddVehicle, 6_WebApi.gs);
-  // при успехе просто перерисовываем список тем же payload, который уже
-  // содержит новую машину.
+  // серверный метод сам проверяет verifyTaxiparkLogin_ и подставляет название таксопарка из уже проверенной сессии — форма его никуда не передаёт.
   function addTaxiparkVehicle(btn) {
     var plate = document.getElementById('avPlate').value.trim();
     var model = document.getElementById('avModel').value.trim();
@@ -640,7 +641,14 @@
   function toggleVehicle_(plate) {
     openVehiclePlates_[plate] = !openVehiclePlates_[plate];
     var body = document.getElementById('vbody_' + cssId_(plate));
-    if (body) body.classList.toggle('open', !!openVehiclePlates_[plate]);
+    if (!body) return;
+    if (openVehiclePlates_[plate]) {
+      body.classList.add('open');
+    } else {
+      // 16.15: короткий fade-out перед display:none, а не мгновенное скрытие
+      body.style.animation = 'secFade .15s ease reverse';
+      setTimeout(function () { body.classList.remove('open'); body.style.animation = ''; }, 150);
+    }
   }
 
   function cssId_(plate) {
@@ -683,9 +691,9 @@
           '💬 Спросить у мастера про эту машину</a><br>';
       }
       html += '<div class="veh-card">' +
-        '<div class="veh-head" onclick="toggleVehicle_(\'' + escapeHtml(v.plate).replace(/'/g, "\\'") + '\')">' +
-          '<div><div class="veh-title">' + escapeHtml(v.plate) + '</div>' +
-          '<div class="veh-sub">' + escapeHtml(v.model || '—') + (v.driverFio ? ' · ' + escapeHtml(v.driverFio) : '') + '</div></div>' +
+        '<div class="veh-head" onclick="toggleVehicle_(\'' + escapeHtml_(v.plate).replace(/'/g, "\\'") + '\')">' +
+          '<div><div class="veh-title">' + escapeHtml_(v.plate) + '</div>' +
+          '<div class="veh-sub">' + escapeHtml_(v.model || '—') + (v.driverFio ? ' · ' + escapeHtml_(v.driverFio) : '') + '</div></div>' +
           '<div><span class="chev">' + (isOpen ? '▲' : '▼') + '</span></div>' +
         '</div>' +
         '<div class="veh-body' + (isOpen ? ' open' : '') + '" id="vbody_' + id + '">' +
@@ -702,8 +710,8 @@
     if (!rows || !rows.length) return '<div class="empty">Работ по этой машине пока нет</div>';
     var html = '<table><thead><tr><th>Дата</th><th>Работа</th><th>Сумма</th></tr></thead><tbody>';
     rows.forEach(function (r) {
-      html += '<tr><td>' + escapeHtml(r.date) + '</td>' +
-        '<td>' + escapeHtml(r.type) + (r.description ? ' — ' + escapeHtml(r.description) : '') + '</td>' +
+      html += '<tr><td>' + escapeHtml_(r.date) + '</td>' +
+        '<td>' + escapeHtml_(r.type) + (r.description ? ' — ' + escapeHtml_(r.description) : '') + '</td>' +
         '<td>' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</td></tr>';
     });
     html += '</tbody></table>';

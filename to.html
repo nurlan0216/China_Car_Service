@@ -2,7 +2,8 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи, где он бы мешал. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Учёт ТО — Honghi EV Service</title>
 <link rel="manifest" href="manifest-staff.json">
 <meta name="theme-color" content="#0e1318">
@@ -19,6 +20,8 @@
      остальной сайт работает как обычно, даже если CDN недоступен. -->
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
+<script src="js/config.js"></script>
+<script src="js/push-card.js"></script>
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
@@ -35,32 +38,17 @@
     background:var(--card); border:1px solid var(--border); border-radius:14px;
     padding:16px; margin-bottom:16px;
   }
-  /* ЭТАП 13.3: аккордеон для сворачиваемых разделов кабинета — тот же
-     принцип, что уже работает в taxipark.html (veh-head/veh-body + класс
-     open, стрелка ▲/▼), только применён к заголовкам целых карточек
-     вместо карточек машин. Логика внутри разделов не менялась — только
-     эта обёртка (клик по заголовку сворачивает/разворачивает тело). */
+  /* аккордеон для сворачиваемых разделов кабинета — тот же принцип, что уже работает в taxipark.html (veh-head/veh-body + класс open, стрелка ▲/▼), только применён к заголовкам целых карточек вместо карточек машин. */
   .sec-head{display:flex; justify-content:space-between; align-items:center; cursor:pointer;}
   .sec-body{display:none; margin-top:12px;}
-  .sec-body.open{display:block;}
+  .sec-body.open{display:block; animation:secFade .2s ease;}
+  @keyframes secFade{from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:translateY(0);}}
+  @keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+  /* 16.14: планшет/десктоп — контейнер кабинета сотрудника пошире; мобильная раскладка (≤480px) не меняется. */
+  @media (min-width:481px){ #mainApp{max-width:820px; margin:0 auto;} .card{padding:20px;} }
   .chev{color:var(--muted); font-size:13px;}
   .row{display:flex; gap:8px;}
-  /* ЭТАП 13.13-fix (было) / ЭТАП 13.16-fix (сейчас, «CORS сломал реальный
-     прогресс-бар»): визуальный индикатор загрузки больших вложений
-     (фото/видео в Stories и в рассылке). Раньше здесь была ссылка на
-     xhr.upload.onprogress — НАСТОЯЩИЙ процент по факту отправленных
-     байт. Оказалось, что сама ПОДПИСКА на это событие заставляет браузер
-     слать перед запросом служебный CORS-preflight (OPTIONS), а Google
-     Apps Script не умеет отвечать на OPTIONS правильными заголовками
-     (у него нет doOptions(), только doGet/doPost) — в результате ВСЯ
-     рассылка и Stories переставали работать вообще, с любым файлом или
-     без него ("Ошибка сети" = "blocked by CORS policy: ... preflight").
-     Обычный fetch() (как во всех остальных действиях — вход, сохранение
-     ТО и т.п.) preflight не требует и работает нормально, но не даёт
-     прогресс по байтам в принципе — только эта полоса и осталась,
-     теперь она построена на ОЦЕНКЕ по времени (см. estimateUploadProgress_
-     ниже), а не на реальных байтах. Это единственный вариант, совместимый
-     с Apps Script как бэкендом. */
+  /* fix (было) / -fix (сейчас, «CORS сломал реальный прогресс-бар»): визуальный индикатор загрузки больших вложений (фото/видео в Stories и в рассылке). */
   .progress-wrap{display:none; margin:8px 0;}
   .progress-wrap.active{display:block;}
   .progress-track{width:100%; height:8px; background:#0d141e; border:1px solid var(--border); border-radius:6px; overflow:hidden;}
@@ -68,13 +56,14 @@
   .progress-pct{font-size:12px; color:var(--muted); margin-top:4px;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
-    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
+    background:#0d141e; color:var(--text); font-size:16px; margin-bottom:10px;
   }
   input:focus, select:focus, textarea:focus{outline:1px solid var(--accent);}
   button{
     padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
-    cursor:pointer;
+    cursor:pointer; transition:transform .1s ease;
   }
+  button:active{transform:scale(.97);}
   .btn-primary{background:var(--accent); color:#fff;}
   .btn-full{width:100%;}
   .btn-add-record{
@@ -160,7 +149,7 @@
           <div style="font-weight:600;">🔔 Push-уведомления</div>
           <div class="sub" id="pushStatus" style="margin:2px 0 0;">Проверка...</div>
         </div>
-        <button class="btn-primary" id="pushToggleBtn" onclick="togglePush()">…</button>
+        <button class="btn-primary" id="pushToggleBtn">…</button>
       </div>
     </div>
 
@@ -174,11 +163,7 @@
     </div>
 
     <div id="resultsCard" class="card" style="display:none;">
-      <!-- ЭТАП 4 (Часть 4.2 промта): короткий блок остатка по открытому
-           акту "Получения" этой машины (если есть) — сумма, тип оплаты,
-           текущий остаток. Заполняется в renderOpenActInfo() из
-           vehicleinfo-ответа (openAct), обновляется при каждом doSearch(),
-           в т.ч. сразу после сохранения новой записи ТО. -->
+      <!-- (Часть 4.2 промта): короткий блок остатка по открытому акту "Получения" этой машины (если есть) — сумма, тип оплаты, текущий остаток. -->
       <div id="openActInfo" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:#0d141e; border:1px solid var(--accent); font-size:13px;"></div>
       <div id="summary" class="summary"></div>
       <div id="tableWrap"></div>
@@ -210,15 +195,10 @@
           <label>Марка и модель (необязательно)</label>
           <input id="f_model" placeholder="Например, Chery Tiggo 4">
 
-          <!-- ЭТАП 11 (промт «Тип машины частная/таксопарк в to.html»):
-               раньше этот выбор был только в регистрации водителя
-               (driver.html) — сотрудник СТО, заводящий машину впервые
-               сам, вообще не мог его указать. Список таксопарков
-               загружается динамически из базы (см. loadTaxiparkOptionsTo_),
-               так же, как и в driver.html — без хардкода конкретных
-               названий (Яндекс/InDrive и т.п.). -->
+          <!-- раньше этот выбор был только в регистрации водителя (driver.html) — сотрудник СТО, заводящий машину впервые сам, вообще не мог его указать. -->
           <label>Тип машины</label>
           <select id="f_cartype" onchange="onCarTypeChangeTo_()">
+            <option value="">— выберите тип —</option>
             <option value="Частная">Частная</option>
             <option value="Такси">Таксопарк</option>
           </select>
@@ -266,18 +246,7 @@
         <label>Стоимость</label>
         <input id="f_cost" type="number" placeholder="15000">
 
-        <!-- ЭТАП 3 (новое ТЗ) + ЭТАП 2.3 (промт «Мастер / Комбинированная
-             оплата»): оплата записи ТО — Kaspi/наличные/ИП, можно
-             заполнить один, два или все три способа. Сумма способов не
-             должна превышать стоимость (проверяется и здесь, и повторно
-             на сервере — см. apiAddRecord). Поле суммы показывается
-             только после того, как отмечен соответствующий чекбокс —
-             тот же принцип явного выбора способа, что и в act.html, для
-             единообразия UX между файлами. В отличие от act.html поле
-             остаётся видимым и при ровно одном отмеченном способе:
-             здесь нет отдельного общего поля "оплачено", сумма способа
-             вводится прямо сюда, а частичная оплата ТО (меньше полной
-             стоимости) — штатный случай. -->
+        <!-- (новое ТЗ) + : оплата записи ТО — Kaspi/наличные/ИП, можно заполнить один, два или все три способа. -->
         <label style="margin-top:2px">Способ(ы) оплаты</label>
         <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:6px">
           <label style="display:flex;align-items:center;gap:8px;margin:0;font-size:14px;color:var(--text);font-weight:400">
@@ -309,39 +278,15 @@
           <span id="payBalanceLine" style="display:block; font-size:12px; color:var(--muted); margin-top:2px;"></span>
         </div>
 
-        <!-- ЭТАП 10, п.8 (множественный ввод работ за один визит): если у
-             машины за один визит несколько работ (масло + фильтр +
-             колодки и т.п.), сотрудник может добавить их все ДО отправки —
-             каждая "➕ Добавить ещё работу" сохраняет текущие поля работы
-             выше (тип/описание/запчасти/стоимость/оплата) в список этого
-             визита (pendingWorkRows_, ниже в скрипте) и очищает только их,
-             оставляя пробег/владельца/мастера как есть. Финальная кнопка
-             "Сохранить визит" отправляет ВСЕ строки визита (включая
-             текущую, ещё не добавленную кнопкой) одним batch-запросом
-             (action:'addRecords') — один вызов Apps Script и одна запись
-             в историю на каждую работу, как и раньше, но без повторного
-             похода в сеть на каждую отдельную работу. -->
+        <!-- п.8 (множественный ввод работ за один визит): если у машины за один визит несколько работ (масло + фильтр + колодки и т.п.), сотрудник может добавить их все ДО отправки — каждая "➕ Добавить ещё… -->
         <button type="button" class="btn-primary btn-full" style="background:var(--accent-2); margin-bottom:10px;" onclick="addPendingWorkRow_()">➕ Добавить ещё работу</button>
         <div id="pendingRowsWrap" style="display:none; margin-bottom:14px;">
           <label style="margin-bottom:6px;">Работы за этот визит (ждут отправки)</label>
           <div id="pendingRowsList"></div>
         </div>
 
-        <!-- ЭТАП 4: "Мастер" — это сам вошедший сотрудник (он же заносит
-             запись о том, что заменил/сделал), а не отдельный человек,
-             которого нужно вписывать вручную. Поле теперь не редактируется
-             и подставляется автоматически из аккаунта; фактическое имя,
-             которое попадёт в запись, в любом случае проверяется и
-             подставляется на сервере (см. apiAddRecord в 6_WebApi.gs) —
-             это только для наглядности на экране. -->
-        <!-- ЭТАП 7 (пункт 3 промта фиксов): перенесено из act.html —
-             обычный сотрудник видит нередактируемое поле со своим именем
-             (masterAutoWrap), супер-админ — свободный текстовый ввод с
-             подсказками из уже существующих мастеров (masterAdminWrap +
-             <datalist>), чтобы иметь возможность занести запись за
-             другого сотрудника. Сервер (apiAddRecord, 6_WebApi.gs)
-             всё равно сам решает, чьё имя реально попадёт в запись —
-             см. пункт 3.2 промта. -->
+        <!-- "Мастер" — это сам вошедший сотрудник (он же заносит запись о том, что заменил/сделал), а не отдельный человек, которого нужно вписывать вручную. -->
+        <!-- (пункт 3 промта фиксов): перенесено из act.html — обычный сотрудник видит нередактируемое поле со своим именем (masterAutoWrap), супер-админ — свободный текстовый ввод с подсказками из уже… -->
         <div id="masterAutoWrap">
           <label>Мастер</label>
           <input type="text" id="f_master_auto" disabled>
@@ -361,19 +306,8 @@
       </div>
     </div>
 
-    <!-- ЭТАП 7 (пункт 2 промта фиксов, Вариант А): этот блок раньше
-         располагался сразу после карточки поиска, ДО resultsCard —
-         из-за этого, чтобы дойти до кнопки "Добавить новую запись по
-         этой машине" (внутри resultsCard выше), приходилось пролистывать
-         весь общий список истории работ. Перенесён сюда, ниже
-         resultsCard, — логика загрузки/фильтрации истории
-         (loadWorkHistory/apiGetWorkHistory) не менялась, изменилось
-         только расположение блока в разметке. -->
-    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 1):
-         общий список выполненных работ, не привязанный к поиску по одной
-         машине выше. Обычный сотрудник видит только свои работы, супер-
-         админ — все (сервер сам решает это в apiGetWorkHistory, фронтенд
-         только показывает то, что пришло). -->
+    <!-- (пункт 2 промта фиксов, Вариант А): этот блок раньше располагался сразу после карточки поиска, ДО resultsCard — из-за этого, чтобы дойти до кнопки "Добавить новую запись по этой машине" (внутри… -->
+    <!-- общий список выполненных работ, не привязанный к поиску по одной машине выше. -->
     <div class="card" id="historyCard">
       <div class="sec-head" onclick="toggleSection_(this)">
         <div>
@@ -419,13 +353,7 @@
     <!-- ЭТАП 13.3: новый порядок разделов — "Заявки на согласование" сразу
          под историей (было ниже, после Stories/сброса пароля/диагностики).
          Логика раздела (loadPendingApprovals и т.д.) не менялась. -->
-    <!-- ЭТАП 12.3 (промт «По этой записи уже есть заявка на согласовании»),
-         п.1: супер-админ раньше видел зависшие заявки только открыв лист
-         "ApprovalRequests" в самой Google Таблице. Теперь список виден
-         прямо здесь, с возможностью разрешить/отклонить без Telegram —
-         полезно, если кнопки в Telegram по какой-то причине не работают
-         (см. Этап 12.2) или директор временно недоступен. Видно и
-         работает только для супер-админа (IS_SUPER выше). -->
+    <!-- п.1: супер-админ раньше видел зависшие заявки только открыв лист "ApprovalRequests" в самой Google Таблице. -->
     <div class="card" id="pendingApprovalsCard" style="display:none;">
       <div class="sec-head" onclick="toggleSection_(this)">
         <h1 style="font-size:16px; margin:0 0 4px;">⏳ Заявки на согласование</h1>
@@ -441,13 +369,7 @@
       </div>
     </div>
 
-    <!-- ЭТАП 13.12 (промт «Доступы таксопарков»): пароль (код доступа)
-         таксопарка нигде не хранится в читаемом виде — только SHA-256-
-         хэш (см. hashTaxiparkCode_/findTaxiparkRow_, 2_Sheets.gs).
-         Показать уже заданный код технически невозможно, поэтому здесь
-         не "посмотреть старый", а выпустить новый на замену — тот же
-         принцип, что уже реализован для сотрудников в Этапе 12.1.
-         Видно и работает только для супер-админа (IS_SUPER выше). -->
+    <!-- пароль (код доступа) таксопарка нигде не хранится в читаемом виде — только SHA-256- хэш . -->
     <div class="card" id="taxiparkAccessCard" style="display:none;">
       <div class="sec-head" onclick="toggleSection_(this)">
         <h1 style="font-size:16px; margin:0 0 4px;">🔑 Доступы таксопарков</h1>
@@ -474,13 +396,7 @@
       </div>
     </div>
 
-    <!-- ЭТАП 6 (промт «История работ / отчёты / Stories», Часть 4):
-         временная доска объявлений Stories — публикация фото/текста,
-         которая живёт ровно 24 часа и потом сама пропадает. Управление —
-         только здесь, только для супер-админа (см. IS_SUPER выше).
-         Старое постоянное "Объявление" убрано целиком — Stories его
-         полностью заменяют. Показ водителям — в driver.html, никакой
-         отдельной страницы для этого нет. -->
+    <!-- временная доска объявлений Stories — публикация фото/текста, которая живёт ровно 24 часа и потом сама пропадает. -->
     <div class="card" id="storiesCard" style="display:none;">
       <div class="sec-head" onclick="toggleSection_(this)">
         <h1 style="font-size:16px; margin:0 0 4px;">📢 Stories (временные объявления, 24 часа)</h1>
@@ -512,11 +428,7 @@
       </div>
     </div>
 
-    <!-- ЭТАП 12.2 (промт «Кнопка "Разрешить" в Telegram ничего не меняет»):
-         супер-админ раньше мог только просить программиста зайти в
-         редактор Apps Script и проверить getWebhookInfo/токен руками.
-         Теперь то же самое видно прямо здесь, одной кнопкой. Видно и
-         работает только для супер-админа (IS_SUPER выше). -->
+    <!-- супер-админ раньше мог только просить программиста зайти в редактор Apps Script и проверить getWebhookInfo/токен руками. -->
     <div class="card" id="tgDiagCard" style="display:none;">
       <div class="sec-head" onclick="toggleSection_(this)">
         <h1 style="font-size:16px; margin:0 0 4px;">📡 Диагностика Telegram-уведомлений</h1>
@@ -530,19 +442,13 @@
       <div class="loading" id="tgDiagStatus"></div>
       <div id="tgDiagResult" style="margin-top:10px;"></div>
 
-      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook и очистить очередь</button>
+      <button class="btn-primary btn-full" id="tgDiagReinstallBtn" style="display:none; margin-top:8px; background:var(--accent-2);" onclick="reinstallTelegramWebhook(this)">Переустановить webhook / очистить очередь</button>
       </div>
     </div>
 
     <!-- ЭТАП 13.3: "Сброс пароля" перенесён в самый низ страницы (был
          сразу после Stories) — используется реже остальных разделов. -->
-    <!-- ЭТАП 12 (промт «Неверный пароль» / сброс пароля сотрудника):
-         супер-админ мог только смотреть на ошибку в логах и просить
-         поправить пароль сотрудника вручную в таблице. Теперь можно
-         сбросить пароль сотруднику прямо отсюда — старый пароль и все
-         запомненные устройства этого сотрудника сразу перестают
-         работать (см. apiAdminResetPassword, 6_WebApi.gs). Видно и
-         работает только для супер-админа (IS_SUPER выше). -->
+    <!-- супер-админ мог только смотреть на ошибку в логах и просить поправить пароль сотрудника вручную в таблице. -->
     <div class="card" id="pwResetCard" style="display:none;">
       <div class="sec-head" onclick="toggleSection_(this)">
         <h1 style="font-size:16px; margin:0 0 4px;">🔑 Сброс пароля сотрудника</h1>
@@ -563,18 +469,7 @@
       </div>
     </div>
 
-    <!-- ЭТАП 13.13 (промт «Рассылка в Telegram»): последний раздел на
-         странице — ещё ниже, чем перенесённый вниз «Сброс пароля».
-         Ручная рассылка сообщением/фото/видео подключённым через Этап
-         13.4 таксопаркам и/или водителям (например: «сервис не работает
-         завтра», акция, ссылка на инструкцию) — то, что не привязано к
-         конкретному акту/машине и не должно идти автоматически. Видно и
-         работает только для супер-админа (IS_SUPER выше), как и
-         «Диагностика Telegram»/«Доступы таксопарков». Файл (если
-         прикреплён) никогда не кладётся на Google Диск — превращается в
-         blob прямо на сервере и уходит в Telegram напрямую, поэтому
-         никакого отдельного «автоудаления после отправки» не требуется
-         (см. комментарий у apiTelegramBroadcast, 6_WebApi.gs). -->
+    <!-- последний раздел на странице — ещё ниже, чем перенесённый вниз «Сброс пароля». -->
     <div class="card" id="broadcastCard" style="display:none;">
       <div class="sec-head" onclick="toggleSection_(this)">
         <h1 style="font-size:16px; margin:0 0 4px;">📣 Рассылка в Telegram</h1>
@@ -619,156 +514,22 @@
   </div>
 
 <script>
-  // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App, полученный при
-  // Deploy -> Manage deployments -> Web app (заканчивается на /exec).
-  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
-
-  // ================== PUSH-УВЕДОМЛЕНИЯ (Firebase Cloud Messaging) ==================
-  // ФИКС (промт «Push-уведомления»). Серверная часть — apps-script/12_Push.gs
-  // (там же — полная инструкция по Firebase, пункты 1-7 в шапке файла).
-  // Здесь нужны ТОЛЬКО два публичных (не секретных) значения из шагов 2-3
-  // той инструкции — ключи сервис-аккаунта (шаг 4) сюда НЕ вставляются,
-  // они идут только в setupConfig() (1_Config.gs), это разные вещи.
-  //
-  // ВСТАВЬТЕ_FIREBASE_CONFIG — объект firebaseConfig из Firebase Console
-  // (Project settings -> General -> Your apps -> "</>"), вставьте его
-  // сюда ЦЕЛИКОМ вместо null:
-  var FIREBASE_CONFIG = {
-    apiKey: "AIzaSyAwD02lTtIflvSGjELsI6HbrIxdA_OdgG4",
-    authDomain: "chinacarservice-6f004.firebaseapp.com",
-    projectId: "chinacarservice-6f004",
-    storageBucket: "chinacarservice-6f004.firebasestorage.app",
-    messagingSenderId: "265907667641",
-    appId: "1:265907667641:web:8d6cc2d6c7412546dd5168"
-  };
-  //
-  // ВСТАВЬТЕ_VAPID_KEY — ключ из Project settings -> Cloud Messaging ->
-  // Web configuration -> Web Push certificates -> Generate key pair:
-  var FIREBASE_VAPID_KEY = "BNQXoFpnnT3UJr3K8rbIlw9jTGu_yMe3qwTTu9-k0V0iub2JkRTIR4NG1gh0T7EQbMJjhFjR8W0WOmWzBEhL0Uo";
-
-  // ВАЖНО: те же два значения (FIREBASE_CONFIG, VAPID не нужен) нужно
-  // продублировать в файле firebase-messaging-sw.js (лежит рядом с
-  // to.html) — см. комментарий в начале того файла. Без этого фоновые
-  // push (когда вкладка/сайт закрыты) приходить не будут, хотя кнопка
-  // ниже будет работать.
-
+  // 16.9: логика вынесена в js/push-card.js — initPushCard_. Здесь только
+  // параметры страницы.
   var PUSH_TOKEN_KEY = 'to_push_token';
-  var firebaseMessagingInstance_ = null;
-
-  function pushBrowserSupported_() {
-    return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
-  }
-
-  function pushConfigured_() {
-    return !!FIREBASE_CONFIG && typeof FIREBASE_CONFIG === 'object' && !!FIREBASE_VAPID_KEY;
-  }
-
-  // Вызывается из showApp() при каждом входе — решает, показывать ли
-  // карточку вообще, и в каком она состоянии (включено/выключено).
   function initPushUi_() {
-    var card = document.getElementById('pushCard');
-    if (!card) return;
-    if (!pushBrowserSupported_()) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
-    refreshPushStatus_();
-  }
-
-  function refreshPushStatus_() {
-    var statusEl = document.getElementById('pushStatus');
-    var btn = document.getElementById('pushToggleBtn');
-    if (!statusEl || !btn) return;
-
-    if (!pushConfigured_()) {
-      statusEl.innerText = 'Пока не настроено (см. FIREBASE_CONFIG в to.html)';
-      btn.innerText = '—';
-      btn.disabled = true;
-      return;
-    }
-
-    btn.disabled = false;
-    var saved = localStorage.getItem(PUSH_TOKEN_KEY);
-    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
-      statusEl.innerText = 'Заблокировано в браузере — разрешите уведомления в настройках сайта вручную';
-      btn.innerText = 'Включить';
-    } else if (saved) {
-      statusEl.innerText = 'Включены на этом устройстве';
-      btn.innerText = 'Отключить';
-    } else {
-      statusEl.innerText = 'Выключены';
-      btn.innerText = 'Включить';
-    }
-  }
-
-  function ensureFirebaseMessaging_() {
-    if (firebaseMessagingInstance_) return Promise.resolve(firebaseMessagingInstance_);
-    if (typeof firebase === 'undefined') {
-      return Promise.reject(new Error('Firebase SDK не загрузился (нет сети или заблокирован CDN)'));
-    }
-    if (!firebase.apps || !firebase.apps.length) {
-      firebase.initializeApp(FIREBASE_CONFIG);
-    }
-    firebaseMessagingInstance_ = firebase.messaging();
-    return Promise.resolve(firebaseMessagingInstance_);
-  }
-
-  function togglePush() {
-    var saved = localStorage.getItem(PUSH_TOKEN_KEY);
-    if (saved) {
-      disablePush_(saved);
-    } else {
-      enablePush_();
-    }
-  }
-
-  function enablePush_() {
-    var statusEl = document.getElementById('pushStatus');
-    var btn = document.getElementById('pushToggleBtn');
-    if (btn) btn.disabled = true;
-    if (statusEl) statusEl.innerText = 'Запрашиваем разрешение браузера...';
-
-    navigator.serviceWorker.register('firebase-messaging-sw.js')
-      .then(function (registration) {
-        return Notification.requestPermission().then(function (permission) {
-          if (permission !== 'granted') throw new Error('Разрешение не выдано');
-          return ensureFirebaseMessaging_();
-        }).then(function (messaging) {
-          return messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: registration });
-        });
-      })
-      .then(function (token) {
-        if (!token) throw new Error('Не удалось получить токен устройства');
-        return apiPost({ action: 'registerPushToken', name: ADMIN_NAME, pw: PW, token: token })
-          .then(function (res) {
-            if (!res.ok) throw new Error(res.error || 'Сервер отклонил регистрацию');
-            localStorage.setItem(PUSH_TOKEN_KEY, token);
-            refreshPushStatus_();
-          });
-      })
-      .catch(function (err) {
-        if (statusEl) statusEl.innerText = 'Ошибка: ' + (err && err.message ? err.message : err);
-        if (btn) btn.disabled = false;
-      });
-  }
-
-  function disablePush_(token) {
-    var btn = document.getElementById('pushToggleBtn');
-    if (btn) btn.disabled = true;
-    apiPost({ action: 'unregisterPushToken', name: ADMIN_NAME, pw: PW, token: token })
-      .catch(function () { /* сети нет — всё равно отключаем локально ниже, чтобы не блокировать пользователя */ })
-      .then(function () {
-        localStorage.removeItem(PUSH_TOKEN_KEY);
-        refreshPushStatus_();
-      });
+    initPushCard_({
+      cardId: 'pushCard',
+      tokenKey: PUSH_TOKEN_KEY,
+      registerAction: 'registerPushToken',
+      unregisterAction: 'unregisterPushToken',
+      post: apiPost,
+      buildParams: function () { return { name: ADMIN_NAME, pw: PW }; }
+    });
   }
   // ================== /PUSH-УВЕДОМЛЕНИЯ ==================
 
-  // ЭТАП 13.7: autocapitalize="characters" — это лишь подсказка виртуальной
-  // клавиатуре телефона, ничего не гарантирует и не работает на компьютере.
-  // forceUppercasePlate_ по событию 'input' принудительно переводит значение
-  // поля гос. номера в верхний регистр, сохраняя позицию курсора, чтобы он
-  // не прыгал при вводе/правке с середины строки. normalizePlate на сервере
-  // (2_Sheets.gs) уже регистронезависима — это чисто про то, что видит и
-  // печатает пользователь.
+  // autocapitalize="characters" — это лишь подсказка виртуальной клавиатуре телефона, ничего не гарантирует и не работает на компьютере.
   function forceUppercasePlate_(input) {
     if (!input) return;
     input.addEventListener('input', function () {
@@ -786,40 +547,18 @@
 
   var currentPlate = '';
   var ADMIN_NAME = '';
-  // ЭТАП 8.2: раньше здесь ADMIN_NAME/PW читались из sessionStorage —
-  // то есть сырой пароль хранился (пусть и временно) на диске браузера и
-  // терялся при каждом закрытии вкладки/перезапуске браузера, вынуждая
-  // сотрудника вводить пароль заново при каждом новом открытии to.html.
-  // Теперь пароль нигде не сохраняется дольше момента явного входа: в
-  // localStorage хранится только непрозрачный токен устройства
-  // (deviceToken, см. issueStaffDeviceToken_ в apps-script/2_Sheets.gs),
-  // который сервер принимает как замену пароля (loginAdmin) и который
-  // можно централизованно отозвать (кнопка "Выйти" ниже). PW — только
-  // переменная в памяти этой вкладки, содержит либо токен устройства
-  // (обычный случай), либо, кратко, только что введённый пароль сразу
-  // после явного входа, если сервер по какой-то причине не вернул токен.
+  // раньше здесь ADMIN_NAME/PW читались из sessionStorage — то есть сырой пароль хранился (пусть и временно) на диске браузера и терялся при каждом закрытии вкладки/перезапуске браузера, вынуждая…
   var PW = '';
   var IS_SUPER = false;
   var DEVICE_NAME_KEY = 'to_device_name';
   var DEVICE_TOKEN_KEY = 'to_device_token';
 
-  // При каждом открытии to.html — если в localStorage уже есть
-  // сохранённые имя+токен устройства, сначала тихо пробуем войти по ним
-  // (аналог apiDriverDeviceLogin у водителя), и только если токена нет
-  // или сервер его не принял (отозван логаутом, истёк по сроку) —
-  // остаётся обычная форма логин/пароль, как и раньше.
+  // При каждом открытии to.html — если в localStorage уже есть сохранённые имя+токен устройства, сначала тихо пробуем войти по ним (аналог apiDriverDeviceLogin у водителя), и только если токена нет или…
   var savedDeviceName = localStorage.getItem(DEVICE_NAME_KEY) || '';
   var savedDeviceToken = localStorage.getItem(DEVICE_TOKEN_KEY) || '';
   if (savedDeviceName && savedDeviceToken) tryDeviceLogin_(savedDeviceName, savedDeviceToken);
 
-  // ЭТАП 10, п.6 (расширяет ЭТАП 7): таймаут + повтор с нарастающей
-  // паузой (retry with backoff) для вызовов Apps Script. Раньше был
-  // только один повтор через фиксированные 1.5с и без таймаута — при
-  // "зависшем" запросе (сервер принял, но долго не отвечает) страница
-  // могла ждать неопределённо долго. Теперь: до 3 попыток, таймаут 15с
-  // на каждую (AbortController), паузы между попытками 1.5с → 4с.
-  // HTTP-ответы с ошибкой (res.ok:false в самом JSON) сюда не относятся
-  // — это не сетевая ошибка, а обычный ответ сервера, повторять не надо.
+  // п.6 (расширяет ): таймаут + повтор с нарастающей паузой (retry with backoff) для вызовов Apps Script.
   var FETCH_TIMEOUT_MS = 15000;
   var FETCH_BACKOFF_MS = [1500, 4000];
 
@@ -841,29 +580,7 @@
     });
   }
 
-  /**
-   * ЭТАП 13.13-fix (было) → ЭТАП 13.16-fix (сейчас): изначально здесь
-   * стоял xhr.upload.onprogress — НАСТОЯЩИЙ процент по факту отправленных
-   * байт. На практике это сломало рассылку и Stories целиком: сама
-   * ПОДПИСКА на событие прогресса ЗАГРУЗКИ у кросс-доменного XHR
-   * заставляет браузер слать перед запросом CORS-preflight (OPTIONS), а
-   * у Google Apps Script нет doOptions() и preflight падает с "No
-   * 'Access-Control-Allow-Origin' header" — то есть запрос не уходил
-   * ВООБЩЕ, даже без вложения (см. Network/Console пользователя).
-   * Простой fetch()/XHR без слушателя на xhr.upload preflight не требует
-   * (это и есть причина, почему все остальные действия — вход,
-   * сохранение ТО и т.п. — работали всё это время нормально).
-   *
-   * Раз честный побайтовый прогресс технически недоступен с Apps Script
-   * как бэкендом (то же ограничение будет у ЛЮБОГО кросс-доменного
-   * запроса к нему, не только у этого), делаем следующую по честности
-   * вещь: полоса тикает по ВРЕМЕНИ, а не по факту загруженного, беря
-   * заведомо консервативную (медленную) оценку скорости — так она не
-   * обгонит реальную загрузку и не "зависнет" на 100% в ожидании ответа
-   * сервера. Явно останавливаем её на 92%, оставляя видимый запас на
-   * реальный ответ сервера, и не изображаем несуществующую точность
-   * до десятых долей процента.
-   */
+  /* fix (было) → -fix (сейчас): изначально здесь стоял xhr.upload.onprogress — НАСТОЯЩИЙ процент по факту отправленных байт. */
   var UPLOAD_ESTIMATE_KBPS = 150; // консервативно: плохой мобильный интернет
   var UPLOAD_TIMEOUT_MIN_MS = 30000;
   var UPLOAD_TIMEOUT_PER_MB_MS = 20000; // запас на каждый МБ вложения
@@ -918,17 +635,7 @@
     updateUploadProgress_(prefix, 0);
   }
 
-  // Ограничения на размер вложения — не столько ради самого запроса
-  // (XHR выше и так корректно докачает что угодно, было бы время), сколько
-  // ради двух реальных потолков дальше по цепочке: Telegram-боты могут
-  // ЗАГРУЖАТЬ файлы весом не больше 50 МБ, а тело запроса к Apps Script
-  // (то, что реально уходит по сети) — это файл, перекодированный в
-  // base64, который занимает примерно в 1.33 раза больше места, чем
-  // исходный файл, и у Apps Script тоже есть свой практический потолок
-  // на размер входящего запроса. 20 МБ файла ≈ 27 МБ base64 — заметный
-  // запас с обеих сторон. Если прикрепить файл больше — он всё равно не
-  // дойдёт до получателя, лучше сказать об этом сразу, а не после
-  // многоминутной загрузки на слабом интернете.
+  // Ограничения на размер вложения — не столько ради самого запроса (XHR выше и так корректно докачает что угодно, было бы время), сколько ради двух реальных потолков дальше по цепочке: Telegram-боты…
   var MAX_ATTACHMENT_MB = 20;
   function checkAttachmentSize_(file, errEl) {
     var maxBytes = MAX_ATTACHMENT_MB * 1024 * 1024;
@@ -939,23 +646,7 @@
     return true;
   }
 
-  // ---- Очередь исходящих запросов (retry-queue), ЭТАП 10, п.6 -------
-  // Только для ЗАПИСЫВАЮЩИХ действий (сейчас — addRecord): если все
-  // попытки fetchWithRetry_ выше исчерпаны (сеть недоступна дольше, чем
-  // 15+1.5+15+4+15 секунд, или скрипт вовсе недоступен), запрос не
-  // теряется — он сохраняется в localStorage и будет отправлен
-  // автоматически при восстановлении сети/доступности скрипта: по
-  // событию 'online', при следующем открытии страницы и раз в 20с, пока
-  // очередь не пуста. Пользователь не должен вводить данные повторно.
-  // ФИКС (промт «Дубли сообщений бота / 302 / пуш»): случайный
-  // идентификатор ОДНОЙ попытки сохранения визита (не самого визита) —
-  // генерируется один раз и передаётся на сервер во всех повторах этого
-  // же запроса (внутренние повторы fetchWithRetry_ из-за таймаута 15с,
-  // а также повтор из очереди rqEnqueue_ при отсутствии сети), чтобы
-  // сервер (см. withIdempotency_ в 7_WebApp.gs) не сохранил один и тот
-  // же визит дважды и не отправил дублирующее уведомление в Telegram,
-  // если сервер на самом деле успел ответить, просто ответ не успел
-  // дойти до браузера за отведённое время.
+  // Очередь исходящих запросов (retry-queue), , п.6 ------- Только для ЗАПИСЫВАЮЩИХ действий (сейчас — addRecord): если все попытки fetchWithRetry_ выше исчерпаны (сеть недоступна дольше, чем…
   function newClientRequestId_() {
     if (window.crypto && typeof window.crypto.randomUUID === 'function') {
       return window.crypto.randomUUID();
@@ -1032,16 +723,7 @@
     }).then(function (r) { return r.json(); });
   }
 
-  // ЭТАП 8.4: короткий клиентский кэш ДАННЫХ (не файлов оболочки — та
-  // часть уже сделана в 8.1 через service-worker, стратегией
-  // network-first специально для .html/.js/.css). Здесь кэшируется
-  // именно ответ Apps Script (поиск по номеру, история работ), чтобы при
-  // повторном открытии/повторном поиске того же номера в течение TTL
-  // экран обновлялся мгновенно из localStorage, а свежий запрос всё
-  // равно уходит в сеть следом и обновляет и кэш, и экран, когда придёт
-  // ответ (stale-while-revalidate). TTL специально короче серверного
-  // кэша из 8.3 (30 сек. у apiDriverCheckPlate), чтобы клиентский кэш не
-  // "маскировал" уже устаревшие на сервере данные дольше необходимого.
+  // короткий клиентский кэш ДАННЫХ (не файлов оболочки — та часть уже сделана в 8.1 через service-worker, стратегией network-first специально для .html/.js/.css).
   var CLIENT_CACHE_PREFIX = 'to_cache_';
   var CLIENT_CACHE_TTL_MS = 20000;
 
@@ -1075,11 +757,7 @@
     toRemove.forEach(function (k) { localStorage.removeItem(k); });
   }
 
-  // Точечная инвалидация после успешного сохранения новой записи —
-  // чтобы следующий поиск/просмотр истории того же номера не показал ещё
-  // на TTL-секунд устаревшие (без только что добавленной записи) данные
-  // из кэша. Историю чистим всю (а не только по этому номеру) — она
-  // могла быть закэширована и без фильтра по номеру (общий список).
+  // Точечная инвалидация после успешного сохранения новой записи — чтобы следующий поиск/просмотр истории того же номера не показал ещё на TTL-секунд устаревшие (без только что добавленной записи) данные из кэша.
   function clientCacheInvalidateAfterSave_(plate) {
     var norm = (plate || '').trim().toUpperCase();
     var toRemove = [];
@@ -1109,11 +787,7 @@
     return result;
   }
 
-  // ЭТАП 8.2: тихий вход по токену устройства, вызывается один раз при
-  // открытии страницы (если в localStorage сохранены имя+токен). Не
-  // показывает пользователю никаких ошибок при неудаче — это ожидаемый
-  // сценарий (токен ещё не выдавался/отозван/истёк), просто остаётся
-  // обычный экран "логин/пароль".
+  // тихий вход по токену устройства, вызывается один раз при открытии страницы (если в localStorage сохранены имя+токен).
   function tryDeviceLogin_(name, token) {
     apiPost({ action: 'adminDeviceLogin', name: name, token: token })
       .then(function (res) {
@@ -1157,11 +831,7 @@
           if (res.ok) {
             ADMIN_NAME = name;
             IS_SUPER = !!res.isSuperAdmin;
-            // ЭТАП 8.2: сервер выдал токен "запомнить устройство" —
-            // сохраняем ЕГО в localStorage (не пароль) и с этого момента
-            // используем именно его для всех остальных запросов в этой
-            // и будущих сессиях; введённый пароль дальше нигде не
-            // хранится и не переиспользуется.
+            // сервер выдал токен "запомнить устройство" — сохраняем ЕГО в localStorage (не пароль) и с этого момента используем именно его для всех остальных запросов в этой и будущих сессиях; введённый пароль…
             if (res.deviceToken) {
               PW = res.deviceToken;
               localStorage.setItem(DEVICE_NAME_KEY, name);
@@ -1216,7 +886,9 @@
 
   function showApp() {
     document.getElementById('gate').style.display = 'none';
-    document.getElementById('mainApp').style.display = 'block';
+    var mainAppEl = document.getElementById('mainApp');
+    mainAppEl.style.display = 'block';
+    mainAppEl.style.animation = 'fadeIn .25s ease';
     // ЭТАП 7 (пункт 3 промта фиксов): раньше здесь просто подставлялось
     // ADMIN_NAME в единственное нередактируемое поле f_master — теперь
     // сотрудник и супер-админ видят разные поля, см. setupMasterField_().
@@ -1253,16 +925,7 @@
     initPushUi_(); // ФИКС (промт «Push-уведомления»): показать/обновить карточку push
   }
 
-  /**
-   * ЭТАП 7 (пункт 3 промта фиксов): перенесено из act.html
-   * (setupMasterField) один в один, только под id полей формы
-   * добавления записи ТО в этом файле. Обычному сотруднику показывает
-   * нередактируемое поле с его собственным именем; супер-админу —
-   * обычное текстовое поле с подсказками (<datalist>) по именам всех
-   * уже существующих мастеров, полученным через уже готовый метод
-   * apiListMasters (action:'listmasters', 6_WebApi.gs) — эти серверные
-   * функции не менялись, они уже общие и не привязаны к act.html.
-   */
+  /* (пункт 3 промта фиксов): перенесено из act.html (setupMasterField) один в один, только под id полей формы добавления записи ТО в этом файле. */
   function setupMasterField_() {
     var autoWrap = document.getElementById('masterAutoWrap');
     var adminWrap = document.getElementById('masterAdminWrap');
@@ -1293,14 +956,7 @@
   }
 
   function logout() {
-    // ЭТАП 8.2: явный выход должен отозвать токен устройства и на
-    // сервере (best-effort — если сети сейчас нет, просто очищаем
-    // локально; сотрудник и так больше не увидит приложение на этом
-    // устройстве без повторного пароля, а просроченный/осиротевший
-    // токен на сервере тоже рано или поздно перестанет действовать по
-    // сроку — см. STAFF_DEVICE_TOKEN_TTL_DAYS), а не только очистить
-    // локальное хранилище — иначе устройство продолжило бы тихо
-    // заходить снова после перезагрузки страницы.
+    // явный выход должен отозвать токен устройства и на сервере (best-effort — если сети сейчас нет, просто очищаем локально; сотрудник и так больше не увидит приложение на этом устройстве без повторного…
     if (ADMIN_NAME && PW) {
       apiPost({ action: 'adminDeviceLogout', name: ADMIN_NAME, token: PW }).catch(function () {});
     }
@@ -1312,17 +968,7 @@
     location.reload();
   }
 
-  /* ===================== ИСТОРИЯ ВЫПОЛНЕННЫХ РАБОТ (Этап 6) =====================
-     Общий список работ под строкой поиска машины (не путать с блоком
-     resultsCard — там история конкретной уже найденной машины). Сервер
-     сам фильтрует по правам (свои / все для супер-админа), фронтенд
-     дополнительно передаёт необязательные фильтры по номеру и дате.
-     ЭТАП 7 (промт stage7 fixes, п.6): без явно выбранных дат сервер
-     теперь по умолчанию отдаёт только СЕГОДНЯШНИЙ короткий рабочий
-     список, а не архив за всё время — полный список доступен отдельно,
-     через "Показать всё" (showAllHistory) или CSV (downloadWorkHistory
-     всегда выгружает весь диапазон, даже если на экране показан только
-     сегодняшний день). */
+  /* ===================== ИСТОРИЯ ВЫПОЛНЕННЫХ РАБОТ (Этап 6) ===================== Общий список работ под строкой поиска машины (не путать с блоком resultsCard — там история конкретной уже найденной машины). */
   var lastHistoryRows = [];
   var historyShowAll_ = false; // true — после клика "Показать всё"
 
@@ -1347,12 +993,7 @@
       'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
   }
 
-  // ЭТАП 13.8: тот же паттерн, что scheduleTaxiparkAutoRefresh_ в
-  // taxipark.html, только дополнительно проверяем document.visibilityState —
-  // не дёргаем apiPost, пока вкладка свёрнута (в taxipark.html это тоже
-  // было бы уместно, но задание просило перенести именно с этой проверкой
-  // сюда). Пока вкладка скрыта, просто планируем повторную проверку на
-  // тот же интервал, не выполняя запрос.
+  // тот же паттерн, что scheduleTaxiparkAutoRefresh_ в taxipark.html, только дополнительно проверяем document.visibilityState — не дёргаем apiPost, пока вкладка свёрнута (в taxipark.html это тоже было бы…
   var historyAutoRefreshTimer_ = null;
   function scheduleHistoryAutoRefresh_() {
     if (historyAutoRefreshTimer_) clearTimeout(historyAutoRefreshTimer_);
@@ -1365,11 +1006,7 @@
     }, 20000);
   }
 
-  // ЭТАП 13.8: параметр silent=true — тихое фоновое обновление. В этом
-  // режиме не трогаем статус-строку/список во время загрузки и, как и в
-  // taxipark.html (п.9 промта ЭТАПА 10), при ошибке/отсутствии ответа не
-  // сбрасываем экран — просто оставляем последние успешно загруженные
-  // данные и пробуем снова через тот же интервал.
+  // параметр silent=true — тихое фоновое обновление.
   function loadWorkHistory(showAll, silent) {
     if (showAll !== undefined) historyShowAll_ = showAll;
     var statusEl = document.getElementById('historyStatus');
@@ -1386,11 +1023,7 @@
       showAll: historyShowAll_ && !dateFrom && !dateTo
     };
 
-    // ЭТАП 8.4: ключ кэша учитывает все фильтры разом (номер+даты+showAll
-    // и то, под кем именно вошли — обычный сотрудник и супер-админ видят
-    // разный состав строк по одному и тому же фильтру, поэтому ADMIN_NAME
-    // и IS_SUPER тоже часть ключа, чтобы кэш одного не "утёк" в подсказку
-    // другому на общем устройстве в пределах одного TTL).
+    // ключ кэша учитывает все фильтры разом (номер+даты+showAll и то, под кем именно вошли — обычный сотрудник и супер-админ видят разный состав строк по одному и тому же фильтру, поэтому ADMIN_NAME и…
     var cacheKey = 'history_' + ADMIN_NAME + '_' + IS_SUPER + '_' + JSON.stringify(filters);
     var cached = clientCacheGet_(cacheKey);
     if (cached) {
@@ -1459,10 +1092,10 @@
           '<a href="javascript:void(0)" onclick="openDeleteRecordModal(\'' + r.id + '\')" style="color:var(--danger); font-size:12px;">🗑 Удалить</a>' +
           '</span>';
       html += '<tr id="hrow_' + r.id + '">' +
-        '<td>' + escapeHtml(r.date) + '</td>' +
-        '<td>' + escapeHtml(r.plate) + '</td>' +
-        '<td>' + escapeHtml(r.type) + '</td>' +
-        (isSuperAdmin ? '<td>' + escapeHtml(r.master) + '</td>' : '') +
+        '<td>' + escapeHtml_(r.date) + '</td>' +
+        '<td>' + escapeHtml_(r.plate) + '</td>' +
+        '<td>' + escapeHtml_(r.type) + '</td>' +
+        (isSuperAdmin ? '<td>' + escapeHtml_(r.master) + '</td>' : '') +
         '<td>' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</td>' +
         '<td>' + actionsHtml + '</td>' +
         '</tr>';
@@ -1522,11 +1155,11 @@
     approvalModalState_ = { mode: 'edit', recordId: recordId };
     document.getElementById('approvalModalTitle').innerText = 'Изменить запись — ' + r.plate;
     document.getElementById('approvalModalFields').innerHTML =
-      '<label>Вид работы</label><input id="ea_type" value="' + escapeHtml(r.type || '') + '">' +
-      '<label>Описание</label><input id="ea_description" value="' + escapeHtml(r.description || '') + '">' +
-      '<label>Запчасти</label><input id="ea_parts" value="' + escapeHtml(r.parts || '') + '">' +
-      '<label>Пробег, км</label><input id="ea_mileage" value="' + escapeHtml(String(r.mileage || '')) + '">' +
-      '<label>Стоимость</label><input id="ea_cost" type="number" value="' + escapeHtml(String(r.cost || '')) + '">';
+      '<label>Вид работы</label><input id="ea_type" value="' + escapeHtml_(r.type || '') + '">' +
+      '<label>Описание</label><input id="ea_description" value="' + escapeHtml_(r.description || '') + '">' +
+      '<label>Запчасти</label><input id="ea_parts" value="' + escapeHtml_(r.parts || '') + '">' +
+      '<label>Пробег, км</label><input id="ea_mileage" value="' + escapeHtml_(String(r.mileage || '')) + '">' +
+      '<label>Стоимость</label><input id="ea_cost" type="number" value="' + escapeHtml_(String(r.cost || '')) + '">';
     document.getElementById('approvalReason').value = '';
     document.getElementById('approvalModalError').innerText = '';
     document.getElementById('approvalModal').style.display = 'flex';
@@ -1539,8 +1172,8 @@
     approvalModalState_ = { mode: 'delete', recordId: recordId };
     document.getElementById('approvalModalTitle').innerText = 'Удалить запись — ' + r.plate;
     document.getElementById('approvalModalFields').innerHTML =
-      '<div class="sub" style="margin-bottom:10px;">' + escapeHtml(r.date) + ' · ' + escapeHtml(r.type) +
-      (r.description ? ' — ' + escapeHtml(r.description) : '') + ' · ' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</div>';
+      '<div class="sub" style="margin-bottom:10px;">' + escapeHtml_(r.date) + ' · ' + escapeHtml_(r.type) +
+      (r.description ? ' — ' + escapeHtml_(r.description) : '') + ' · ' + (Number(r.cost) || 0).toLocaleString('ru-RU') + ' ₸</div>';
     document.getElementById('approvalReason').value = '';
     document.getElementById('approvalModalError').innerText = '';
     document.getElementById('approvalModal').style.display = 'flex';
@@ -1604,11 +1237,7 @@
     });
   }
 
-  // ЭТАП 7 (промт stage7 fixes, п.6): CSV должен уметь выгрузить полный
-  // список за всё время независимо от того, что сейчас показано на
-  // экране (там по умолчанию только сегодняшний день) — поэтому делаем
-  // отдельный запрос с явным showAll (если даты не заданы), а не
-  // полагаемся на уже загруженные lastHistoryRows.
+  // CSV должен уметь выгрузить полный список за всё время независимо от того, что сейчас показано на экране (там по умолчанию только сегодняшний день) — поэтому делаем отдельный запрос с явным showAll…
   function downloadWorkHistory() {
     var statusEl = document.getElementById('historyStatus');
     var dateFrom = document.getElementById('histFrom').value;
@@ -1707,14 +1336,10 @@
     document.getElementById('f_vin').value = (vehRes.ok && vehRes.vin) || '';
     document.getElementById('f_model').value = (vehRes.ok && vehRes.model) || '';
 
-    // ЭТАП 11 (промт «Тип машины частная/таксопарк в to.html»): для новой
-    // машины сбрасываем выбор типа к значению по умолчанию ("Частная");
-    // для уже известной машины — просто показываем справочную строку с
-    // тем, что уже сохранено (тип не переопределяется задним числом
-    // через обычное добавление записи, см. apiAddRecord).
+    // для новой машины сбрасываем выбор типа; для уже известной машины — просто показываем справочную строку с тем, что уже сохранено (тип не переопределяется задним числом через обычное добавление записи, см.
     var knownInfoEl = document.getElementById('knownVehicleCarType');
     if (!isKnownVehicle) {
-      document.getElementById('f_cartype').value = 'Частная';
+      document.getElementById('f_cartype').value = '';
       onCarTypeChangeTo_();
       knownInfoEl.style.display = 'none';
     } else {
@@ -1739,20 +1364,12 @@
     var plate = document.getElementById('plateInput').value.trim();
     if (!plate) return;
     currentPlate = plate;
-    // ЭТАП 10, п.8: восстанавливаем черновик визита (работы, уже
-    // добавленные кнопкой "➕ Добавить ещё работу", но ещё не
-    // отправленные) для ЭТОГО гос. номера, если он есть — например,
-    // после случайной перезагрузки страницы посреди визита. Для другого
-    // номера, у которого своего черновика нет, список будет пустым.
+    // п.8: восстанавливаем черновик визита (работы, уже добавленные кнопкой "➕ Добавить ещё работу", но ещё не отправленные) для ЭТОГО гос.
     loadPendingDraft_();
     renderPendingRows_();
     document.getElementById('resultsCard').style.display = 'none';
 
-    // ЭТАП 8.4: тот же номер могли искать секунды назад (типичный сценарий
-    // из промта: искали → ушли добавлять запись → вернулись и снова ищут
-    // тот же номер) — если в кэше есть свежий (в пределах TTL) результат,
-    // показываем его немедленно, не дожидаясь сети, и всё равно уходим в
-    // сеть за актуальными данными следом (stale-while-revalidate).
+    // тот же номер могли искать секунды назад (типичный сценарий из промта: искали → ушли добавлять запись → вернулись и снова ищут тот же номер) — если в кэше есть свежий (в пределах TTL) результат…
     var cacheKey = 'search_' + plate.trim().toUpperCase() + '_' + ADMIN_NAME;
     var cached = clientCacheGet_(cacheKey);
     if (cached) {
@@ -1783,49 +1400,20 @@
     });
   }
 
-  // ЭТАП 11 (промт «Неверный пароль» при протухшем токене устройства):
-  // раньше эта функция считалась написанной только для doSearch() (жёстко
-  // писала в #searchStatus) и не применялась к другим защищённым вызовам
-  // (workhistory, listmasters и т.п.) — именно поэтому там при истёкшем
-  // токене устройства (см. STAFF_DEVICE_TOKEN_TTL_DAYS, loginAdmin в
-  // 2_Sheets.gs) сотрудник видел пугающее "Ошибка: Неверный пароль",
-  // хотя сам ничего не вводил — токен протух в фоне. Теперь функция
-  // принимает id элемента статуса (по умолчанию searchStatus, для
-  // обратной совместимости) и, если это действительно похоже на
-  // просроченную/недействительную сессию, показывает понятную фразу и
-  // тихо перелогинивает, а не просто печатает исходный текст ошибки.
+  // раньше эта функция считалась написанной только для doSearch() (жёстко писала в #searchStatus) и не применялась к другим защищённым вызовам (workhistory, listmasters и т.п.) — именно поэтому там при…
   function handleAuthError(err, statusElId) {
     var msg = ('' + (err && err.message || err));
     var isSessionError = msg.indexOf('пароль') !== -1 || msg.indexOf('найден') !== -1;
     var el = document.getElementById(statusElId || 'searchStatus');
     if (el) el.innerText = isSessionError ? 'Сессия истекла — выполняю повторный вход...' : ('Ошибка: ' + msg);
     if (isSessionError) {
-      // ЭТАП 8.2: раньше здесь чистился sessionStorage (то_name/to_pw) —
-      // теперь учётные данные для повторного тихого входа хранятся в
-      // localStorage как токен устройства (см. DEVICE_NAME_KEY/
-      // DEVICE_TOKEN_KEY выше); если сервер отверг текущие данные для
-      // входа (в т.ч. просроченный/отозванный токен), их тоже нужно
-      // сбросить, иначе устройство продолжило бы тихо пытаться войти
-      // теми же недействительными данными при следующем открытии.
+      // раньше здесь чистился sessionStorage (то_name/to_pw) — теперь учётные данные для повторного тихого входа хранятся в localStorage как токен устройства ; если сервер отверг текущие данные для входа (в т.ч.
       clearDeviceToken_();
       setTimeout(function () { location.reload(); }, 1200);
     }
   }
 
-  // ЭТАП 4 (Часть 4.2 промта): показывает короткий блок с суммой, типом
-  // оплаты и текущим остатком по открытому акту "Получения" этой машины
-  // (если такой акт есть) — тот же смысл, что и в PDF/act.html, одной
-  // строкой из Части 5 исходного ТЗ. Остаток может быть отрицательным
-  // (долг), если работы ТО за время нахождения машины на СТО превысили
-  // остаток — это не ошибка, см. открытый вопрос №1 промта.
-  // ЭТАП 9.1: карточка с открытым актом «Получения» теперь также:
-  //  - ссылается на сам PDF акта (если он уже успел сформироваться на
-  //    сервере — fileUrl может быть пустым считанные секунды сразу
-  //    после сохранения акта, пока PDF ещё генерируется);
-  //  - показывает кнопку «Выдача авто», которая открывает act.html уже
-  //    в режиме «Выдача», с подставленными гос. номером/VIN и ID найденного
-  //    акта «Получения» — сотруднику не нужно заново вводить номер и
-  //    выбирать тип акта вручную (см. checkLinkedIntake_ в act.html).
+  // (Часть 4.2 промта): показывает короткий блок с суммой, типом оплаты и текущим остатком по открытому акту "Получения" этой машины (если такой акт есть) — тот же смысл, что и в PDF/act.html, одной…
   function buildIssueActUrl_(openAct) {
     var vin = (document.getElementById('f_vin').value || '').trim();
     var url = 'act.html?mode=issue&plate=' + encodeURIComponent(currentPlate)
@@ -1850,8 +1438,8 @@
           ? '⚠️ Долг: <b style="color:var(--danger)">' + Math.abs(balance).toLocaleString('ru-RU') + ' ₸</b>'
           : (openAct.paymentType === 'none' ? 'Оплата не вносилась' : 'Оплачено полностью'));
     var actLabelHtml = openAct.fileUrl
-      ? '<a href="' + escapeHtml(openAct.fileUrl) + '" target="_blank" rel="noopener" style="color:var(--accent)">📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) + ' (PDF)</a>'
-      : '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId);
+      ? '<a href="' + escapeHtml_(openAct.fileUrl) + '" target="_blank" rel="noopener" style="color:var(--accent)">📋 Открыт акт «Получения» №' + escapeHtml_(openAct.actId) + ' (PDF)</a>'
+      : '📋 Открыт акт «Получения» №' + escapeHtml_(openAct.actId);
     el.innerHTML =
       actLabelHtml +
       ' · Сумма: ' + Number(openAct.cost || 0).toLocaleString('ru-RU') + ' ₸' +
@@ -1863,11 +1451,7 @@
     el.style.display = 'block';
   }
 
-  // keepFormOpen: true сразу после сохранения записи ТО (submitAdd) —
-  // форма "Добавить новую запись" не сворачивается, чтобы можно было
-  // сразу вписать следующий вид работы по той же машине, не нажимая
-  // кнопку заново и не теряя уже введённые владельца/телефон/VIN/модель
-  // (они и так подтягиваются заново из vehicleinfo выше).
+  // keepFormOpen: true сразу после сохранения записи ТО (submitAdd) — форма "Добавить новую запись" не сворачивается, чтобы можно было сразу вписать следующий вид работы по той же машине, не нажимая…
   function renderResults(rows, keepFormOpen) {
     lastRows = rows;
     document.getElementById('fromDate').value = '';
@@ -1875,14 +1459,7 @@
     document.getElementById('resultsCard').style.display = 'block';
     renderFilteredRows(rows);
 
-    // ЭТАП 11 (промт «Скрывать общую историю по гос. номеру»): пока
-    // сотрудник смотрит карточку КОНКРЕТНОЙ найденной машины, общий
-    // список "История выполненных работ" (по всем машинам сразу) ниже
-    // только загромождает экран — скрываем его автоматически. Ссылка
-    // "Показать общую историю" в самой карточке машины (см. ниже, кнопка
-    // #toggleGeneralHistoryLink) позволяет развернуть его обратно, если
-    // всё же нужно — ничего не удаляется, просто не показывается по
-    // умолчанию.
+    // пока сотрудник смотрит карточку КОНКРЕТНОЙ найденной машины, общий список "История выполненных работ" (по всем машинам сразу) ниже только загромождает экран — скрываем его автоматически.
     document.getElementById('historyCard').style.display = 'none';
     document.getElementById('toggleGeneralHistoryLink').style.display = 'block';
     document.getElementById('toggleGeneralHistoryLink').innerText = 'Показать общую историю работ ▾';
@@ -1917,7 +1494,7 @@
   // экранирует спецсимволы HTML, чтобы значения из истории ТО (которые
   // мог когда-то ввести кто угодно через apiAddRecord) нельзя было
   // использовать для хранимого XSS при вставке через innerHTML.
-  function escapeHtml(s) {
+  function escapeHtml_(s) {
     return (s === null || s === undefined ? '' : String(s)).replace(/[&<>"']/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
     });
@@ -1934,8 +1511,8 @@
     var totalIp = rows.reduce(function (sum, r) { return sum + (parseFloat(r.ipAmount) || 0); }, 0);
 
     var summaryHtml = '';
-    summaryHtml += '<div class="pill">Масло<b>' + (oil ? escapeHtml(oil.date) + ' · ' + escapeHtml(oil.mileage) + ' км' : '—') + '</b></div>';
-    summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? escapeHtml(filter.date) + ' · ' + escapeHtml(filter.mileage) + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Масло<b>' + (oil ? escapeHtml_(oil.date) + ' · ' + escapeHtml_(oil.mileage) + ' км' : '—') + '</b></div>';
+    summaryHtml += '<div class="pill">Фильтр<b>' + (filter ? escapeHtml_(filter.date) + ' · ' + escapeHtml_(filter.mileage) + ' км' : '—') + '</b></div>';
     summaryHtml += '<div class="pill">Ремонтов<b>' + repairs.length + '</b></div>';
     summaryHtml += '<div class="pill">Сумма за период<b>' + totalCost.toLocaleString('ru-RU') + '</b></div>';
     if (totalKaspi || totalCash || totalIp) {
@@ -1954,13 +1531,13 @@
         // ЭТАП 3 (новое ТЗ): показываем разбивку оплаты под суммой, если
         // хотя бы один способ был заполнен при сохранении записи.
         var payParts = [];
-        if (r.kaspiAmount) payParts.push('Kaspi ' + escapeHtml(r.kaspiAmount));
-        if (r.cashAmount) payParts.push('нал. ' + escapeHtml(r.cashAmount));
-        if (r.ipAmount) payParts.push('ИП ' + escapeHtml(r.ipAmount));
+        if (r.kaspiAmount) payParts.push('Kaspi ' + escapeHtml_(r.kaspiAmount));
+        if (r.cashAmount) payParts.push('нал. ' + escapeHtml_(r.cashAmount));
+        if (r.ipAmount) payParts.push('ИП ' + escapeHtml_(r.ipAmount));
         var payLine = payParts.length ? '<br><span style="color:var(--muted); font-size:11px;">' + payParts.join(' + ') + '</span>' : '';
-        html += '<tr><td>' + escapeHtml(r.date) + '</td><td>' + escapeHtml(r.mileage) + '</td><td>' + escapeHtml(r.type) +
-                (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml(r.description) + '</span>' : '') +
-                '</td><td>' + escapeHtml(r.cost) + payLine + '</td></tr>';
+        html += '<tr><td>' + escapeHtml_(r.date) + '</td><td>' + escapeHtml_(r.mileage) + '</td><td>' + escapeHtml_(r.type) +
+                (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml_(r.description) + '</span>' : '') +
+                '</td><td>' + escapeHtml_(r.cost) + payLine + '</td></tr>';
       });
       html += '</table>';
       wrap.innerHTML = html;
@@ -2012,19 +1589,7 @@
     f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
   }
 
-  // ЭТАП 3 (новое ТЗ) + обновление (Часть 2.3 промта — автораспределение):
-  // живой пересчёт "Оплачено"/"Остаток", и автоматическое распределение
-  // остатка между способами оплаты, чтобы сотрудник не считал сумму
-  // одного из полей вручную. Логика:
-  //  - при изменении стоимости, если ровно 2 из 3 полей оплаты уже
-  //    заполнены — третье (незаполненное) пересчитывается само;
-  //  - при изменении одного из полей оплаты — автоматически
-  //    пересчитывается то из двух ОСТАЛЬНЫХ полей, которое реже/раньше
-  //    редактировалось вручную (чтобы не затирать то, что пользователь
-  //    только что сам поправил, — как и предписано исходным ТЗ);
-  //  - для ТО это только удобство ввода, не жёсткое ограничение: если
-  //    заполнено 0 или 1 поле, ничего не подставляется само — частичная
-  //    оплата (или её отсутствие) по-прежнему разрешена.
+  // (новое ТЗ) + обновление (Часть 2.3 промта — автораспределение): живой пересчёт "Оплачено"/"Остаток", и автоматическое распределение остатка между способами оплаты, чтобы сотрудник не считал сумму одного из полей вручную.
   var payFieldIds_ = ['f_pay_kaspi', 'f_pay_cash', 'f_pay_ip'];
   // ЭТАП 2.3: карта чекбокс → обёртка поля → само поле, для явного
   // выбора способа оплаты перед показом поля суммы (единообразно с
@@ -2042,14 +1607,7 @@
     }).map(function (m) { return m.input; });
   }
 
-  // ЭТАП 9.5 (найденный баг): при РОВНО одном отмеченном способе оплаты
-  // сумма этого способа больше не спрашивается отдельным полем — вся
-  // "Стоимость" сверху и так уже введена сотрудником один раз, повторно
-  // вводить её же рядом с "Kaspi"/"Наличные"/"ИП" не нужно (это и было
-  // тем самым багом: сумма "переспрашивалась"). Поле суммы способа
-  // показывается только когда отмечено 2 или 3 способа одновременно —
-  // тогда действительно нужно явно указать, как стоимость делится между
-  // ними. Это то же самое поведение, что и в act.html.
+  // (найденный баг): при РОВНО одном отмеченном способе оплаты сумма этого способа больше не спрашивается отдельным полем — вся "Стоимость" сверху и так уже введена сотрудником один раз, повторно вводить…
   function updatePayFieldVisibility_() {
     var checked = checkedPayFieldIds_();
     var singleMode = checked.length === 1;
@@ -2159,13 +1717,7 @@
     });
   });
 
-  // ==================== ЭТАП 10, п.8 ====================
-  // Множественный ввод работ за один визит: список работ, уже
-  // добавленных кнопкой "➕ Добавить ещё работу" для ТЕКУЩЕГО визита
-  // (currentPlate), но ещё не отправленных на сервер. Хранится и в
-  // памяти (для мгновенной отрисовки), и в localStorage (черновик,
-  // переживает случайную перезагрузку страницы, отдельно по каждому
-  // гос. номеру) — см. loadPendingDraft_/savePendingDraft_.
+  // ==================== , п.8 ==================== Множественный ввод работ за один визит: список работ, уже добавленных кнопкой "➕ Добавить ещё работу" для ТЕКУЩЕГО визита (currentPlate), но ещё не отправленных на сервер.
   var pendingWorkRows_ = [];
   var PENDING_DRAFT_PREFIX_ = 'to_batch_draft_';
 
@@ -2184,11 +1736,7 @@
     } catch (e) { /* хранилище недоступно/переполнено — не критично, просто не сохраняем черновик в этот раз */ }
   }
 
-  // Вызывается из doSearch() сразу после установки currentPlate — если
-  // для этого гос. номера остался незавершённый визит (например, вкладка
-  // случайно закрылась/обновилась после того, как сотрудник добавил
-  // пару работ, но не успел нажать "Сохранить визит"), список
-  // восстанавливается автоматически, ничего вводить заново не нужно.
+  // Вызывается из doSearch() сразу после установки currentPlate — если для этого гос.
   function loadPendingDraft_() {
     pendingWorkRows_ = [];
     try {
@@ -2287,7 +1835,7 @@
     pendingWorkRows_.forEach(function (row, i) {
       var costStr = row.cost ? Number(row.cost).toLocaleString('ru-RU') + ' ₸' : '—';
       html += '<div class="pill" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">' +
-        '<span>' + (i + 1) + '. ' + escapeHtml(row.type || '') + ' — ' + costStr + '</span>' +
+        '<span>' + (i + 1) + '. ' + escapeHtml_(row.type || '') + ' — ' + costStr + '</span>' +
         '<span class="toggle" style="margin:0;" onclick="removePendingWorkRow_(' + i + ')">✕</span>' +
         '</div>';
     });
@@ -2302,22 +1850,9 @@
     btn.textContent = pendingWorkRows_.length ? ('Сохранить визит (' + total + ' раб.)') : 'Сохранить запись';
   }
 
-  // ЭТАП 10, п.8: submitAdd теперь отправляет ВЕСЬ визит одним
-  // batch-запросом (action:'addRecords') — все работы, добавленные
-  // кнопкой "➕ Добавить ещё работу" (pendingWorkRows_), плюс текущие
-  // (ещё не добавленные кнопкой) поля формы, если в них что-то введено.
-  // Один вызов Apps Script и одна запись в Telegram на весь визит вместо
-  // одного вызова на каждую работу. Если "➕ Добавить ещё работу" ни
-  // разу не нажималась — поведение полностью совпадает со старым
-  // однострочным сохранением (один элемент в items), просто через новый
-  // batch-эндпоинт.
+  // п.8: submitAdd теперь отправляет ВЕСЬ визит одним batch-запросом (action:'addRecords') — все работы, добавленные кнопкой "➕ Добавить ещё работу" (pendingWorkRows_), плюс текущие (ещё не добавленные…
   function submitAdd(btn) {
-    // ЭТАП 7 (пункт 3 промта фиксов): супер-админ печатает имя мастера в
-    // свободном текстовом поле f_master_input (с подсказками из
-    // <datalist>, см. setupMasterField_); обычный сотрудник по-прежнему
-    // видит только собственное имя в нередактируемом f_master_auto.
-    // Сервер (apiAddRecords) в любом случае сам решает, чьё имя реально
-    // попадёт в запись — обычному сотруднику подделать чужое имя нельзя.
+    // (пункт 3 промта фиксов): супер-админ печатает имя мастера в свободном текстовом поле f_master_input (с подсказками из <datalist>, см.
     var masterName = ADMIN_NAME;
     if (IS_SUPER) {
       masterName = document.getElementById('f_master_input').value.trim();
@@ -2333,25 +1868,21 @@
         document.getElementById('addStatus').innerText = '⚠️ Для новой машины укажите владельца и телефон';
         return;
       }
+      // ЭТАП 15.3: тип авто (частная/таксопарк) теперь обязателен для
+      // новой машины — раньше поле можно было не трогать вовсе.
+      if (!document.getElementById('f_cartype').value) {
+        document.getElementById('addStatus').innerText = '⚠️ Укажите тип авто: частная или таксопарк';
+        return;
+      }
     }
 
-    // Собираем список работ визита: сначала всё, что уже добавлено
-    // кнопкой "➕ Добавить ещё работу", затем — текущие поля формы, если
-    // в них что-то введено (или если это вообще единственная работа
-    // визита — тогда включаем их независимо от содержимого, как и в
-    // прежнем однострочном сохранении, чтобы не менять поведение для
-    // самого частого случая — одна работа за визит).
+    // Собираем список работ визита: сначала всё, что уже добавлено кнопкой "➕ Добавить ещё работу", затем — текущие поля формы, если в них что-то введено (или если это вообще единственная работа визита …
     var items = pendingWorkRows_.slice();
     if (currentWorkRowHasContent_() || !items.length) {
       items.push(readCurrentWorkRowFields_());
     }
 
-    // ЭТАП 3 (новое ТЗ): сумма способов оплаты не должна превышать
-    // стоимость — та же проверка повторяется на сервере (apiAddRecords),
-    // но лучше показать понятную ошибку сразу, не дожидаясь ответа сети.
-    // Проверяется КАЖДАЯ работа визита по отдельности (уже добавленные
-    // кнопкой были проверены при добавлении, но перепроверяем и здесь —
-    // дёшево и подстраховывает от рассинхронизации).
+    // (новое ТЗ): сумма способов оплаты не должна превышать стоимость — та же проверка повторяется на сервере (apiAddRecords), но лучше показать понятную ошибку сразу, не дожидаясь ответа сети.
     for (var vi = 0; vi < items.length; vi++) {
       var it = items[vi];
       var itCost = Number(it.cost) || 0;
@@ -2395,19 +1926,11 @@
             // поиск/просмотр истории мог бы до TTL-секунд показывать
             // список ещё без только что добавленных записей.
             clientCacheInvalidateAfterSave_(currentPlate);
-            // ЭТАП 4: если запись(и) привязалась к открытому акту
-            // "Получения" и остаток ушёл в минус — сервер прислал
-            // предупреждение (debtWarning) одной строкой, показываем его
-            // вместо обычного "Сохранено", чтобы сотрудник сразу видел
-            // долг клиента.
+            // если запись(и) привязалась к открытому акту "Получения" и остаток ушёл в минус — сервер прислал предупреждение (debtWarning) одной строкой, показываем его вместо обычного "Сохранено", чтобы сотрудник…
             document.getElementById('addStatus').innerText = res.debtWarning
               ? ('✅ Сохранено (' + res.count + '). ' + res.debtWarning)
               : ('✅ Сохранено (' + res.count + '). Можно сразу добавить следующий визит по этой машине.');
-            // Визит целиком отправлен — черновик и список работ визита
-            // больше не нужны, очищаем и localStorage, и поля формы (как
-            // и раньше, пробег/владельца оставляем как есть). Форма
-            // остаётся открытой (см. doSearch(true) ниже), чтобы можно
-            // было сразу начать следующий визит по этой же машине.
+            // Визит целиком отправлен — черновик и список работ визита больше не нужны, очищаем и localStorage, и поля формы (как и раньше, пробег/владельца оставляем как есть).
             clearPendingDraft_();
             renderPendingRows_();
             resetCurrentWorkRowFields_();
@@ -2427,15 +1950,7 @@
           }
         })
         .catch(function () {
-          // ЭТАП 10, п.6/п.9: все попытки fetchWithRetry_ (с таймаутом и
-          // паузами) исчерпаны — сети действительно нет. Данные не
-          // теряются: весь визит (все работы разом) уходит в локальную
-          // очередь и будет отправлен сам, как только сеть/скрипт снова
-          // станут доступны. Поля формы и список работ визита намеренно
-          // НЕ очищаются (см. п.9 ТЗ — не сбрасывать состояние экрана при
-          // ошибке/отсутствии ответа сервера) — сотрудник по-прежнему
-          // видит, что именно ждёт отправки, и черновик остаётся в
-          // localStorage на случай перезагрузки страницы.
+          // п.6/п.9: все попытки fetchWithRetry_ (с таймаутом и паузами) исчерпаны — сети действительно нет.
           rqEnqueue_({ action: 'addRecords', name: ADMIN_NAME, pw: PW, data: data, clientRequestId: clientRequestId }, items.length > 1 ? (items.length + ' работ(ы)') : (items[0] && items[0].type) || 'запись');
           document.getElementById('addStatus').innerText =
             '⚠️ Нет сети. Визит сохранён локально и будет отправлен автоматически при восстановлении связи — можно продолжать вводить следующую работу.';
@@ -2454,19 +1969,19 @@
   function toggleSection_(headEl) {
     var body = headEl.nextElementSibling;
     if (!body) return;
-    var isOpen = body.classList.toggle('open');
     var chev = headEl.querySelector('.chev');
-    if (chev) chev.textContent = isOpen ? '▲' : '▼';
+    var willOpen = !body.classList.contains('open');
+    if (willOpen) {
+      body.classList.add('open');
+    } else {
+      // 16.15: короткий fade-out перед display:none, а не мгновенное скрытие
+      body.style.animation = 'secFade .15s ease reverse';
+      setTimeout(function () { body.classList.remove('open'); body.style.animation = ''; }, 150);
+    }
+    if (chev) chev.textContent = willOpen ? '▲' : '▼';
   }
 
-  /* ===================== STORIES — временная доска объявлений (Этап 6, Часть 4) =====================
-     Старое постоянное "Объявление для водителей" (announceCard,
-     apiGetAnnouncement/apiSetAnnouncement) убрано полностью — Stories
-     закрывают тот же сценарий информирования водителей, но с авто-сроком
-     жизни 24 часа, поэтому держать оба механизма параллельно избыточно.
-     Управление доступно только супер-админу, прямо здесь, без отдельной
-     страницы. Показ водителям — в driver.html. Публикация живёт ровно
-     24 часа и потом пропадает сама (сервер сам фильтрует по expiresAt). */
+  /* ===================== STORIES — временная доска объявлений (Этап 6, Часть 4) ===================== Старое постоянное "Объявление для водителей" (announceCard, apiGetAnnouncement/apiSetAnnouncement)… */
   var pendingStoryImage = null; // { base64, mimeType, fileName } выбранного, но ещё не опубликованного фото
 
   document.getElementById('storyImageInput').addEventListener('change', function (e) {
@@ -2582,11 +2097,11 @@
     if (res.ok) {
       lines.push((res.urlMatchesDeploy ? '✅' : '❌') + ' Webhook указывает на текущий деплой: ' + (res.urlMatchesDeploy ? 'да' : 'НЕТ — это и есть, скорее всего, причина, почему кнопки не работают'));
       if (!res.urlMatchesDeploy) {
-        lines.push('&nbsp;&nbsp;Сейчас настроен на: <code style="word-break:break-all;">' + escapeHtml(res.webhookUrl || '(не задан)') + '</code>');
-        lines.push('&nbsp;&nbsp;Нужно: <code style="word-break:break-all;">' + escapeHtml(res.currentDeployUrl || '') + '</code>');
+        lines.push('&nbsp;&nbsp;Сейчас настроен на: <code style="word-break:break-all;">' + escapeHtml_(res.webhookUrl || '(не задан)') + '</code>');
+        lines.push('&nbsp;&nbsp;Нужно: <code style="word-break:break-all;">' + escapeHtml_(res.currentDeployUrl || '') + '</code>');
       }
       if (res.lastErrorMessage) {
-        lines.push('⚠️ Последняя ошибка Telegram при доставке (' + escapeHtml(res.lastErrorDate || '') + '): ' + escapeHtml(res.lastErrorMessage));
+        lines.push('⚠️ Последняя ошибка Telegram при доставке (' + escapeHtml_(res.lastErrorDate || '') + '): ' + escapeHtml_(res.lastErrorMessage));
       }
       lines.push((res.adminChatIdsCount > 0 ? '✅' : '❌') + ' Настроено получателей (ADMIN_CHAT_IDS): ' + res.adminChatIdsCount);
       if (res.pendingUpdateCount > 0) {
@@ -2594,15 +2109,15 @@
       }
     }
     el.innerHTML = lines.map(function (l) { return '<div style="margin-bottom:6px; font-size:14px;">' + l + '</div>'; }).join('');
-    document.getElementById('tgDiagReinstallBtn').style.display = (res.ok && !res.urlMatchesDeploy) ? 'block' : 'none';
+    // ЭТАП 15.2: раньше кнопка показывалась только при несовпадении URL —
+    // если адрес верный, но очередь всё равно не пуста (pendingUpdateCount
+    // > 0), кнопка оставалась скрытой, хотя текст выше явно предлагал её
+    // нажать. Теперь показываем кнопку в любом из двух случаев.
+    document.getElementById('tgDiagReinstallBtn').style.display =
+      (res.ok && (!res.urlMatchesDeploy || res.pendingUpdateCount > 0)) ? 'block' : 'none';
   }
 
-  /**
-   * ЭТАП 13.12 (промт «Доступы таксопарков»): список таксопарков — та же
-   * ручка apiListTaxiparks/getAllTaxiparkNames_, что уже используется в
-   * форме новой машины (loadTaxiparkOptionsTo_), никакого нового
-   * серверного метода для самого списка не нужно.
-   */
+  /* список таксопарков — та же ручка apiListTaxiparks/getAllTaxiparkNames_, что уже используется в форме новой машины (loadTaxiparkOptionsTo_), никакого нового серверного метода для самого списка не нужно */
   function loadTaxiparkAccessList_(btn) {
     var errEl = document.getElementById('taxiparkAccessError');
     var statusEl = document.getElementById('taxiparkAccessStatus');
@@ -2631,8 +2146,8 @@
     }
     wrap.innerHTML = names.map(function (n) {
       return '<div class="row" style="align-items:center; margin-bottom:8px;">' +
-        '<div style="flex:1; font-size:14px;">' + escapeHtml(n) + '</div>' +
-        '<button class="btn-primary" style="flex-shrink:0;" data-name="' + escapeHtml(n) + '" onclick="taxiparkIssueNewCode_(this)">Выдать новый код доступа</button>' +
+        '<div style="flex:1; font-size:14px;">' + escapeHtml_(n) + '</div>' +
+        '<button class="btn-primary" style="flex-shrink:0;" data-name="' + escapeHtml_(n) + '" onclick="taxiparkIssueNewCode_(this)">Выдать новый код доступа</button>' +
         '</div>';
     }).join('');
   }
@@ -2666,15 +2181,7 @@
     }).catch(function () { /* буфер обмена недоступен (например, http без TLS) — код всё равно виден на экране */ });
   }
 
-  /**
-   * ЭТАП 13.13 (промт «Рассылка в Telegram»): список подключённых
-   * таксопарков/водителей — рендерится чекбоксами (тот же визуальный
-   * паттерн, что и у payParts выше: input[type=checkbox] +
-   * style="width:auto;margin:0"). data-* атрибуты вместо подстановки
-   * названия/номера прямо в код чекбокса — название таксопарка/гос.
-   * номер это данные из таблицы и не должны ломать разметку, если в них
-   * вдруг окажутся кавычки.
-   */
+  /* список подключённых таксопарков/водителей — рендерится чекбоксами (тот же визуальный паттерн, что и у payParts выше: input[type=checkbox] + style="width:auto;margin:0"). */
   var telegramRecipients_ = { taxiparks: [], drivers: [] };
 
   function loadTelegramRecipients_(btn) {
@@ -2704,8 +2211,8 @@
       tpWrap.innerHTML = '<div class="sub" style="margin-bottom:4px;">Конкретные таксопарки:</div>' +
         telegramRecipients_.taxiparks.map(function (tp) {
           return '<label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:4px;">' +
-            '<input type="checkbox" class="bc-taxipark-cb" data-name="' + escapeHtml(tp.name) + '" style="width:auto;margin:0"> ' +
-            escapeHtml(tp.name) + '</label>';
+            '<input type="checkbox" class="bc-taxipark-cb" data-name="' + escapeHtml_(tp.name) + '" style="width:auto;margin:0"> ' +
+            escapeHtml_(tp.name) + '</label>';
         }).join('');
     }
 
@@ -2716,8 +2223,8 @@
         telegramRecipients_.drivers.map(function (d) {
           var label = d.plate + (d.ownerName ? ' (' + d.ownerName + ')' : '');
           return '<label style="display:flex; align-items:center; gap:8px; font-weight:400; margin-top:4px;">' +
-            '<input type="checkbox" class="bc-driver-cb" data-plate="' + escapeHtml(d.plate) + '" style="width:auto;margin:0"> ' +
-            escapeHtml(label) + '</label>';
+            '<input type="checkbox" class="bc-driver-cb" data-plate="' + escapeHtml_(d.plate) + '" style="width:auto;margin:0"> ' +
+            escapeHtml_(label) + '</label>';
         }).join('');
     }
 
@@ -2725,11 +2232,7 @@
     toggleBroadcastGroup_('driver');
   }
 
-  // «Все подключённые таксопарки/водители» — при отметке галочки
-  // отдельные чекбоксы конкретных получателей той же группы блокируются
-  // и снимаются, чтобы не путать (выбор либо «все», либо конкретные, не
-  // одновременно — на сервере это и так не задваивается за счёт
-  // дедупликации по chat_id, но в интерфейсе так честнее и понятнее).
+  // «Все подключённые таксопарки/водители» — при отметке галочки отдельные чекбоксы конкретных получателей той же группы блокируются и снимаются, чтобы не путать (выбор либо «все», либо конкретные, не…
   function toggleBroadcastGroup_(group) {
     var allCb = document.getElementById(group === 'taxipark' ? 'bcAllTaxiparks' : 'bcAllDrivers');
     var itemCbs = document.querySelectorAll(group === 'taxipark' ? '.bc-taxipark-cb' : '.bc-driver-cb');
@@ -2811,7 +2314,7 @@
 
         resultEl.innerHTML = '<div style="font-weight:600;">✅ Отправлено успешно: ' + res.sentCount + ' из ' + res.total + '</div>' +
           (res.failed && res.failed.length
-            ? '<div class="sub" style="margin-top:6px; color:var(--danger);">Не удалось отправить: ' + res.failed.map(escapeHtml).join(', ') + '</div>'
+            ? '<div class="sub" style="margin-top:6px; color:var(--danger);">Не удалось отправить: ' + res.failed.map(escapeHtml_).join(', ') + '</div>'
             : '');
 
         document.getElementById('broadcastText').value = '';
@@ -2849,12 +2352,7 @@
     });
   }
 
-  /**
-   * ЭТАП 12.3 (промт «По этой записи уже есть заявка на согласовании»),
-   * п.1: список зависших заявок на согласование + ручное решение прямо
-   * из to.html — работает независимо от того, исправны ли сейчас
-   * кнопки «Разрешить»/«Запретить» в Telegram (Этап 12.2).
-   */
+  /* п.1: список зависших заявок на согласование + ручное решение прямо из to.html — работает независимо от того, исправны ли сейчас кнопки «Разрешить»/«Запретить» в Telegram (Этап 12.2) */
   function loadPendingApprovals(btn) {
     var errEl = document.getElementById('pendingApprovalsError');
     var statusEl = document.getElementById('pendingApprovalsStatus');
@@ -2889,19 +2387,19 @@
       return;
     }
     wrap.innerHTML = requests.map(function (r) {
-      var title = (r.type === 'delete' ? '🗑 Удаление' : '✏️ Изменение') + ' — ' + escapeHtml(r.plate || '—');
+      var title = (r.type === 'delete' ? '🗑 Удаление' : '✏️ Изменение') + ' — ' + escapeHtml_(r.plate || '—');
       var staleBadge = r.staleSoon
         ? '<span style="color:var(--danger); font-size:12px;">⚠️ скоро автоматически отклонится (' + r.ageHours + ' ч. из 48)</span>'
         : '<span style="color:var(--muted); font-size:12px;">' + r.ageHours + ' ч. назад</span>';
       var body = '<div style="font-size:13px; margin:6px 0;">' +
-        '📝 Было: ' + escapeHtml(describeApprovalData_(r.oldData)) +
-        (r.type === 'edit' ? '<br>🆕 Станет: ' + escapeHtml(describeApprovalData_(r.newData)) : '') +
-        '<br>❗ Причина: ' + escapeHtml(r.reason || '—') +
+        '📝 Было: ' + escapeHtml_(describeApprovalData_(r.oldData)) +
+        (r.type === 'edit' ? '<br>🆕 Станет: ' + escapeHtml_(describeApprovalData_(r.newData)) : '') +
+        '<br>❗ Причина: ' + escapeHtml_(r.reason || '—') +
         '</div>';
       return '<div class="card" style="background:var(--panel2, var(--card)); margin-bottom:10px;">' +
         '<div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">' +
         '<b style="font-size:14px;">' + title + '</b>' + staleBadge + '</div>' +
-        '<div class="sub" style="margin:2px 0 0;">👤 ' + escapeHtml(r.staffName || '—') + ' · подана ' + escapeHtml(r.createdAt || '—') + '</div>' +
+        '<div class="sub" style="margin:2px 0 0;">👤 ' + escapeHtml_(r.staffName || '—') + ' · подана ' + escapeHtml_(r.createdAt || '—') + '</div>' +
         body +
         '<div class="row">' +
         '<button class="btn-primary" style="flex:1; background:var(--accent-2);" onclick="decideApproval_(\'' + r.id + '\', true, this)">✅ Разрешить</button>' +
@@ -2945,7 +2443,7 @@
   function loadStoriesAdmin() {
     var wrap = document.getElementById('storiesAdminList');
     apiPost({ action: 'listStoriesAdmin', name: ADMIN_NAME, pw: PW }).then(function (res) {
-      if (!res.ok) { wrap.innerHTML = '<div class="empty">' + escapeHtml(res.error || 'Ошибка загрузки') + '</div>'; return; }
+      if (!res.ok) { wrap.innerHTML = '<div class="empty">' + escapeHtml_(res.error || 'Ошибка загрузки') + '</div>'; return; }
       renderStoriesAdminList_(res.stories);
     }).catch(function () {
       wrap.innerHTML = '<div class="empty">Ошибка сети</div>';
@@ -2965,8 +2463,8 @@
       var hoursLeft = Math.max(0, Math.ceil((new Date(s.expiresAt) - new Date()) / 3600000));
       return '<div class="story-admin-item">' + thumb +
         '<div class="story-admin-body">' +
-        (s.text ? '<div class="story-admin-text">' + escapeHtml(s.text) + '</div>' : '') +
-        '<div class="story-admin-meta">' + escapeHtml(s.author) + ' · осталось ~' + hoursLeft + ' ч.</div>' +
+        (s.text ? '<div class="story-admin-text">' + escapeHtml_(s.text) + '</div>' : '') +
+        '<div class="story-admin-meta">' + escapeHtml_(s.author) + ' · осталось ~' + hoursLeft + ' ч.</div>' +
         '</div>' +
         '<button class="story-admin-del" onclick="deleteStoryAdmin(\'' + s.id + '\')">Удалить</button>' +
         '</div>';
@@ -3013,12 +2511,7 @@
           document.body.appendChild(bar);
         }
 
-        // ЭТАП 13.9: обновление уже готово (воркер ждал ещё до открытия
-        // этой вкладки) — раньше в этом случае тоже показывался баннер,
-        // хотя пользователь ещё ничего не успел ввести. Теперь на самом
-        // старте страницы (до любого ввода) баннер не нужен — сразу
-        // активируем новый воркер, а перезагрузку сделает уже имеющийся
-        // ниже обработчик controllerchange (ровно один раз).
+        // обновление уже готово (воркер ждал ещё до открытия этой вкладки) — раньше в этом случае тоже показывался баннер, хотя пользователь ещё ничего не успел ввести.
         if (reg.waiting && navigator.serviceWorker.controller) {
           reg.waiting.postMessage('SKIP_WAITING');
         }

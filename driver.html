@@ -2,7 +2,8 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи. -->
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Кабинет водителя — Honghi EV Service</title>
 <link rel="manifest" href="manifest-driver.json">
 <meta name="theme-color" content="#0e1318">
@@ -33,13 +34,14 @@
   .row{display:flex; gap:8px;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
-    background:#0d141e; color:var(--text); font-size:15px; margin-bottom:10px;
+    background:#0d141e; color:var(--text); font-size:16px; margin-bottom:10px;
   }
   input:focus, select:focus, textarea:focus{outline:1px solid var(--accent);}
   button{
     padding:11px 16px; border-radius:10px; border:none; font-size:15px; font-weight:600;
-    cursor:pointer;
+    cursor:pointer; transition:transform .1s ease;
   }
+  button:active{transform:scale(.97);}
   .btn-primary{background:var(--accent); color:#fff;}
   .btn-secondary{background:#0d141e; color:var(--text); border:1px solid var(--border);}
   .btn-full{width:100%;}
@@ -63,6 +65,9 @@
   a.act-link{color:var(--accent); text-decoration:none; font-weight:600;}
   .toggle{color:var(--accent); font-size:14px; cursor:pointer; user-select:none; margin-top:8px;}
   #gate{max-width:340px; margin:40px auto 0;}
+  @keyframes fadeIn{from{opacity:0;} to{opacity:1;}}
+  /* 16.14: планшет/десктоп — кабинет и формы регистрации пошире; мобильная раскладка (≤480px) не меняется. */
+  @media (min-width:481px){ #cabinet, #regScreen{max-width:720px; margin:0 auto;} .card{padding:20px;} }
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
   .rec{
     border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:8px;
@@ -73,22 +78,14 @@
   .rec-unknown{ background:#0d141e; border:1px solid var(--border); color:var(--muted); }
   .veh-title{font-size:18px; font-weight:700; margin-bottom:2px;}
   .veh-sub{color:var(--muted); font-size:13px; margin-bottom:12px;}
-  /* ЭТАП 4 (промт «Постоянное предложение включить уведомления»): как
-     только канал (Telegram/push) подключён, карточка сжимается в мелкую
-     строку-статус без активного призыва к действию и переезжает вниз
-     кабинета (см. notif-bottom-anchor ниже и moveNotifCard_ в JS) — чтобы
-     не занимать видное место, но при этом статус оставался виден. */
+  /* как только канал (Telegram/push) подключён, карточка сжимается в мелкую строку-статус без активного призыва к действию и переезжает вниз кабинета — чтобы не занимать видное место, но при этом статус… */
   .notif-compact{
     padding:8px 12px !important; margin-bottom:8px !important;
   }
   .notif-compact #tgLinkStatus, .notif-compact #pushStatus{
     font-size:12px; color:var(--muted);
   }
-  /* Только для Telegram: как только подключено, кнопка "Выдать новую
-     ссылку" — это уже не нужный призыв к действию, а не осмысленное
-     действие (в отличие от push, где даже включённое состояние оставляет
-     полезную кнопку "Отключить") — поэтому прячем именно её отдельным
-     классом, а не через общий .notif-compact (который used и для push). */
+  /* Только для Telegram: как только подключено, кнопка "Выдать новую ссылку" — это уже не нужный призыв к действию, а не осмысленное действие (в отличие от push, где даже включённое состояние оставляет… */
   .notif-hide-cta .btn-primary{display:none;}
   .scan-row{display:flex; gap:8px;}
   .scan-row input{flex:1;}
@@ -149,12 +146,7 @@
 </head>
 <body>
 
-  <!-- ЭТАП 13.11-Б: номер мастера — единственный источник правды это
-       SERVICE_PHONE (1_Config.gs) через apiGetServicePhone/action=servicephone.
-       Раньше здесь был захардкожен номер отдельной строкой — если бы номер
-       поменяли в настройках, эта ссылка так и осталась бы со старым
-       значением. Ссылка скрыта, пока номер не подгружен (см. initWaMaster_
-       ниже), чтобы не мелькать битой ссылкой на заглушку. -->
+  <!-- Б: номер мастера — единственный источник правды это SERVICE_PHONE (1_Config.gs) через apiGetServicePhone/action=servicephone. -->
   <a class="wa-master" id="waMasterLink" href="#" target="_blank" rel="noopener" style="display:none;">
     <svg viewBox="0 0 32 32" fill="currentColor"><path d="M16.02 3C9.4 3 4 8.37 4 15c0 2.36.68 4.56 1.86 6.42L4 29l7.77-2.04A11.9 11.9 0 0 0 16.02 27C22.63 27 28 21.63 28 15S22.63 3 16.02 3zm0 21.8c-2 0-3.87-.55-5.47-1.51l-.39-.23-4.6 1.21 1.23-4.48-.25-.46A9.7 9.7 0 0 1 5.2 15c0-5.96 4.86-10.8 10.82-10.8S26.84 9.04 26.84 15 21.98 24.8 16.02 24.8zm5.94-8.1c-.33-.16-1.92-.95-2.22-1.06-.3-.11-.51-.16-.73.17-.22.33-.84 1.06-1.03 1.27-.19.22-.38.24-.71.08-.33-.17-1.38-.51-2.63-1.63-.97-.87-1.63-1.94-1.82-2.27-.19-.33-.02-.5.14-.67.15-.15.33-.38.5-.57.16-.19.22-.33.33-.55.11-.22.05-.41-.03-.57-.08-.17-.73-1.76-1-2.4-.26-.63-.53-.55-.73-.56h-.62c-.22 0-.57.08-.87.41-.3.33-1.14 1.11-1.14 2.71 0 1.6 1.17 3.15 1.33 3.37.16.22 2.3 3.51 5.58 4.92.78.34 1.39.54 1.87.69.79.25 1.5.22 2.07.13.63-.1 1.92-.79 2.19-1.55.27-.76.27-1.42.19-1.55-.08-.14-.3-.22-.63-.38z"/></svg>
     Ваш мастер — связаться
@@ -193,25 +185,17 @@
     <div class="sub">Машина <b id="regPlate"></b> ещё не в базе — заполните данные один раз</div>
     <div class="card">
       <label>ФИО водителя</label>
-      <input id="r_fio" placeholder="Иванов Иван Иванович">
+      <input id="r_fio" placeholder="Иванов Иван Иванович" oninput="this.value=this.value.replace(/[0-9]/g,'')">
 
       <label>Тип авто</label>
       <select id="r_type" onchange="onDriverTypeChange_()">
+        <option value="">— выберите тип —</option>
         <option value="Такси">Таксопарк</option>
         <option value="Частная">Частная</option>
       </select>
 
-      <!-- ЭТАП 10 (промт «Шторка ввода таксопарка»): показывается только
-           для типа "Такси" — выбор конкретного таксопарка из списка, с
-           пунктом "Другое" для собственного варианта.
-           ЭТАП 11 (промт «Реальные таксопарки вместо Яндекс/InDrive»):
-           список названий больше не хардкодится в разметке — при
-           открытии страницы подгружается из базы (см.
-           loadTaxiparkOptions_) и вставляется перед пунктом "Другое".
-           Если ни одного таксопарка ещё не зарегистрировано, список
-           будет состоять только из "Другое" — это нормально для самого
-           первого водителя-таксиста в системе. -->
-      <div id="taxiParkBlock">
+      <!-- показывается только для типа "Такси" — выбор конкретного таксопарка из списка, с пунктом "Другое" для собственного варианта. -->
+      <div id="taxiParkBlock" style="display:none;">
         <label>Таксопарк</label>
         <select id="r_taxipark" onchange="onTaxiparkChange_()">
           <option value="">— выберите таксопарк —</option>
@@ -284,21 +268,14 @@
   <div id="cabinet" style="display:none;">
     <span class="logout" onclick="logoutDevice()">Это не моё устройство / Выйти</span>
 
-    <!-- ЭТАП 2 (промт «Донаполнение анкеты водителя»): показывается
-         только если сервер прислал needName/needPhone/needTaxipark=true
-         (см. buildDriverCabinetPayload_, 6_WebApi.gs) — то есть какое-то
-         из обязательных полей анкеты пустое (например, его удалили из
-         таблицы вручную). Внутри показываются только реально недостающие
-         поля. Как только водитель сохраняет форму, эти поля в таблице
-         больше не пустые, и при следующей сборке кабинета флаги сами не
-         придут — форма один раз показывается и больше не мешает. -->
+    <!-- показывается только если сервер прислал needName/needPhone/needTaxipark=true — то есть какое-то из обязательных полей анкеты пустое (например, его удалили из таблицы вручную). -->
     <div class="card" id="profileCompleteCard" style="display:none;">
       <h2>📝 Уточните данные</h2>
       <div class="sub" style="margin-bottom:10px;">В вашей анкете не хватает нескольких полей — заполните их один раз.</div>
 
       <div id="pc_nameWrap" style="display:none;">
         <label>ФИО водителя</label>
-        <input id="pc_fio" placeholder="Иванов Иван Иванович">
+        <input id="pc_fio" placeholder="Иванов Иван Иванович" oninput="this.value=this.value.replace(/[0-9]/g,'')">
       </div>
 
       <div id="pc_phoneWrap" style="display:none;">
@@ -334,29 +311,13 @@
 
     <h1>🚕 Мой автомобиль</h1>
     <div class="sub" id="cabPlateSub"></div>
-    <!-- ФИКС (по аналогии с tpSubStatus в taxipark.html): видимая отметка
-         времени последнего обновления — раньше кабинет водителя тихо
-         обновлялся сам (см. pollDataVersion_/silentRefreshCabinet_ ниже),
-         но на экране это никак не было видно, и водитель не мог понять,
-         актуальные ли данные или страницу пора обновить вручную. -->
+    <!-- (по аналогии с tpSubStatus в taxipark.html): видимая отметка времени последнего обновления — раньше кабинет водителя тихо обновлялся сам , но на экране это никак не было видно, и водитель не мог… -->
     <div class="sub" id="cabSubStatus"></div>
 
-    <!-- ЭТАП 4 (промт «Постоянное предложение включить уведомления»):
-         этот маркер отмечает "видное место" в верхней части кабинета —
-         пока канал не подключён, соответствующая карточка живёт здесь.
-         Как только канал подключается, JS переносит саму карточку (не
-         копирует — перемещает тот же DOM-узел) к notifBottomAnchor ниже,
-         см. moveNotifCard_. -->
+    <!-- этот маркер отмечает "видное место" в верхней части кабинета — пока канал не подключён, соответствующая карточка живёт здесь. -->
     <div id="notifTopAnchor"></div>
 
-    <!-- ЭТАП 13.4 (промт «Отказ от WhatsApp-рассылки, подключение к
-         Telegram-боту через уникальную ссылку»): та же кнопка, что и в
-         taxipark.html — одним нажатием подключаем уведомления в Telegram
-         лично этому водителю.
-         ЭТАП 4: пока не подключено — карточка видна здесь, с кнопкой.
-         Как только подключено — сжимается (.notif-compact) и переезжает
-         вниз кабинета, кнопка "Выдать новую ссылку" скрывается (см.
-         renderTelegramLinkCard_ ниже), остаётся только статус. -->
+    <!-- та же кнопка, что и в taxipark.html — одним нажатием подключаем уведомления в Telegram лично этому водителю. -->
     <div class="card" id="tgLinkCard" style="padding:12px 16px;">
       <div id="tgLinkStatus" style="margin-bottom:8px;"></div>
       <button class="btn-primary btn-full" id="tgLinkBtn" onclick="generateTelegramLink_(this)">Подключить уведомления в Telegram</button>
@@ -364,22 +325,14 @@
       <div class="error" id="tgLinkError"></div>
     </div>
 
-    <!-- ЭТАП 3 (промт «Push + Telegram для Stories»): та же кнопка
-         push-уведомлений, что в to.html (см. pushCard там же), только для
-         водителя — сохраняет токен в отдельный лист "DriverPushTokens"
-         (12_Push.gs), не смешиваясь с push сотрудников. Скрыта, если
-         браузер не поддерживает push, или пока в этом файле не заполнены
-         FIREBASE_CONFIG/FIREBASE_VAPID_KEY (см. JS ниже — те же значения,
-         что уже вписаны в to.html).
-         ЭТАП 4: как и tgLinkCard выше — когда push включён, карточка
-         сжимается и переезжает вниз (см. refreshDriverPushStatus_). -->
+    <!-- та же кнопка push-уведомлений, что в to.html , только для водителя — сохраняет токен в отдельный лист "DriverPushTokens" (12_Push.gs), не смешиваясь с push сотрудников. -->
     <div class="card" id="pushCard" style="display:none; padding:12px 16px;">
       <div id="pushStatusRow" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
         <div>
           <div style="font-weight:600;">🔔 Push-уведомления</div>
           <div class="sub" id="pushStatus" style="margin:2px 0 0;">Проверка...</div>
         </div>
-        <button class="btn-primary" id="pushToggleBtn" onclick="toggleDriverPush_()">…</button>
+        <button class="btn-primary" id="pushToggleBtn">…</button>
       </div>
     </div>
 
@@ -412,36 +365,7 @@
 
       <div class="summary" id="costSummary"></div>
 
-      <!-- ПРИМЕЧАНИЕ: блок "GPS / пробег / маршрут" временно отключён
-           (карточка не выводится в кабинете). Разметка сохранена внутри
-           этого комментария на случай, если понадобится включить обратно:
-           просто уберите открывающий и закрывающий теги комментария,
-           окружающие блок ниже.
-      <div class="card" id="gpsMileageCard" style="margin-top:12px; padding:14px 16px;">
-        <div style="font-weight:700; margin-bottom:8px;">📍 Пробег и Honghi EV Service</div>
-        <div id="gpsStatusLine" style="font-size:13px; color:var(--muted);">GPS: запуск после входа…</div>
-        <div class="summary" style="margin-top:8px;">
-          <div class="pill">Сегодня<b id="gpsTodayKm">0 км</b></div>
-          <div class="pill">С GPS-сессии<b id="gpsSessionKm">0 км</b></div>
-          <div class="pill">Расчётный пробег<b id="gpsEstimatedMileage">—</b></div>
-          <div class="pill">Подтверждено сервером<b id="gpsServerKm">—</b></div>
-        </div>
-        <div id="gpsMaintenanceHint" class="rec rec-unknown" style="margin-top:8px;">Чтобы автоматически оценивать следующее ТО, подтвердите текущий пробег одометра.</div>
-        <div id="gpsConsentDeclinedNote" style="display:none; margin-top:8px; font-size:13px; color:var(--muted);">
-          📍 GPS выключен — вы отказались от отслеживания пробега.
-          <span class="toggle" style="display:inline;" onclick="openGpsConsentModal_()">Включить</span>
-        </div>
-        <div style="margin-top:10px;">
-          <div id="serviceDistanceLine" style="font-size:14px;">📍 До Honghi EV Service: определяем…</div>
-          <div id="serviceDistanceNote" style="font-size:12px; color:var(--muted); margin-top:3px;"></div>
-        </div>
-        <div class="row" style="margin-top:10px; gap:8px;">
-          <button class="btn-primary" style="flex:1;" onclick="confirmGpsOdometer_()">Подтвердить одометр</button>
-          <button class="btn-secondary" style="flex:1;" onclick="openRoute2gis_()">2GIS</button>
-          <button class="btn-secondary" style="flex:1;" onclick="openRouteYandex_()">Яндекс</button>
-        </div>
-      </div>
-      -->
+      <!-- блок "GPS / пробег / маршрут" временно отключён (карточка не выводится в кабинете). -->
 
       <a id="pdfLink" class="pdf-link" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
     </div>
@@ -484,29 +408,17 @@
     </div>
   </div>
 
-<!-- ПРИМЕЧАНИЕ: GPS-инфраструктура (учёт пробега/трекинг) временно
-     отключена — подключение скриптов закомментировано, сами файлы
-     js/gps-storage.js, js/gps-tracker.js, js/gps-sync.js,
-     js/routing-service.js никуда не делись и лежат на месте. Весь
-     остальной код кабинета уже написан с проверками вида
-     "if (window.CCSGpsTracker) {...}", поэтому при отсутствии этих
-     window.CCSGps*-объектов GPS-логика просто тихо ничего не делает.
-     Чтобы включить обратно — раскомментируйте 4 строки ниже.
-<script src="js/gps-storage.js"></script>
-<script src="js/gps-tracker.js"></script>
-<script src="js/gps-sync.js"></script>
-<script src="js/routing-service.js"></script>
--->
+<!-- GPS-инфраструктура (учёт пробега/трекинг) временно отключена — подключение скриптов закомментировано, сами файлы js/gps-storage.js, js/gps-tracker.js, js/gps-sync.js, js/routing-service.js никуда не… -->
 
 <!-- ЭТАП 3 (промт «Push + Telegram для Stories»): тот же Firebase SDK,
      что и в to.html — нужен для push-уведомлений о новых объявлениях
      (Stories). -->
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-messaging-compat.js"></script>
+<script src="js/config.js"></script>
+<script src="js/push-card.js"></script>
 <script>
-  // ЗАМЕНИТЕ на реальный адрес вашего Apps Script Web App (тот же, что в to.html/act.html).
-  var SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyipAEfhM4O-IJPnzGKX-_74g1AzjH5KwN7hggO-aYHgA25wM3lacKdGps4UmI7X1SLaQ/exec';
-
+  // SCRIPT_URL — см. js/config.js
   // ЭТАП 13.7: см. подробный комментарий к этой же функции в to.html —
   // autocapitalize="characters" не гарантирует верхний регистр (особенно на
   // компьютере), поэтому принудительно переводим value в верхний регистр по
@@ -551,14 +463,7 @@
 
   // ---- "ЗАПОМНИТЬ УСТРОЙСТВО" (Этап 4) ----
 
-  // ЭТАП 14 (улучшение сохранения входа): раньше единственный "не valid"
-  // ответ сервера сразу стирал токен и выкидывал на экран пароля — даже
-  // если секундой раньше на этом же устройстве уже был честно показан
-  // кабинет (см. cachedCabinet выше). Один спорный/сбойный ответ (напр.
-  // "холодный старт" Apps Script) выглядел для водителя как "постоянно
-  // просит войти заново". Теперь если это первая попытка на этой
-  // загрузке страницы — один раз тихо перепроверяем токен ещё раз,
-  // прежде чем решить, что он действительно недействителен.
+  // (улучшение сохранения входа): раньше единственный "не valid" ответ сервера сразу стирал токен и выкидывал на экран пароля — даже если секундой раньше на этом же устройстве уже был честно показан кабинет .
   function tryDeviceLogin(plate, token, isRetry) {
     return apiPost({ action: 'deviceLogin', plate: plate, token: token })
       .then(function (res) {
@@ -599,13 +504,7 @@
     location.reload();
   }
 
-  // ЭТАП 10, п.7: автообновление данных. Пока открыт кабинет, раз в 20
-  // секунд опрашиваем лёгкий эндпоинт "версии данных" (см. apiGetDataVersion
-  // в 2_Sheets.gs — не читает листы, только Script Properties). Если
-  // версия отличается от последней увиденной — значит, где-то (сотрудник
-  // в to.html, директор в Telegram) что-то изменилось, и кабинет тихо
-  // перезапрашивается заново — водителю не нужно самому обновлять
-  // страницу, чтобы увидеть новую запись ТО/акт/решение по заявке.
+  // п.7: автообновление данных.
   var lastKnownDataVersion_ = null;
   function pollDataVersion_() {
     var cabEl = document.getElementById('cabinet');
@@ -618,12 +517,7 @@
       lastKnownDataVersion_ = res.version;
     }).catch(function () { /* сети сейчас нет — просто пропускаем этот опрос, попробуем через 20с снова */ });
 
-    // ЭТАП 4 ГПС-плана: та же самая уже существующая 20-секундная точка
-    // опроса (см. комментарий выше) — переиспользуем её цикл и для
-    // отправки накопившейся GPS-очереди, вместо того чтобы заводить
-    // отдельный новый постоянный таймер специально под GPS (п.17/41 ТЗ).
-    // trySyncQueue() сама быстро резолвится с skipped:'queue_empty',
-    // если отправлять нечего — лишней нагрузки в обычном случае нет.
+    // ГПС-плана: та же самая уже существующая 20-секундная точка опроса — переиспользуем её цикл и для отправки накопившейся GPS-очереди, вместо того чтобы заводить отдельный новый постоянный таймер…
     if (window.CCSGpsSync) {
       window.CCSGpsSync.trySyncQueue().then(function (res) {
         if (res && res.ok && res.accepted) renderGpsMileage_(); // подтянуть новый gpsTotalKm при следующем входе/обновлении
@@ -631,11 +525,7 @@
     }
   }
 
-  // Тихое обновление кабинета: переиспользует тот же путь, что и обычный
-  // вход по токену устройства, но НЕ трогает то, что человек уже успел
-  // ввести и ещё не отправил (поле пробега для проверки ТО, даты
-  // фильтра актов) — их значения сохраняются перед перерисовкой и
-  // возвращаются обратно после неё.
+  // Тихое обновление кабинета: переиспользует тот же путь, что и обычный вход по токену устройства, но НЕ трогает то, что человек уже успел ввести и ещё не отправил (поле пробега для проверки ТО, даты…
   function silentRefreshCabinet_() {
     if (!deviceToken || !currentPlate) return; // без сохранённого токена тихо обновить нечем
     var mileageEl = document.getElementById('currentMileageInput');
@@ -678,12 +568,7 @@
     });
   }
 
-  // ---- Очередь исходящих запросов (retry-queue), ЭТАП 10, п.6 -------
-  // Только для регистрации (payload небольшой, только текстовые поля —
-  // в отличие от act.html, где в payload попадают фото/PDF и очередь в
-  // localStorage рискует упереться в лимит объёма, поэтому там не
-  // применяется). Если сеть пропала на середине регистрации — данные не
-  // теряются, форма остаётся заполненной, а отправка повторится сама.
+  // Очередь исходящих запросов (retry-queue), , п.6 ------- Только для регистрации (payload небольшой, только текстовые поля — в отличие от act.html, где в payload попадают фото/PDF и очередь в…
   var RQ_KEY_ = 'driver_retry_queue';
 
   function rqLoad_() {
@@ -747,12 +632,7 @@
     return fetchWithRetry_(url).then(function (r) { return r.json(); });
   }
 
-  // ЭТАП 13.11-Б: подтягиваем номер мастера из SERVICE_PHONE (единый
-  // источник правды, тот же apiGetServicePhone, что и в taxipark.html) и
-  // заполняем ссылку "Ваш мастер — связаться" наверху страницы. Та же
-  // защита от заглушки "+7 (___) ___-__-__", что и в
-  // taxipark.html/renderServicePhone_ — пока не вписан реальный номер,
-  // ссылка остаётся скрытой, а не ведёт на битый wa.me/___.
+  // Б: подтягиваем номер мастера из SERVICE_PHONE (единый источник правды, тот же apiGetServicePhone, что и в taxipark.html) и заполняем ссылку "Ваш мастер — связаться" наверху страницы.
   function initWaMaster_() {
     apiGet({ action: 'servicephone' }).then(function (res) {
       var phone = res && res.ok ? res.phone : '';
@@ -774,36 +654,16 @@
     }).then(function (r) { return r.json(); });
   }
 
-  // ЭТАП 4 ГПС-плана: подключаем реальную отправку GPS-очереди к уже
-  // существующему apiPost() — сам транспорт (fetchWithRetry_, text/plain,
-  // без preflight) и вся логика "что отправлять/что удалить из очереди
-  // после подтверждения" уже готовы (js/gps-sync.js, js/gps-storage.js,
-  // apps-script/10_Gps.gs), здесь только "провод" между ними. Ставится
-  // один раз при загрузке страницы, а не при каждом входе/логине.
+  // ГПС-плана: подключаем реальную отправку GPS-очереди к уже существующему apiPost() — сам транспорт (fetchWithRetry_, text/plain, без preflight) и вся логика "что отправлять/что удалить из очереди…
   if (window.CCSGpsSync) {
     window.CCSGpsSync.setSyncHandler(function (payload) {
       return apiPost(payload);
     });
   }
 
-  // ЭТАП 8.4: тот же короткий клиентский кэш данных, что и в to.html —
-  // здесь кэшируется полный payload кабинета водителя
-  // (buildDriverCabinetPayload_ на сервере) по гос. номеру, чтобы при
-  // повторном открытии PWA/возврате на вкладку кабинет отрисовывался
-  // мгновенно из localStorage, а свежий запрос по токену устройства
-  // всё равно уходит в сеть следом и обновляет экран (см. ниже, где
-  // используется вместе с tryDeviceLogin) — stale-while-revalidate.
+  // тот же короткий клиентский кэш данных, что и в to.html — здесь кэшируется полный payload кабинета водителя (buildDriverCabinetPayload_ на сервере) по гос.
   var CLIENT_CACHE_PREFIX = 'driver_cache_';
-  // ЭТАП 14 (улучшение сохранения входа): было 20000 (20 секунд) — на
-  // практике кэш почти всегда успевал "протухнуть" между визитами, и
-  // мгновенная отрисовка кабинета выше (см. cachedCabinet) не срабатывала
-  // почти никогда: обновление страницы целиком зависело от того, успеет
-  // ли тихий вход по токену устройства отработать без сбоя, а любая
-  // заминка сети выглядела как "просит войти заново". Кабинет — не
-  // секретные данные конкретного устройства, а лишь то, что и так уже
-  // было показано этому же водителю на этом же телефоне, поэтому держим
-  // его в кэше неделю; тихий вход по токену всё равно выполняется каждый
-  // раз и обновляет экран свежими данными, как только придёт ответ.
+  // (улучшение сохранения входа): было 20000 (20 секунд) — на практике кэш почти всегда успевал "протухнуть" между визитами, и мгновенная отрисовка кабинета выше не срабатывала почти никогда: обновление…
   var CLIENT_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
   function clientCacheGet_(key) {
@@ -897,6 +757,13 @@
     });
   }
 
+  /* 16.15: fade-in вместо мгновенного display:none→block при переходе между экранами. */
+  function showScreen_(id) {
+    var el = document.getElementById(id);
+    el.style.display = 'block';
+    el.style.animation = 'fadeIn .25s ease';
+  }
+
   function logout() {
     // "Сменить номер" вызывает эту же функцию — для GPS это тот самый
     // случай смены автомобиля (AUDIT_REPORT.md §9.2, ТЗ п.31): нельзя
@@ -909,15 +776,7 @@
     location.reload();
   }
 
-  // ЭТАП 2: единая точка остановки GPS перед logout()/logoutDevice().
-  // ЭТАП 4: как и было задумано на Этапе 2 — здесь появилась best-effort
-  // попытка синхронизации перед reload. Специально НЕ дожидается ответа
-  // (никакого await/блокировки reload) — сама остановленная сессия уже
-  // надёжно легла в durable-очередь (Этап 3, stopSession()), поэтому
-  // даже если этот запрос не успеет уйти до location.reload(), пробег
-  // не потеряется: его отправит обычный цикл синхронизации при
-  // следующем открытии кабинета/тике pollDataVersion_ — на новом номере
-  // это будет уже отдельная, следующая сессия и никак не помешает.
+  // единая точка остановки GPS перед logout()/logoutDevice().
   function stopGpsBeforeExit_() {
     try {
       if (global_hasGpsTracker_() && window.CCSGpsTracker.getStatus().running) {
@@ -939,7 +798,7 @@
 
   function showPasswordScreen(plate) {
     hideAllScreens();
-    document.getElementById('passwordScreen').style.display = 'block';
+    showScreen_('passwordScreen');
     document.getElementById('pwPlate').innerText = plate;
     document.getElementById('pwInput').value = '';
     document.getElementById('pwError').innerText = '';
@@ -980,7 +839,7 @@
 
   function showSetPasswordScreen(plate) {
     hideAllScreens();
-    document.getElementById('setPasswordScreen').style.display = 'block';
+    showScreen_('setPasswordScreen');
     document.getElementById('spPlate').innerText = plate;
     document.getElementById('spPassword').value = '';
     document.getElementById('spPassword2').value = '';
@@ -1022,7 +881,7 @@
 
   function showRegister(plate) {
     hideAllScreens();
-    document.getElementById('regScreen').style.display = 'block';
+    showScreen_('regScreen');
     document.getElementById('regPlate').innerText = plate;
   }
 
@@ -1085,17 +944,7 @@
     return sel || '';
   }
 
-  // ЭТАП 11 (промт «Реальные таксопарки вместо Яндекс/InDrive»): список
-  // названий уже существующих в базе таксопарков — вставляется в select
-  // перед пунктом "Другое". Грузится один раз при открытии страницы,
-  // ещё до того как водитель успеет выбрать "Такси" — так шторка не
-  // "моргает" пустым списком в момент выбора.
-  // ЭТАП 2 (промт «Донаполнение анкеты водителя»): та же загрузка списка,
-  // вынесенная в переиспользуемую функцию — теперь ею пользуется не
-  // только select регистрации (r_taxipark), но и select формы
-  // донаполнения анкеты (pc_taxipark, см. ниже). selectEl.dataset.loaded
-  // защищает от повторной загрузки/задваивания опций, если один и тот же
-  // select почему-то заполняется дважды.
+  // список названий уже существующих в базе таксопарков — вставляется в select перед пунктом "Другое".
   function populateTaxiparkSelect_(selectEl) {
     if (!selectEl || selectEl.dataset.loaded) return;
     selectEl.dataset.loaded = '1';
@@ -1131,6 +980,14 @@
 
     if (!fio || !whatsapp) {
       errEl.innerText = 'Заполните ФИО и WhatsApp';
+      return;
+    }
+    if (/[0-9]/.test(fio)) {
+      errEl.innerText = 'ФИО не должно содержать цифры';
+      return;
+    }
+    if (!taxiOrPrivate) {
+      errEl.innerText = 'Укажите тип авто: частная или таксопарк';
       return;
     }
     if (taxiOrPrivate === 'Такси' && !taxiPark) {
@@ -1181,12 +1038,7 @@
     });
   }
 
-  // ЭТАП 2 (промт «Донаполнение анкеты водителя»): те же три функции
-  // "шторки" выбора таксопарка (onTaxiparkChange_/closeTaxiparkOtherWrap_/
-  // resolveTaxiPark_ у формы регистрации выше), но для отдельных id-шников
-  // формы донаполнения — так обе формы (регистрация и донаполнение) не
-  // делят один и тот же select/инпут и не мешают друг другу, даже если
-  // обе почему-то оказались бы на странице одновременно.
+  // те же три функции "шторки" выбора таксопарка (onTaxiparkChange_/closeTaxiparkOtherWrap_/ resolveTaxiPark_ у формы регистрации выше), но для отдельных id-шников формы донаполнения — так обе формы…
   function onPcTaxiparkChange_() {
     var sel = document.getElementById('pc_taxipark').value;
     var wrap = document.getElementById('pc_taxiparkOtherWrap');
@@ -1207,12 +1059,7 @@
     return sel || '';
   }
 
-  /**
-   * Рисует карточку донаполнения анкеты — вызывается из showCabinet() при
-   * каждом открытии кабинета. Карточка целиком скрыта, если у сервера нет
-   * ни одного needName/needPhone/needTaxipark=true, а внутри неё виден
-   * только блок для реально недостающего поля.
-   */
+  /* Рисует карточку донаполнения анкеты — вызывается из showCabinet() при каждом открытии кабинета. */
   function renderProfileCompleteCard_(data) {
     var card = document.getElementById('profileCompleteCard');
     var anyMissing = !!(data.needName || data.needPhone || data.needTaxipark);
@@ -1244,6 +1091,7 @@
     errEl.innerText = '';
 
     if (needName && !fio) { errEl.innerText = 'Укажите ФИО'; return; }
+    if (needName && /[0-9]/.test(fio)) { errEl.innerText = 'ФИО не должно содержать цифры'; return; }
     if (needPhone && !phone) { errEl.innerText = 'Укажите номер телефона'; return; }
     if (needTaxipark && !taxiPark) { errEl.innerText = 'Укажите таксопарк'; return; }
 
@@ -1257,11 +1105,7 @@
       return apiPost({
         action: 'driverUpdateProfile',
         plate: currentPlate,
-        // Пароль на клиенте после входа по "запомненному устройству" не
-        // хранится (сознательно, см. комментарии выше про deviceToken) —
-        // deviceToken как раз и есть равноценное доказательство личности
-        // для этой некритичной формы (тот же принцип, что и у кнопки
-        // "Подключить Telegram", см. generateTelegramLink_).
+        // Пароль на клиенте после входа по "запомненному устройству" не хранится (сознательно, см.
         deviceToken: localStorage.getItem('driver_device_token') || '',
         fields: fields
       }).then(function (res) {
@@ -1286,16 +1130,7 @@
   var gpsCabinetData_ = null;
   var gpsRouteTimer_ = null;
 
-  // ЭТАП 6 ГПС-плана: раньше контрольная точка одометра хранилась ЧИСТО
-  // ЛОКАЛЬНО (localStorage, ключ на конкретный браузер/устройство) — на
-  // другом телефоне или после переустановки браузера водитель видел
-  // "—" и должен был вводить пробег заново, а рекомендации по ТО (кроме
-  // отдельной пилюли gpsMaintenanceHint) её вообще не учитывали. Теперь
-  // контрольная точка сохраняется на сервере (см. apiSetConfirmedOdometer,
-  // 6_WebApi.gs) и приходит вместе с остальным кабинетом
-  // (data.confirmedOdometer/data.effectiveMileage) — localStorage больше
-  // не используется как источник истины, только как мгновенный локальный
-  // кэш на время до ответа сервера (см. confirmGpsOdometer_ ниже).
+  // ГПС-плана: раньше контрольная точка одометра хранилась ЧИСТО ЛОКАЛЬНО (localStorage, ключ на конкретный браузер/устройство) — на другом телефоне или после переустановки браузера водитель видел "—" и…
   function gpsBaselineKey_() { return 'ccs_gps_odometer_baseline_' + String(currentPlate || '').toUpperCase(); }
   function getGpsBaseline_() {
     if (gpsCabinetData_ && gpsCabinetData_.confirmedOdometer && gpsCabinetData_.confirmedOdometer.km) {
@@ -1314,14 +1149,7 @@
   }
   function fmtKm_(n) { return isFinite(Number(n)) ? Number(n).toLocaleString('ru-RU', { maximumFractionDigits: 1 }) + ' км' : '—'; }
 
-  // ===== ЭТАП 8 ГПС-плана: плашка согласия перед автостартом GPS =====
-  // До этого этапа startDriverGps_() запускался автоматически сразу при
-  // каждом входе в кабинет, без явного разрешения водителя — что прямо
-  // противоречит п.8 архитектурного плана. Теперь GPS включается
-  // автоматически только после того, как водитель хотя бы раз нажал
-  // "Разрешить" в этой плашке; отказ запоминается и не спрашивается
-  // заново при каждом входе (водитель сам сможет включить GPS позже
-  // через ссылку "Включить" в карточке).
+  // ===== ГПС-плана: плашка согласия перед автостартом GPS ===== До этого этапа startDriverGps_() запускался автоматически сразу при каждом входе в кабинет, без явного разрешения водителя — что прямо…
   function gpsConsentKey_() { return 'ccs_gps_consent_' + String(currentPlate || '').toUpperCase(); }
   function getGpsConsent_() {
     try { return localStorage.getItem(gpsConsentKey_()); } catch (e) { return null; } // 'granted' | 'declined' | null
@@ -1414,14 +1242,7 @@
     var st = window.CCSGpsTracker.getStatus();
     var baseline = getGpsBaseline_();
     var sessionKm = Number(st.distanceKm) || 0;
-    // ЭТАП 6 ГПС-плана: если сервер уже прислал effectiveMileage (учитывает
-    // подтверждённый одометр + весь СИНХРОНИЗИРОВАННЫЙ GPS-пробег), берём
-    // его как более точную базу и добавляем только текущую, ЕЩЁ НЕ
-    // остановленную/несинхронизированную сессию сверху — иначе эти км
-    // задвоились бы (сервер их пока не видел, они попадут в него только
-    // после stop()+trySyncQueue()). Если effectiveMileage от сервера нет
-    // (совсем новая машина, ещё не открывался кабинет) — прежний fallback
-    // на локальный baseline.
+    // ГПС-плана: если сервер уже прислал effectiveMileage (учитывает подтверждённый одометр + весь СИНХРОНИЗИРОВАННЫЙ GPS-пробег), берём его как более точную базу и добавляем только текущую, ЕЩЁ НЕ…
     var serverEffective = (gpsCabinetData_ && isFinite(Number(gpsCabinetData_.effectiveMileage)))
       ? Number(gpsCabinetData_.effectiveMileage) : null;
     var est = serverEffective !== null ? (serverEffective + sessionKm)
@@ -1501,11 +1322,7 @@
     // Маршрутизация не вызывается часто: только раз в 10 минут.
     gpsRouteTimer_ = setInterval(updateServiceRoute_, 10 * 60 * 1000);
 
-    // ЭТАП 4 ГПС-плана: сразу при открытии кабинета пробуем отправить
-    // всё, что успело накопиться в durable-очереди с прошлого визита
-    // (например, водитель ездил вчера офлайн, сессия закрылась, а связь
-    // появилась только сейчас) — не дожидаясь первого 20-секундного
-    // тика pollDataVersion_. Best-effort, не блокирует открытие кабинета.
+    // ГПС-плана: сразу при открытии кабинета пробуем отправить всё, что успело накопиться в durable-очереди с прошлого визита (например, водитель ездил вчера офлайн, сессия закрылась, а связь появилась…
     if (window.CCSGpsSync) {
       window.CCSGpsSync.trySyncQueue().catch(function () { /* нет сети — попробуем в общем цикле опроса */ });
     }
@@ -1557,7 +1374,7 @@
   function showCabinet(data, fromCache) {
     gpsCabinetData_ = data || {};
     hideAllScreens();
-    document.getElementById('cabinet').style.display = 'block';
+    showScreen_('cabinet');
 
     // Сервер присылает deviceToken только сразу после входа по паролю /
     // регистрации / установки пароля (см. apiDriverLogin и т.д.) — при
@@ -1574,11 +1391,7 @@
     if (!fromCache) clientCacheSet_('cabinet_' + currentPlate, data);
 
     document.getElementById('cabPlateSub').innerText = 'Гос. номер: ' + currentPlate;
-    // ФИКС: та же метка "Обновлено: ЧЧ:ММ:СС", что в taxipark.html —
-    // если данные показаны ИЗ клиентского кэша (офлайн, см. ЭТАП 8.4
-    // выше), честно пишем, что это последние сохранённые данные, а не
-    // текущее время, чтобы не создавать ложное ощущение "только что
-    // проверено".
+    // та же метка "Обновлено: ЧЧ:ММ:СС", что в taxipark.html — если данные показаны ИЗ клиентского кэша (офлайн, см.
     document.getElementById('cabSubStatus').innerText = fromCache
       ? 'Показаны сохранённые данные (нет сети)'
       : 'Обновлено: ' + new Date().toLocaleTimeString('ru-RU');
@@ -1627,20 +1440,10 @@
     renderHistory(rows);
     loadActs();
     loadStories();
-    // ПРИМЕЧАНИЕ: GPS-трекинг пробега временно отключён — вызов
-    // ensureGpsConsentThenStart_() закомментирован, сама функция (см.
-    // выше) осталась нетронутой на случай, если понадобится вернуть
-    // эту возможность обратно. Раскомментируйте строку ниже, чтобы
-    // снова спрашивать разрешение и запускать GPS при открытии кабинета.
-    // ensureGpsConsentThenStart_();
+    // GPS-трекинг пробега временно отключён — вызов ensureGpsConsentThenStart_() закомментирован, сама функция осталась нетронутой на случай, если понадобится вернуть эту возможность обратно.
   }
 
-  // ЭТАП 4 (промт «Постоянное предложение включить уведомления»):
-  // перемещает саму карточку (тот же DOM-узел, не копию) к нужному
-  // маркеру-якорю — insertBefore(card, anchor) кладёт карточку СРАЗУ
-  // ПЕРЕД якорем; если вызывать в одном и том же порядке (сначала
-  // Telegram, потом push) на каждом рендере, относительный порядок
-  // карточек друг относительно друга не меняется от вызова к вызову.
+  // перемещает саму карточку (тот же DOM-узел, не копию) к нужному маркеру-якорю — insertBefore(card, anchor) кладёт карточку СРАЗУ ПЕРЕД якорем; если вызывать в одном и том же порядке (сначала Telegram…
   function moveNotifCard_(card, anchorId) {
     var anchor = document.getElementById(anchorId);
     if (!card || !anchor || !anchor.parentNode) return;
@@ -1648,15 +1451,7 @@
     anchor.parentNode.insertBefore(card, anchor);
   }
 
-  // ЭТАП 13.4 + ЭТАП 4: карточка перерисовывается при каждом показе
-  // кабинета — как только чат реально подключится (пользователь перейдёт
-  // по ссылке и напишет боту /start), статус обновится сам при следующем
-  // открытии кабинета/входе. С ЭТАПА 4: как только Telegram подключён —
-  // карточка сжимается (мельче шрифт, см. .notif-compact) и переезжает
-  // вниз кабинета (notifBottomAnchor), кнопка "Выдать новую ссылку"
-  // скрывается — остаётся только статус "подключено", без активного
-  // призыва к действию. Пока НЕ подключено — карточка на видном месте
-  // вверху (notifTopAnchor), с кнопкой подключения, как и раньше.
+  // + : карточка перерисовывается при каждом показе кабинета — как только чат реально подключится (пользователь перейдёт по ссылке и напишет боту /start), статус обновится сам при следующем открытии кабинета/входе.
   function renderTelegramLinkCard_(data) {
     var card = document.getElementById('tgLinkCard');
     var statusEl = document.getElementById('tgLinkStatus');
@@ -1673,12 +1468,7 @@
     }
   }
 
-  // ЭТАП 13.4: проверка та же, что и вход (пароль), но если водитель зашёл
-  // по "запомненному устройству" (Этап 4), пароль на клиенте не хранится —
-  // используем deviceToken из localStorage как равноценное доказательство
-  // (см. комментарий у apiDriverGenerateTelegramLink, 6_WebApi.gs). Если
-  // ни пароля, ни deviceToken нет (крайне редкий случай) — просим ввести
-  // пароль ещё раз тем же простым способом, что и в других местах кабинета.
+  // проверка та же, что и вход (пароль), но если водитель зашёл по "запомненному устройству" (Этап 4), пароль на клиенте не хранится — используем deviceToken из localStorage как равноценное доказательство .
   function generateTelegramLink_(btn) {
     var errEl = document.getElementById('tgLinkError');
     var loadingEl = document.getElementById('tgLinkLoading');
@@ -1703,171 +1493,39 @@
     });
   }
 
-  // ================== ЭТАП 3: PUSH-УВЕДОМЛЕНИЯ ВОДИТЕЛЯ ==================
-  // Тот же Firebase Cloud Messaging, что и в to.html (см. подробную
-  // инструкцию в шапке apps-script/12_Push.gs) — здесь нужны те же два
-  // публичных значения (FIREBASE_CONFIG/FIREBASE_VAPID_KEY), просто
-  // продублированные в этот файл, потому что driver.html и to.html —
-  // разные статические страницы без общего JS-модуля между ними.
-  //
-  // ВСТАВЬТЕ те же значения, что уже вписаны в to.html (или впишите
-  // заново по инструкции в 12_Push.gs, если делаете это впервые):
-  var FIREBASE_CONFIG = {
-    apiKey: "AIzaSyAwD02lTtIflvSGjELsI6HbrIxdA_OdgG4",
-    authDomain: "chinacarservice-6f004.firebaseapp.com",
-    projectId: "chinacarservice-6f004",
-    storageBucket: "chinacarservice-6f004.firebasestorage.app",
-    messagingSenderId: "265907667641",
-    appId: "1:265907667641:web:8d6cc2d6c7412546dd5168"
-  };
-  var FIREBASE_VAPID_KEY = "BNQXoFpnnT3UJr3K8rbIlw9jTGu_yMe3qwTTu9-k0V0iub2JkRTIR4NG1gh0T7EQbMJjhFjR8W0WOmWzBEhL0Uo";
+  // FIREBASE_CONFIG/FIREBASE_VAPID_KEY — см. js/config.js
   // firebase-messaging-sw.js (общий на весь сайт, лежит в корне) уже
   // обрабатывает фоновые push и для этой страницы — отдельный
   // service-worker для driver.html не нужен, доп. настройка не требуется.
 
+  // 16.9: логика в js/push-card.js — initPushCard_. Сворачивание карточки
+  // (16.11) идёт через общий .push-card-collapsed, а не через
+  // moveNotifCard_/notif-compact (это осталось только у tgLinkCard выше).
   var DRIVER_PUSH_TOKEN_KEY = 'driver_push_token';
-  var driverFirebaseMessagingInstance_ = null;
-
-  function pushBrowserSupported_() {
-    return ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
-  }
-  function driverPushConfigured_() {
-    return !!FIREBASE_CONFIG && typeof FIREBASE_CONFIG === 'object' && !!FIREBASE_VAPID_KEY;
-  }
-
-  // Вызывается из showCabinet() при каждом открытии кабинета — решает,
-  // показывать ли карточку вообще, и в каком она состоянии (вкл/выкл).
   function initDriverPushUi_() {
-    var card = document.getElementById('pushCard');
-    if (!card) return;
-    if (!pushBrowserSupported_()) { card.style.display = 'none'; return; }
-    card.style.display = 'block';
-    refreshDriverPushStatus_();
-  }
-
-  // ЭТАП 4 (промт «Постоянное предложение включить уведомления»): та же
-  // логика сжатия/переезда вниз, что и у Telegram-карточки выше — как
-  // только push реально включён на этом устройстве, карточка уменьшается
-  // (.notif-compact) и уезжает вниз кабинета. В отличие от Telegram,
-  // кнопка "Отключить" остаётся видна и в сжатом виде — это осмысленное
-  // действие, а не повторный призыв подключиться, поэтому здесь НЕ
-  // добавляется класс .notif-hide-cta (см. CSS выше).
-  function refreshDriverPushStatus_() {
-    var card = document.getElementById('pushCard');
-    var statusEl = document.getElementById('pushStatus');
-    var btn = document.getElementById('pushToggleBtn');
-    if (!statusEl || !btn || !card) return;
-
-    if (!driverPushConfigured_()) {
-      statusEl.innerText = 'Пока не настроено администратором';
-      btn.innerText = '—';
-      btn.disabled = true;
-      card.classList.remove('notif-compact');
-      moveNotifCard_(card, 'notifTopAnchor');
-      return;
-    }
-
-    btn.disabled = false;
-    var saved = localStorage.getItem(DRIVER_PUSH_TOKEN_KEY);
-    var enabled = false;
-    if (typeof Notification !== 'undefined' && Notification.permission === 'denied') {
-      statusEl.innerText = 'Заблокировано в браузере — разрешите уведомления в настройках сайта вручную';
-      btn.innerText = 'Включить';
-    } else if (saved) {
-      statusEl.innerText = '✅ Включены на этом устройстве — сюда придут новые объявления и уведомления о работах по вашей машине';
-      btn.innerText = 'Отключить';
-      enabled = true;
-    } else {
-      statusEl.innerText = 'Выключены — сюда могут приходить новые объявления и уведомления о работах по вашей машине';
-      btn.innerText = 'Включить';
-    }
-
-    if (enabled) {
-      // Только .notif-compact (не .notif-hide-cta) — кнопка "Отключить"
-      // остаётся видна и в сжатом виде, см. комментарий у CSS-класса
-      // .notif-hide-cta выше.
-      card.classList.add('notif-compact');
-      moveNotifCard_(card, 'notifBottomAnchor');
-    } else {
-      card.classList.remove('notif-compact');
-      moveNotifCard_(card, 'notifTopAnchor');
-    }
-  }
-
-  function ensureDriverFirebaseMessaging_() {
-    if (driverFirebaseMessagingInstance_) return Promise.resolve(driverFirebaseMessagingInstance_);
-    if (typeof firebase === 'undefined') {
-      return Promise.reject(new Error('Firebase SDK не загрузился (нет сети или заблокирован CDN)'));
-    }
-    if (!firebase.apps || !firebase.apps.length) {
-      firebase.initializeApp(FIREBASE_CONFIG);
-    }
-    driverFirebaseMessagingInstance_ = firebase.messaging();
-    return Promise.resolve(driverFirebaseMessagingInstance_);
-  }
-
-  function toggleDriverPush_() {
-    var saved = localStorage.getItem(DRIVER_PUSH_TOKEN_KEY);
-    if (saved) {
-      disableDriverPush_(saved);
-    } else {
-      enableDriverPush_();
-    }
-  }
-
-  function enableDriverPush_() {
-    var statusEl = document.getElementById('pushStatus');
-    var btn = document.getElementById('pushToggleBtn');
-    if (btn) btn.disabled = true;
-    if (statusEl) statusEl.innerText = 'Запрашиваем разрешение браузера...';
-
-    navigator.serviceWorker.register('firebase-messaging-sw.js')
-      .then(function (registration) {
-        return Notification.requestPermission().then(function (permission) {
-          if (permission !== 'granted') throw new Error('Разрешение не выдано');
-          return ensureDriverFirebaseMessaging_();
-        }).then(function (messaging) {
-          return messaging.getToken({ vapidKey: FIREBASE_VAPID_KEY, serviceWorkerRegistration: registration });
-        });
-      })
-      .then(function (token) {
-        if (!token) throw new Error('Не удалось получить токен устройства');
-        // Тот же принцип доступа, что и у Telegram-ссылки выше — пароль
-        // ИЛИ deviceToken "запомненного устройства".
+    initPushCard_({
+      cardId: 'pushCard',
+      tokenKey: DRIVER_PUSH_TOKEN_KEY,
+      registerAction: 'driverRegisterPushToken',
+      unregisterAction: 'driverUnregisterPushToken',
+      post: apiPost,
+      notConfiguredText: 'Пока не настроено администратором',
+      enabledText: '✅ Включены на этом устройстве — сюда придут новые объявления и уведомления о работах по вашей машине',
+      disabledText: 'Выключены — сюда могут приходить новые объявления и уведомления о работах по вашей машине',
+      // тот же принцип доступа, что и у Telegram-ссылки выше — пароль ИЛИ
+      // deviceToken "запомненного устройства".
+      buildRegisterParams: function () {
         var savedDeviceToken = localStorage.getItem('driver_device_token') || '';
         var password = savedDeviceToken ? '' : (window.prompt('Введите пароль от кабинета, чтобы включить push-уведомления:') || '');
         if (!savedDeviceToken && !password) throw new Error('Нужен пароль или вход по запомненному устройству');
-        return apiPost({ action: 'driverRegisterPushToken', plate: currentPlate, password: password, deviceToken: savedDeviceToken, token: token })
-          .then(function (res) {
-            if (!res.ok) throw new Error(res.error || 'Сервер отклонил регистрацию');
-            localStorage.setItem(DRIVER_PUSH_TOKEN_KEY, token);
-            refreshDriverPushStatus_();
-          });
-      })
-      .catch(function (err) {
-        if (statusEl) statusEl.innerText = 'Ошибка: ' + (err && err.message ? err.message : err);
-        if (btn) btn.disabled = false;
-      });
-  }
-
-  function disableDriverPush_(token) {
-    var btn = document.getElementById('pushToggleBtn');
-    if (btn) btn.disabled = true;
-    apiPost({ action: 'driverUnregisterPushToken', plate: currentPlate, token: token })
-      .catch(function () { /* сети нет — всё равно отключаем локально ниже, чтобы не блокировать пользователя */ })
-      .then(function () {
-        localStorage.removeItem(DRIVER_PUSH_TOKEN_KEY);
-        refreshDriverPushStatus_();
-      });
+        return { plate: currentPlate, password: password, deviceToken: savedDeviceToken };
+      },
+      buildUnregisterParams: function () { return { plate: currentPlate }; }
+    });
   }
   // ================== /ЭТАП 3: PUSH-УВЕДОМЛЕНИЯ ВОДИТЕЛЯ ==================
 
-  // ЭТАП 4 (Часть 4.3 промта): показывает водителю короткий блок с
-  // суммой, типом оплаты и текущим остатком по открытому акту "Получения"
-  // его машины (если он есть) — тот же смысл, что и в to.html. Остаток
-  // может быть отрицательным (долг), если работы ТО за время нахождения
-  // машины на СТО превысили остаток — это не ошибка, см. открытый вопрос
-  // №1 промта.
+  // (Часть 4.3 промта): показывает водителю короткий блок с суммой, типом оплаты и текущим остатком по открытому акту "Получения" его машины (если он есть) — тот же смысл, что и в to.html.
   function renderOpenActInfo(openAct) {
     var el = document.getElementById('openActInfo');
     if (!openAct) { el.style.display = 'none'; el.innerHTML = ''; return; }
@@ -1883,14 +1541,14 @@
           ? '⚠️ Долг: <b style="color:var(--danger)">' + Math.abs(balance).toLocaleString('ru-RU') + ' ₸</b>'
           : (openAct.paymentType === 'none' ? 'Оплата не вносилась' : 'Оплачено полностью'));
     el.innerHTML =
-      '📋 Открыт акт «Получения» №' + escapeHtml(openAct.actId) +
+      '📋 Открыт акт «Получения» №' + escapeHtml_(openAct.actId) +
       ' · Сумма: ' + Number(openAct.cost || 0).toLocaleString('ru-RU') + ' ₸' +
       ' · ' + typeLabel + '<br>' + balanceLine +
       '<div style="color:var(--muted); font-size:12px; margin-top:4px;">Сумма, внесённая на дату получения, не является окончательной — окончательный расчёт производится при выдаче.</div>';
     el.style.display = 'block';
   }
 
-  function escapeHtml(s) {
+  function escapeHtml_(s) {
     // ЭТАП 6: (s || '') превращал число 0 (например, пробег "0 км") в
     // пустую строку — заменено на явную проверку null/undefined, чтобы
     // такие значения по-прежнему показывались.
@@ -1911,13 +1569,7 @@
     });
   }
 
-  // ---- ПРОВЕРКА "СКОЛЬКО ДО СЛЕДУЮЩЕГО ТО" ПО ТЕКУЩЕМУ ПРОБЕГУ ----
-  // Рекомендации выше знают только пробег на момент последней записи в
-  // истории — если машина давно не была на СТО, оттуда не видно, сколько
-  // она проехала с тех пор ("0 км", даже если реально накатано много).
-  // Само приложение не умеет определять реальное перемещение машины, поэтому
-  // водитель один раз вводит текущий пробег вручную, а сервер сравнивает
-  // его с последней заменой и сразу даёт совет.
+  // ПРОВЕРКА "СКОЛЬКО ДО СЛЕДУЮЩЕГО ТО" ПО ТЕКУЩЕМУ ПРОБЕГУ ---- Рекомендации выше знают только пробег на момент последней записи в истории — если машина давно не была на СТО, оттуда не видно, сколько…
   function toggleMileageCheck() {
     var f = document.getElementById('mileageCheckForm');
     f.style.display = (f.style.display === 'none' || !f.style.display) ? 'block' : 'none';
@@ -1982,7 +1634,7 @@
         : '<div class="story-thumb text-only">📢</div>';
       var label = s.text ? s.text : 'Объявление';
       html += '<div class="story-card" onclick="openStory_(' + idx + ')">' + thumb +
-        '<div class="story-label">' + escapeHtml(label) + '</div></div>';
+        '<div class="story-label">' + escapeHtml_(label) + '</div></div>';
     });
     html += '</div>';
     wrap.innerHTML = html;
@@ -2012,8 +1664,8 @@
 
     var html = '';
     if (s.imageUrl) html += '<img src="' + s.imageUrl + '" alt="">';
-    if (s.text) html += '<div class="story-modal-text">' + escapeHtml(s.text) + '</div>';
-    html += '<div class="story-modal-meta">' + escapeHtml(s.author || '') +
+    if (s.text) html += '<div class="story-modal-text">' + escapeHtml_(s.text) + '</div>';
+    html += '<div class="story-modal-meta">' + escapeHtml_(s.author || '') +
       ' · ' + formatStoryTimeAgo_(s.createdAt) + ' · ' + formatStoryTimeLeft_(s.expiresAt) + '</div>';
     html += '<button class="btn-primary btn-full" onclick="this.closest(\'.story-modal-backdrop\').remove()">Закрыть</button>';
 
@@ -2028,16 +1680,12 @@
       wrap.innerHTML = '<div class="empty">Записей пока нет</div>';
       return;
     }
-    // ЭТАП 6 (б): escapeHtml() уже была определена в этом файле (для
-    // текста объявления), но история ТО вставлялась через innerHTML без
-    // неё — данные из истории (описание, тип работы и т.д.) когда-то мог
-    // ввести сотрудник СТО через apiAddRecord, поэтому без экранирования
-    // это хранимый XSS. Экранируем все поля перед вставкой.
+    // (б): escapeHtml_() уже была определена в этом файле (для текста объявления), но история ТО вставлялась через innerHTML без неё — данные из истории (описание, тип работы и т.д.) когда-то мог ввести…
     var html = '<table><tr><th>Дата</th><th>Пробег</th><th>Работа</th><th>Стоимость</th></tr>';
     rows.forEach(function (r) {
-      html += '<tr><td>' + escapeHtml(r.date) + '</td><td>' + escapeHtml(r.mileage) + '</td><td>' + escapeHtml(r.type) +
-              (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml(r.description) + '</span>' : '') +
-              '</td><td>' + escapeHtml(r.cost) + '</td></tr>';
+      html += '<tr><td>' + escapeHtml_(r.date) + '</td><td>' + escapeHtml_(r.mileage) + '</td><td>' + escapeHtml_(r.type) +
+              (r.description ? '<br><span style="color:var(--muted)">' + escapeHtml_(r.description) + '</span>' : '') +
+              '</td><td>' + escapeHtml_(r.cost) + '</td></tr>';
     });
     html += '</table>';
     wrap.innerHTML = html;
