@@ -1,0 +1,299 @@
+/* ЭТАП 8 (промт «UI: анимации, фон, тема»), Блок A — ЕДИНЫЙ общий CSS для всех
+   страниц (index/to/act/driver/taxipark/announce/story-preview).
+
+   Раньше палитра светлой темы была скопирована в каждый html отдельно —
+   теперь она живёт ТОЛЬКО здесь (правило промта: «вынести общий CSS в один
+   переиспользуемый файл, а не копировать в каждый файл»). Подключается
+   строкой <link rel="stylesheet" href="css/theme.css"> ПЕРЕД <style> страницы,
+   поэтому страница при необходимости может переопределить любое значение.
+
+   Разделы:
+     1. Палитра (тёмная = по умолчанию, светлая = html[data-theme="light"])
+     2. Плавающая кнопка-переключатель темы (js/theme.js)
+     3. Декоративный фон (клиентский — живой; рабочий — спокойный статичный)
+     4. Микро-анимации: спиннер в кнопке, skeleton, галочка успеха (js/ui-fx.js)
+     5. prefers-reduced-motion / «лёгкий режим» для слабых устройств
+
+   Тема выбирается атрибутом data-theme на <html> (см. js/theme.js и
+   короткий инлайн-скрипт в <head> каждой страницы — он ставит атрибут ДО
+   первой отрисовки, чтобы не было вспышки неверной темы).
+
+   ПРИМЕЧАНИЕ: act.html исторически использует СВОИ имена переменных
+   (--panel/--line/--amber…) — их значения для обеих тем остаются в самом
+   act.html (имена не меняем, чтобы не ломать вёрстку). Всё, что нужно
+   общим компонентам (кнопка темы, skeleton, галочка) — берёт значения из
+   переменных --ccs-* ниже, которые одинаковы для ВСЕХ страниц. */
+
+/* ===================== 1. ПАЛИТРА ===================== */
+:root {
+  color-scheme: dark;
+
+  /* поверхности */
+  --bg: #0f1720;            /* фон страницы — графитово-синий, не чистый чёрный */
+  --card: #182130;          /* карточки */
+  --surface2: #1f2a3d;      /* поля ввода, «пилюли», вложенные блоки (ФИКС: раньше была самоссылка var(--surface2)) */
+  --border: #26324a;
+
+  /* текст */
+  --text: #e5e9f0;          /* 13.3:1 на --card */
+  --muted: #8a97ab;         /* 5.5:1 на --card, 4.9:1 на --surface2 */
+
+  /* акценты. --accent — для текста/рамок/иконок (≥4.5:1 на --card);
+     --btn-bg — для ЗАЛИТЫХ кнопок с белым текстом (≥4.5:1) */
+  --accent: #4d8ff8;
+  --btn-bg: #2f6de8;
+  --accent-2: #22c55e;
+  --on-accent-2: #04210f;   /* текст на залитом --accent-2 (белый тут не проходит AA) */
+  --danger: #f56565;        /* как цвет ТЕКСТА ошибки */
+  --danger-btn: #dc2626;    /* как ЗАЛИВКА кнопки (белый текст 4.8:1) */
+
+  /* тени и подложки */
+  --shadow: 0 2px 10px rgba(0, 0, 0, .25);
+  --shadow-lg: 0 6px 18px rgba(0, 0, 0, .35);
+  --overlay: rgba(0, 0, 0, .7);
+
+  /* баннеры/статусы, которые раньше были захардкожены в html/js */
+  --banner-a: #1b2a44;
+  --banner-b: #152238;
+  --warn-bg: #3b2f10;
+  --warn-text: #f5c451;
+  --rec-ok-bg: #12251a;   --rec-ok-border: #1f4a30;   --rec-ok-text: #7fd99a;
+  --rec-soon-bg: #241a0d; --rec-soon-border: #4a3a1f; --rec-soon-text: #f0c674;
+  --rec-due-bg: #2a1414;  --rec-due-border: #4a1f1f;  --rec-due-text: #f08a8a;
+
+  /* --ccs-*: общие компоненты (одинаковы для всех страниц, включая act.html) */
+  --ccs-fab-bg: #182130;
+  --ccs-fab-fg: #e5e9f0;
+  --ccs-fab-border: #26324a;
+  --ccs-skel-a: rgba(148, 163, 184, .13);
+  --ccs-skel-b: rgba(148, 163, 184, .27);
+  --ccs-ok: #22c55e;
+  --ccs-pop-bg: #1d2738;
+  --ccs-pop-fg: #e5e9f0;
+
+  /* декоративный фон: клиентские страницы — 4 мягких пятна, рабочие — 2 едва заметных */
+  --ccs-blob-1: rgba(59, 130, 246, .30);
+  --ccs-blob-2: rgba(34, 197, 94, .20);
+  --ccs-blob-3: rgba(99, 102, 241, .20);
+  --ccs-blob-4: rgba(59, 130, 246, .16);
+  --ccs-staff-1: rgba(59, 130, 246, .10);
+  --ccs-staff-2: rgba(34, 197, 94, .07);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f4f6fb;
+  --card: #ffffff;
+  --surface2: #eef1f6;
+  --border: #dde3ee;
+
+  --text: #151b28;          /* 17:1 на белом */
+  --muted: #5b6472;         /* 6.0:1 на белом, 5.3:1 на --surface2 */
+
+  --accent: #2563eb;        /* 5.2:1 на белом */
+  --btn-bg: #2563eb;
+  --accent-2: #15803d;      /* было #16a34a (3.3:1) — не проходило AA */
+  --on-accent-2: #ffffff;
+  --danger: #c62020;        /* 5.1:1 даже на --surface2 */
+  --danger-btn: #c62020;
+
+  --shadow: 0 2px 10px rgba(21, 27, 40, .12);
+  --shadow-lg: 0 6px 18px rgba(21, 27, 40, .18);
+  --overlay: rgba(15, 23, 32, .55);
+
+  --banner-a: #e8f0ff;
+  --banner-b: #dbe7ff;
+  --warn-bg: #fff4d6;
+  --warn-text: #7a5200;
+  --rec-ok-bg: #e7f6ec;   --rec-ok-border: #b7e2c4;   --rec-ok-text: #166534;
+  --rec-soon-bg: #fdf3e1; --rec-soon-border: #f0d9a8; --rec-soon-text: #8a5a00;
+  --rec-due-bg: #fdeaea;  --rec-due-border: #f3c1c1;  --rec-due-text: #b42318;
+
+  --ccs-fab-bg: #ffffff;
+  --ccs-fab-fg: #1f2937;
+  --ccs-fab-border: #dde3ee;
+  --ccs-skel-a: rgba(100, 116, 139, .11);
+  --ccs-skel-b: rgba(100, 116, 139, .22);
+  --ccs-ok: #15803d;
+  --ccs-pop-bg: #ffffff;
+  --ccs-pop-fg: #151b28;
+
+  --ccs-blob-1: rgba(37, 99, 235, .20);
+  --ccs-blob-2: rgba(22, 163, 74, .14);
+  --ccs-blob-3: rgba(99, 102, 241, .14);
+  --ccs-blob-4: rgba(37, 99, 235, .10);
+  --ccs-staff-1: rgba(37, 99, 235, .07);
+  --ccs-staff-2: rgba(22, 163, 74, .05);
+}
+
+/* Залитые кнопки в «второстепенных» цветах: раньше цвет заливки задавался
+   inline (style="background:var(--accent-2)") при белом тексте — на тёмной
+   теме это 2.3:1. Теперь для этого есть классы. */
+.btn-primary.btn-ok   { background: var(--accent-2); color: var(--on-accent-2); }
+.btn-primary.btn-bad  { background: var(--danger-btn); color: #fff; }
+
+/* Ссылка «Выйти/Сменить номер» плавает вправо в самом верху экрана — ровно
+   там, где теперь стоит плавающая кнопка темы. Сдвигаем её влево от кнопки. */
+.logout { margin-right: 46px; }
+
+/* ===================== 2. КНОПКА-ПЕРЕКЛЮЧАТЕЛЬ ТЕМЫ ===================== */
+.ccs-theme-toggle {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 10px);
+  right: 10px;
+  z-index: 90; /* выше контента и sticky-шапки (20), но НИЖЕ модалок (100+) */
+  width: 38px; height: 38px;
+  padding: 0; margin: 0;
+  border-radius: 50%;
+  border: 1px solid var(--ccs-fab-border);
+  background: var(--ccs-fab-bg);
+  color: var(--ccs-fab-fg);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform .3s cubic-bezier(.34, 1.56, .64, 1),
+              background-color .25s ease, border-color .25s ease, color .25s ease;
+}
+.ccs-theme-toggle:active { transform: scale(.9); }
+.ccs-theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ccs-theme-toggle svg {
+  position: absolute; width: 20px; height: 20px;
+  fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+  transition: transform .5s cubic-bezier(.34, 1.56, .64, 1), opacity .25s ease;
+}
+/* иконка показывает ТЕКУЩУЮ тему; при смене солнце/луна плавно «докручиваются» друг в друга */
+.ccs-theme-toggle .ccs-ic-moon { opacity: 1; transform: rotate(0) scale(1); }
+.ccs-theme-toggle .ccs-ic-sun  { opacity: 0; transform: rotate(-120deg) scale(.4); }
+html[data-theme="light"] .ccs-theme-toggle .ccs-ic-moon { opacity: 0; transform: rotate(120deg) scale(.4); }
+html[data-theme="light"] .ccs-theme-toggle .ccs-ic-sun  { opacity: 1; transform: rotate(0) scale(1); }
+
+/* мягкая смена цветов всей страницы — класс ставится js/theme.js только на ~300мс во время переключения */
+html.ccs-theme-transition,
+html.ccs-theme-transition *,
+html.ccs-theme-transition *::before,
+html.ccs-theme-transition *::after {
+  transition: background-color .25s ease, color .25s ease, border-color .25s ease, box-shadow .25s ease !important;
+}
+
+/* ===================== 3. ДЕКОРАТИВНЫЙ ФОН ===================== */
+/* Клиентские страницы (index/announce): живой «дышащий» градиент из
+   размытых пятен + лёгкий параллакс при прокрутке (--ccs-par обновляет
+   js/theme.js). Анимируется ТОЛЬКО transform на двух фиксированных слоях
+   — без filter:blur и без перерисовки (само пятно — это уже мягкий
+   radial-gradient), поэтому нагрузка на GPU минимальна. */
+body.ccs-bg-client,
+body.ccs-bg-staff { position:relative; isolation:isolate; }
+
+body.ccs-bg-client::before,
+body.ccs-bg-client::after {
+  content: ""; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+  will-change: transform;
+}
+body.ccs-bg-client::before {
+  background:
+    radial-gradient(circle 46vmax at 16% 18%, var(--ccs-blob-1), transparent 62%),
+    radial-gradient(circle 40vmax at 84% 30%, var(--ccs-blob-2), transparent 62%);
+  translate: 0 var(--ccs-par, 0px);
+  animation: ccsBgDrift 32s ease-in-out infinite alternate;
+}
+body.ccs-bg-client::after {
+  background:
+    radial-gradient(circle 44vmax at 70% 88%, var(--ccs-blob-3), transparent 62%),
+    radial-gradient(circle 38vmax at 8% 78%, var(--ccs-blob-4), transparent 62%);
+  translate: 0 calc(var(--ccs-par, 0px) * -.6);
+  animation: ccsBgDrift2 41s ease-in-out infinite alternate;
+}
+@keyframes ccsBgDrift  { from { transform: translate3d(0, 0, 0) scale(1); }    to { transform: translate3d(-3%, 2.5%, 0) scale(1.07); } }
+@keyframes ccsBgDrift2 { from { transform: translate3d(0, 0, 0) scale(1.05); } to { transform: translate3d(3%, -2%, 0) scale(1); } }
+
+/* Рабочие страницы сотрудников (to/act/driver/taxipark): сотрудники смотрят
+   на экран часами — фон СТАТИЧНЫЙ (только едва заметный градиент, без
+   анимации и без фиксированного слоя, который надо перерисовывать). */
+body.ccs-bg-staff::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(circle 900px at 8% -8%, var(--ccs-staff-1), transparent 55%),
+    radial-gradient(circle 900px at 100% 112%, var(--ccs-staff-2), transparent 55%);
+}
+
+/* ===================== 4. МИКРО-АНИМАЦИИ (js/ui-fx.js) ===================== */
+@keyframes ccsSpin   { to { transform: rotate(360deg); } }
+@keyframes ccsPulse  { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes ccsPopIn  { 0% { opacity: 0; transform: scale(.6); } 60% { opacity: 1; transform: scale(1.08); } 100% { opacity: 1; transform: scale(1); } }
+@keyframes ccsDraw   { to { stroke-dashoffset: 0; } }
+@keyframes ccsFadeUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* --- кнопка в состоянии «занято» (CCSUI.busyButton / withButtonBusy_) --- */
+button.ccs-busy, a.ccs-busy { opacity: .82; cursor: progress; pointer-events: none; }
+button, .btn, .install-btn { transition-property: transform, opacity, background-color, border-color, color; transition-duration: .18s; }
+.ccs-btn-spin {
+  display: inline-block; width: 1em; height: 1em; margin-right: .5em; vertical-align: -.15em;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: ccsSpin .7s linear infinite, ccsPopIn .2s ease-out;
+}
+
+/* --- skeleton-заглушки для медленно грузящихся списков --- */
+.ccs-skel { padding: 2px 0; }
+.ccs-skel-bar {
+  display: block; height: 14px; border-radius: 7px; background: var(--ccs-skel-a);
+  animation: ccsPulse 1.4s ease-in-out infinite;
+}
+.ccs-skel-row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--ccs-skel-a); }
+.ccs-skel-row .ccs-skel-bar:nth-child(1) { flex: 0 0 20%; }
+.ccs-skel-row .ccs-skel-bar:nth-child(2) { flex: 1 1 auto; }
+.ccs-skel-row .ccs-skel-bar:nth-child(3) { flex: 0 0 16%; }
+.ccs-skel-card {
+  height: 74px; border-radius: 12px; margin-bottom: 12px; background: var(--ccs-skel-a);
+  animation: ccsPulse 1.4s ease-in-out infinite;
+}
+.ccs-skel-bar:nth-child(2n), .ccs-skel-card:nth-child(2n) { animation-delay: .18s; }
+.ccs-skel-bar:nth-child(3n), .ccs-skel-card:nth-child(3n) { animation-delay: .36s; }
+.ccs-skel-line { margin: 9px 0; }
+.ccs-skel-line.w60 { width: 60%; } .ccs-skel-line.w85 { width: 85%; } .ccs-skel-line.w40 { width: 40%; }
+
+/* --- галочка «успешно сохранено» --- */
+.ccs-success {
+  position: fixed; left: 50%; top: 42%; z-index: 300; pointer-events: none;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  min-width: 150px; max-width: 80vw; padding: 20px 26px 18px; text-align: center;
+  background: var(--ccs-pop-bg); color: var(--ccs-pop-fg);
+  border: 1px solid var(--ccs-fab-border); border-radius: 18px; box-shadow: var(--shadow-lg);
+  font: 600 15px/1.3 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  animation: ccsPopIn .32s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+.ccs-success.ccs-out { opacity: 0; transition: opacity .25s ease, transform .25s ease; transform: translate(-50%, -46%) scale(.96); }
+.ccs-success svg { width: 56px; height: 56px; }
+.ccs-success .ccs-tick-circle { fill: none; stroke: var(--ccs-ok); stroke-width: 3; opacity: .35; }
+.ccs-success .ccs-tick-mark {
+  fill: none; stroke: var(--ccs-ok); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+  stroke-dasharray: 44; stroke-dashoffset: 44; animation: ccsDraw .38s .12s ease-out forwards;
+}
+/* маленькая галочка рядом с текстом статуса */
+.ccs-check-inline { display: inline-block; width: 1.05em; height: 1.05em; margin-right: .3em; vertical-align: -.15em; animation: ccsPopIn .3s ease-out both; }
+.ccs-check-inline path { fill: none; stroke: var(--ccs-ok); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 44; stroke-dashoffset: 44; animation: ccsDraw .3s .08s ease-out forwards; }
+.ccs-bounce { animation: ccsPopIn .45s cubic-bezier(.34, 1.56, .64, 1); }
+
+/* ===================== 5. REDUCED MOTION / ЛЁГКИЙ РЕЖИМ ===================== */
+/* Системная настройка «уменьшить движение»: все декоративные анимации и
+   переходы отключаются. Исключение — индикаторы ЗАГРУЗКИ (спиннеры): это
+   не украшение, а обратная связь «запрос идёт». */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  body.ccs-bg-client::before, body.ccs-bg-client::after { animation: none !important; translate: none !important; will-change: auto; }
+  .ccs-btn-spin, .spinner { animation-duration: 1.2s !important; animation-iteration-count: infinite !important; }
+  .ccs-skel-bar, .ccs-skel-card { animation: none !important; }
+  .ccs-success .ccs-tick-mark, .ccs-check-inline path { stroke-dashoffset: 0; }
+}
+/* «Лёгкий режим»: js/theme.js ставит html.ccs-lowfx на слабых устройствах
+   (≤2 ГБ ОЗУ / ≤2 ядра / включена экономия трафика) — живой фон замирает. */
+html.ccs-lowfx body.ccs-bg-client::before,
+html.ccs-lowfx body.ccs-bg-client::after { animation: none; translate: none; will-change: auto; }

@@ -2,6 +2,11 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): применяем сохранённую/
+     системную тему СРАЗУ, синхронно, до первой отрисовки — иначе была бы
+     заметная "вспышка" тёмной темы перед переключением на светлую.
+     Основная логика переключателя — в js/theme.js (подключён ниже). -->
+<script>(function(){try{var t=localStorage.getItem('ccs-theme');if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <!-- 16.14: maximum-scale=1 оставлен только здесь — на странице есть canvas подписи, где pinch-zoom мешает рисовать. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Акт приёма-передачи ТС — Honghi EV Service</title>
@@ -26,11 +31,30 @@
 <script src="js/config.js"></script>
 <script src="js/push-card.js"></script>
 <script src="js/request-queue.js"></script>
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): общий переключатель темы + фон,
+     см. подробный комментарий в index.html и сам файл js/theme.js. -->
+<script src="js/ui-fx.js"></script>
+<script src="js/theme.js" defer></script>
+<link rel="stylesheet" href="css/theme.css">
 <style>
   :root{
     --bg:#0e1318; --panel:#161d24; --panel2:#1d252e; --line:#2a333d;
-    --amber:#e8a33d; --amber-dim:#8a642a; --text:#eef2f6; --text-dim:#93a1ae;
+    --amber:#e8a33d; --amber-dim:#8a642a; --amber-bg:#241d0f;
+    --text:#eef2f6; --text-dim:#93a1ae;
     --ok:#3fc98a; --danger:#e5595f; --radius:10px;
+  }
+  /* ЭТАП 8 (промт «UI: анимации, фон, тема»): у этой страницы свой набор
+     имён переменных (--panel/--line/--amber и т.д.), в отличие от
+     --card/--border/--accent на других страницах — сохраняем имена как
+     есть (см. правило промта "не плодить параллельный набор") и просто
+     добавляем светлые значения для тех же переменных. Тёмные --amber/
+     --amber-dim и --ok в исходном виде слишком светлые для текста на
+     белом фоне (не проходят WCAG AA) — здесь они затемнены. */
+  html[data-theme="light"]{
+    --bg:#f4f6fb; --panel:#ffffff; --panel2:#eef1f7; --line:#dde3ee;
+    --amber:#b6720a; --amber-dim:#8c6425; --amber-bg:#fdf1e0;
+    --text:#151b28; --text-dim:#5b6472;
+    --ok:#15803d; --danger:#dc2626;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;-webkit-tap-highlight-color:transparent;}
@@ -73,7 +97,7 @@
   .btn-row .btn{width:auto;flex:1;}
   .choice-card{border:1px solid var(--line);background:var(--panel2);border-radius:var(--radius);padding:18px;margin-bottom:12px;cursor:pointer;transition:.15s;}
   .choice-card:active{transform:scale(.98);}
-  .choice-card.selected{border-color:var(--amber);background:#241d0f;}
+  .choice-card.selected{border-color:var(--amber);background:var(--amber-bg);}
   /* ЭТАП 9.1: карточка типа акта блокируется, когда пришли из to.html
      по кнопке «Выдача авто» — сотрудник не должен случайно переключить
      тип акта на «Получение» в этом потоке. */
@@ -132,7 +156,7 @@
   #gate .gate-error{color:var(--danger);font-size:13px;min-height:18px;text-align:center;margin-top:4px;}
 </style>
 </head>
-<body>
+<body class="ccs-bg-staff">
 
 <!-- ЭКРАН ВХОДА: (PROMPT_stage9.md) — единственная штатная точка входа с логином/паролем теперь to.html; act.html больше не предлагает собственный вход как основной путь, а тихо подхватывает уже проверенное устройство . -->
 <div id="gate" style="display:none;">
@@ -221,7 +245,7 @@
       <!-- ЭТАП 9.1: видно только в режиме «Выдача из to.html» (см.
            applyForcedIssueParams_) — поясняет сотруднику, почему тип
            акта и гос. номер уже заполнены и не редактируются здесь. -->
-      <div id="forcedIssueBanner" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:#0d141e; border:1px solid var(--amber); font-size:13px;">
+      <div id="forcedIssueBanner" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:var(--panel2); border:1px solid var(--amber); font-size:13px;">
         🚗 Оформляется <b>Выдача авто</b> по данным из истории машины — гос. номер подставлен автоматически, тип акта менять нельзя.
       </div>
       <h2>Данные Заказчика</h2>
@@ -1854,18 +1878,8 @@ async function sendSheet(pdfBlob){
 // защиты от повторного нажатия, пока идёт предыдущий запрос — теперь и она
 // обёрнута через withButtonBusy_.
 function withButtonBusy_(btn, busyText, fn) {
-  if (!btn) return fn();
-  var origText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = busyText;
-  var restore = function () { btn.disabled = false; btn.textContent = origText; };
-  var result = fn();
-  if (result && typeof result.finally === 'function') {
-    return result.finally(restore);
+    return window.CCSUI ? CCSUI.busyButton(btn, busyText, fn) : fn();
   }
-  restore();
-  return result;
-}
 
 function retrySendSheet_(btn) {
   return withButtonBusy_(btn, 'Отправка…', function () { return sendSheet(); });
@@ -1934,6 +1948,7 @@ async function runSendPipeline(){
   document.getElementById('sendingView').style.display='none';
   const done = document.getElementById('doneView');
   done.style.display='block';
+  if (window.CCSUI && !state.queuedAct) CCSUI.success('Акт оформлен');
   if(state.queuedAct){
     var hintEl = document.getElementById('doneHint');
     if(hintEl) hintEl.textContent = 'Акт сохранён на этом устройстве и отправится на сервер автоматически, когда он освободится. PDF можно скачать ниже.';

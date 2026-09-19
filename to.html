@@ -2,6 +2,11 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): применяем сохранённую/
+     системную тему СРАЗУ, синхронно, до первой отрисовки — иначе была бы
+     заметная "вспышка" тёмной темы перед переключением на светлую.
+     Основная логика переключателя — в js/theme.js (подключён ниже). -->
+<script>(function(){try{var t=localStorage.getItem('ccs-theme');if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи, где он бы мешал. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Учёт ТО — Honghi EV Service</title>
@@ -23,11 +28,22 @@
 <script src="js/config.js"></script>
 <script src="js/push-card.js"></script>
 <script src="js/request-queue.js"></script>
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): общий переключатель темы + фон,
+     см. подробный комментарий в index.html и сам файл js/theme.js. -->
+<script src="js/ui-fx.js"></script>
+<script src="js/theme.js" defer></script>
+<link rel="stylesheet" href="css/theme.css">
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
     --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+    --surface2:var(--surface2);
   }
+  /* ЭТАП 8 (промт «UI: анимации, фон, тема») — см. подробный комментарий в index.html */
+  /* ЭТАП 8 (промт «UI: анимации, фон, тема») — ФИКС: --surface2 раньше был
+     захардкожен как var(--surface2) (поля ввода, значки-плейсхолдеры, баннеры) и не
+     менялся с темой — на светлой теме получался тёмный текст на тёмном фоне
+     поля (нечитаемо). Теперь это переменная со своим светлым значением. */
   *{box-sizing:border-box;}
   body{
     margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
@@ -52,12 +68,12 @@
   /* fix (было) / -fix (сейчас, «CORS сломал реальный прогресс-бар»): визуальный индикатор загрузки больших вложений (фото/видео в Stories и в рассылке). */
   .progress-wrap{display:none; margin:8px 0;}
   .progress-wrap.active{display:block;}
-  .progress-track{width:100%; height:8px; background:#0d141e; border:1px solid var(--border); border-radius:6px; overflow:hidden;}
+  .progress-track{width:100%; height:8px; background:var(--surface2); border:1px solid var(--border); border-radius:6px; overflow:hidden;}
   .progress-fill{height:100%; width:0%; background:var(--accent); transition:width .3s linear;}
   .progress-pct{font-size:12px; color:var(--muted); margin-top:4px;}
   input, select, textarea{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
-    background:#0d141e; color:var(--text); font-size:16px; margin-bottom:10px;
+    background:var(--surface2); color:var(--text); font-size:16px; margin-bottom:10px;
   }
   input:focus, select:focus, textarea:focus{outline:1px solid var(--accent);}
   button{
@@ -73,7 +89,7 @@
   label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
   .summary{display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;}
   .pill{
-    background:#0d141e; border:1px solid var(--border); border-radius:10px;
+    background:var(--surface2); border:1px solid var(--border); border-radius:10px;
     padding:8px 12px; font-size:13px; flex:1; min-width:140px;
   }
   .pill b{display:block; color:var(--text); font-size:14px;}
@@ -97,14 +113,14 @@
     border-bottom:1px solid var(--border);
   }
   .story-admin-item:last-child{border-bottom:none;}
-  .story-admin-thumb{width:52px; height:52px; border-radius:10px; object-fit:cover; background:#0d141e; flex-shrink:0;}
+  .story-admin-thumb{width:52px; height:52px; border-radius:10px; object-fit:cover; background:var(--surface2); flex-shrink:0;}
   .story-admin-body{flex:1; min-width:0;}
   .story-admin-text{font-size:13px; margin-bottom:4px; word-break:break-word;}
   .story-admin-meta{color:var(--muted); font-size:12px;}
   .story-admin-del{background:var(--danger); color:#fff; padding:8px 12px; font-size:13px; border-radius:8px; flex-shrink:0;}
 </style>
 </head>
-<body>
+<body class="ccs-bg-staff">
 
   <!-- ЭКРАН ВХОДА: личный логин/пароль сотрудника -->
   <div id="gate">
@@ -165,7 +181,7 @@
 
     <div id="resultsCard" class="card" style="display:none;">
       <!-- (Часть 4.2 промта): короткий блок остатка по открытому акту "Получения" этой машины (если есть) — сумма, тип оплаты, текущий остаток. -->
-      <div id="openActInfo" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:#0d141e; border:1px solid var(--accent); font-size:13px;"></div>
+      <div id="openActInfo" style="display:none; margin-bottom:14px; padding:10px 12px; border-radius:10px; background:var(--surface2); border:1px solid var(--accent); font-size:13px;"></div>
       <div id="summary" class="summary"></div>
       <div id="tableWrap"></div>
       <a id="pdfLink" class="pdf-link" style="display:none;" href="#" onclick="downloadPdf(event)">📄 Скачать PDF-историю</a>
@@ -386,7 +402,7 @@
 
       <!-- Показывается один раз сразу после успешной выдачи нового кода —
            дальше нигде не хранится, ровно как при первой выдаче кода. -->
-      <div id="taxiparkNewCodeBox" style="display:none; margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:10px; background:#0d141e;">
+      <div id="taxiparkNewCodeBox" style="display:none; margin-top:14px; padding:12px; border:1px solid var(--border); border-radius:10px; background:var(--surface2);">
         <div class="sub" style="margin-bottom:6px;">Новый код доступа для «<span id="taxiparkNewCodeName"></span>»:</div>
         <div style="display:flex; align-items:center; gap:10px;">
           <div id="taxiparkNewCodeValue" style="font-size:22px; font-weight:800; letter-spacing:2px;"></div>
@@ -800,17 +816,7 @@
   // ЭТАП 7: блокирует кнопку (disabled + временный текст) на время
   // промиса fn(), чтобы двойной клик/тап не отправил запрос дважды.
   function withButtonBusy_(btn, busyText, fn) {
-    if (!btn) return fn();
-    var origText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = busyText;
-    var restore = function () { btn.disabled = false; btn.textContent = origText; };
-    var result = fn();
-    if (result && typeof result.finally === 'function') {
-      return result.finally(restore);
-    }
-    restore();
-    return result;
+    return window.CCSUI ? CCSUI.busyButton(btn, busyText, fn) : fn();
   }
 
   // тихий вход по токену устройства, вызывается один раз при открытии страницы (если в localStorage сохранены имя+токен).
@@ -2002,6 +2008,7 @@
             document.getElementById('addStatus').innerText = res.debtWarning
               ? ('✅ Сохранено (' + res.count + '). ' + res.debtWarning)
               : ('✅ Сохранено (' + res.count + '). Можно сразу добавить следующий визит по этой машине.');
+            if (window.CCSUI) CCSUI.success('Работа сохранена');
             // Визит целиком отправлен — черновик и список работ визита больше не нужны, очищаем и localStorage, и поля формы (как и раньше, пробег/владельца оставляем как есть).
             clearPendingDraft_();
             renderPendingRows_();
@@ -2176,6 +2183,12 @@
       return;
     }
     var lines = [];
+    if (res.autoFixed) {
+      lines.push('<div style="padding:9px 10px; border-radius:10px; background:var(--success-bg, rgba(34,197,94,.12)); color:var(--success, #15803d); font-weight:600; margin-bottom:10px;">🔄 Вебхук был рассинхронизирован — исправлено автоматически.</div>');
+    }
+    if (res.autoFixError) {
+      lines.push('<div style="padding:9px 10px; border-radius:10px; background:var(--danger-bg, rgba(239,68,68,.10)); color:var(--danger); margin-bottom:10px;">⚠️ Автоматически исправить webhook не удалось: ' + escapeHtml_(res.autoFixError) + '</div>');
+    }
     lines.push((res.ok ? '✅' : '❌') + ' Связь с Telegram: ' + (res.ok ? 'токен рабочий' : 'ошибка запроса (HTTP ' + res.httpStatus + ') — токен мог быть отозван'));
     if (res.ok) {
       lines.push((res.urlMatchesDeploy ? '✅' : '❌') + ' Webhook указывает на текущий деплой: ' + (res.urlMatchesDeploy ? 'да' : 'НЕТ — это и есть, скорее всего, причина, почему кнопки не работают'));

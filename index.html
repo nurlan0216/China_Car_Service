@@ -2,6 +2,11 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): применяем сохранённую/
+     системную тему СРАЗУ, синхронно, до первой отрисовки — иначе была бы
+     заметная "вспышка" тёмной темы перед переключением на светлую.
+     Основная логика переключателя — в js/theme.js (подключён ниже). -->
+<script>(function(){try{var t=localStorage.getItem('ccs-theme');if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Honghi EV Service</title>
@@ -13,11 +18,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <script src="js/push-card.js"></script>
+<script src="js/ui-fx.js"></script>
+<script src="js/theme.js" defer></script>
+<link rel="stylesheet" href="css/theme.css">
 <style>
-  :root{
-    --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
-    --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
-  }
+  /* ЭТАП 8 (промт «UI: анимации, фон, тема»): светлая тема — те же
+     переменные, что использует вся остальная разметка, просто с другими
+     значениями. Переключается атрибутом data-theme на <html> (см.
+     js/theme.js) — сама разметка/CSS ниже не знает про тему вообще. */
   *{box-sizing:border-box;}
   body{
     margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
@@ -94,7 +102,7 @@
   .social-footer svg{width:20px; height:20px;}
 </style>
 </head>
-<body>
+<body class="ccs-bg-client">
   <div class="wrap">
     <!-- ЭТАП 10 (промт «Логотип и иконки»): вместо самодельного SVG-значка —
          реальный логотип бренда (site-logo-1.png). -->

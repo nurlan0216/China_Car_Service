@@ -2,6 +2,11 @@
 <html>
 <head>
 <meta charset="UTF-8">
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): применяем сохранённую/
+     системную тему СРАЗУ, синхронно, до первой отрисовки — иначе была бы
+     заметная "вспышка" тёмной темы перед переключением на светлую.
+     Основная логика переключателя — в js/theme.js (подключён ниже). -->
+<script>(function(){try{var t=localStorage.getItem('ccs-theme');if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <!-- 16.14: обычный pinch-zoom разрешён — на этой странице нет canvas/подписи. -->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Кабинет таксопарка — Honghi EV Service</title>
@@ -12,11 +17,22 @@
 <meta name="apple-mobile-web-app-title" content="CCS Таксопарк">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- ЭТАП 8 (промт «UI: анимации, фон, тема»): общий переключатель темы + фон,
+     см. подробный комментарий в index.html и сам файл js/theme.js. -->
+<script src="js/ui-fx.js"></script>
+<script src="js/theme.js" defer></script>
+<link rel="stylesheet" href="css/theme.css">
 <style>
   :root{
     --bg:#0f1720; --card:#182130; --accent:#3b82f6; --accent-2:#22c55e;
     --text:#e5e9f0; --muted:#8a97ab; --border:#26324a; --danger:#ef4444;
+    --surface2:var(--surface2);
   }
+  /* ЭТАП 8 (промт «UI: анимации, фон, тема») — см. подробный комментарий в index.html */
+  /* ЭТАП 8 (промт «UI: анимации, фон, тема») — ФИКС: --surface2 раньше был
+     захардкожен как var(--surface2) (поля ввода, значки-плейсхолдеры, баннеры) и не
+     менялся с темой — на светлой теме получался тёмный текст на тёмном фоне
+     поля (нечитаемо). Теперь это переменная со своим светлым значением. */
   *{box-sizing:border-box;}
   body{
     margin:0; font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;
@@ -32,7 +48,7 @@
   .row{display:flex; gap:8px;}
   input, select{
     width:100%; padding:11px 12px; border-radius:10px; border:1px solid var(--border);
-    background:#0d141e; color:var(--text); font-size:16px; margin-bottom:10px;
+    background:var(--surface2); color:var(--text); font-size:16px; margin-bottom:10px;
   }
   input:focus, select:focus{outline:1px solid var(--accent);}
   button{
@@ -44,7 +60,7 @@
   .btn-full{width:100%;}
   label{font-size:13px; color:var(--muted); display:block; margin-bottom:4px;}
   .pill{
-    background:#0d141e; border:1px solid var(--border); border-radius:10px;
+    background:var(--surface2); border:1px solid var(--border); border-radius:10px;
     padding:8px 12px; font-size:13px; flex:1; min-width:120px;
   }
   .pill b{display:block; color:var(--text); font-size:14px;}
@@ -61,7 +77,7 @@
   /* 16.14: планшет/десктоп — кабинет пошире; мобильная раскладка (≤480px) не меняется. */
   @media (min-width:481px){ #cabinet{max-width:820px; margin:0 auto;} .card{padding:20px;} }
   .logout{color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; float:right;}
-  .veh-card{background:#0d141e; border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px;}
+  .veh-card{background:var(--surface2); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px;}
   .veh-head{display:flex; justify-content:space-between; align-items:center; cursor:pointer;}
   .veh-title{font-size:15px; font-weight:700;}
   .veh-sub{color:var(--muted); font-size:12px;}
@@ -95,7 +111,7 @@
   .story-card{flex:0 0 auto; width:76px; text-align:center; cursor:pointer;}
   .story-thumb{
     width:68px; height:68px; border-radius:50%; object-fit:cover;
-    border:2px solid var(--accent); background:#0d141e; display:block; margin:0 auto;
+    border:2px solid var(--accent); background:var(--surface2); display:block; margin:0 auto;
   }
   .story-thumb.text-only{display:flex; align-items:center; justify-content:center; font-size:24px;}
   .story-label{
@@ -123,7 +139,7 @@
 <script src="js/push-card.js"></script>
 <script src="js/request-queue.js"></script>
 </head>
-<body>
+<body class="ccs-bg-staff">
 
   <!-- ЭКРАН ВХОДА: название таксопарка + код доступа -->
   <div id="gate">
@@ -449,9 +465,7 @@
   forceUppercasePlate_(document.getElementById('avPlate'));
 
   function withButtonBusy_(btn, busyText, fn) {
-    var orig = btn.innerText;
-    btn.disabled = true; btn.innerText = busyText;
-    return fn().finally(function () { btn.disabled = false; btn.innerText = orig; });
+    return window.CCSUI ? CCSUI.busyButton(btn, busyText, fn) : fn();
   }
 
   // ЭТАП 10 (промт «Кабинет таксопарка»): название+код запоминаем в
