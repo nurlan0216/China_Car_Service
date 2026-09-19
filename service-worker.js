@@ -7,7 +7,8 @@
 // v12 — ЭТАП 4 (маскировка GPS): js/gps-*.js и js/routing-service.js убраны
 // из PRECACHE_URLS (см. комментарий у списка ниже) — сами файлы не удалены.
 // v14 — ошибка 5: добавлен js/request-queue.js (общая локальная очередь), без него страницы офлайн не откроются.
-var CACHE_NAME = 'ccs-shell-v14-request-queue';
+// v15 — ЭТАП 8: тема/анимации (css/theme.css, js/theme.js, js/ui-fx.js) + js/push-card.js и announce.html — без них оболочка офлайн открывалась без стилей темы.
+var CACHE_NAME = 'ccs-shell-v15-stage8-theme';
 
 var PRECACHE_URLS = [
   'index.html',
@@ -27,7 +28,12 @@ var PRECACHE_URLS = [
   'icons/icon-512-maskable.png',
   'icons/apple-touch-icon.png',
   'icons/site-logo.png',
-  'js/request-queue.js'
+  'js/request-queue.js',
+  'js/push-card.js',
+  'js/theme.js',
+  'js/ui-fx.js',
+  'css/theme.css',
+  'announce.html'
   // (маскировка GPS): подключение js/gps-*.js и js/routing-service.js в driver.html закомментировано , поэтому эти файлы больше не используются на странице — предзагружать их в кэш незачем.
 ];
 

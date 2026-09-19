@@ -1491,10 +1491,15 @@
   }
 
   // + : карточка перерисовывается при каждом показе кабинета — как только чат реально подключится (пользователь перейдёт по ссылке и напишет боту /start), статус обновится сам при следующем открытии кабинета/входе.
+  var tgWasConnected_ = null;
   function renderTelegramLinkCard_(data) {
     var card = document.getElementById('tgLinkCard');
     var statusEl = document.getElementById('tgLinkStatus');
     var btn = document.getElementById('tgLinkBtn');
+    // ЭТАП 8 (A.3): подтверждение привязки — только в момент перехода «не подключён → подключён»
+    // (при первой отрисовке tgWasConnected_ === null, чтобы не показывать галочку при каждом заходе).
+    if (data.telegramConnected && tgWasConnected_ === false && window.CCSUI) CCSUI.success('Telegram подключён');
+    tgWasConnected_ = !!data.telegramConnected;
     if (data.telegramConnected) {
       statusEl.innerHTML = '✅ Telegram подключён — сюда приходят история и акты по вашей машине.';
       card.classList.add('notif-compact', 'notif-hide-cta');
@@ -1740,7 +1745,9 @@
     if (to) params.dateTo = to;
 
     var wrap = document.getElementById('actsWrap');
-    wrap.innerHTML = '<div class="loading">Загружаю акты...</div>';
+    // ЭТАП 8 (A.3): skeleton вместо одной строки «Загружаю акты...»
+    if (window.CCSUI) CCSUI.skeleton(wrap, { variant: 'table', rows: 3 });
+    else wrap.innerHTML = '<div class="loading">Загружаю акты...</div>';
 
     apiGet(params).then(function (res) {
       if (!res.ok) {

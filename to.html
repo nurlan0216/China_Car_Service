@@ -1087,13 +1087,16 @@
       if (!silent) statusEl.innerText = '';
       applyHistoryResult_(cached, dateFrom, dateTo, filters.showAll);
     } else if (!silent) {
+      // ЭТАП 8 (промт «UI: анимации, фон, тема», A.3): вместо пустого экрана — skeleton
+      // (запрос истории по логам самопроверки шёл 3–20 с). Статус-текст оставляем для screen-reader'ов.
       statusEl.innerText = 'Загружаю...';
-      wrap.innerHTML = '';
+      if (window.CCSUI) CCSUI.skeleton(wrap, { variant: 'table', rows: 5 }); else wrap.innerHTML = '';
     }
 
     apiPost({ action: 'workhistory', name: ADMIN_NAME, pw: PW, filters: filters })
       .then(function (res) {
         if (!res.ok) {
+          if (window.CCSUI) CCSUI.skeletonClear(wrap, false); // ЭТАП 8: не оставляем заглушку при ошибке
           if (!silent && !cached) handleAuthError({ message: res.error }, 'historyStatus');
           if (silent) scheduleHistoryAutoRefresh_();
           return;
@@ -1104,6 +1107,7 @@
         if (silent) scheduleHistoryAutoRefresh_();
       })
       .catch(function () {
+        if (window.CCSUI) CCSUI.skeletonClear(wrap, false); // ЭТАП 8
         if (!silent && !cached) statusEl.innerText = 'Ошибка сети';
         if (silent) scheduleHistoryAutoRefresh_();
       });

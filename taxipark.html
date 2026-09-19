@@ -557,9 +557,13 @@
   }
 
   // карточка перерисовывается при каждом показе кабинета И при каждом тихом автообновлении , поэтому как только чат реально подключится (пользователь перейдёт по ссылке и напишет боту /start), статус в…
+  var tgWasConnected_ = null;
   function renderTelegramLinkCard_(payload) {
     var statusEl = document.getElementById('tgLinkStatus');
     var btn = document.getElementById('tgLinkBtn');
+    // ЭТАП 8 (A.3): галочка при переходе «не подключён → подключён» (не при первой отрисовке)
+    if (payload.telegramConnected && tgWasConnected_ === false && window.CCSUI) CCSUI.success('Telegram подключён');
+    tgWasConnected_ = !!payload.telegramConnected;
     if (payload.telegramConnected) {
       statusEl.innerHTML = '✅ Telegram уже подключён — сюда приходят история и акты по вашим машинам.';
       btn.textContent = '🔄 Выдать новую ссылку';
@@ -823,6 +827,8 @@
   // Тихий вход, если название+код уже сохранены на этом устройстве.
   if (TP_NAME && TP_CODE) {
     document.getElementById('gateStatus').innerText = 'Вхожу...';
+    // ЭТАП 8 (A.3): тихий вход шёл заметное время — показываем skeleton карточек машин (innerText='' ниже его уберёт)
+    if (window.CCSUI) CCSUI.skeleton(document.getElementById('gateStatus'), { variant: 'cards', rows: 2 });
     apiPost({ action: 'taxiparkData', name: TP_NAME, code: TP_CODE, filters: {} })
       .then(function (res) {
         document.getElementById('gateStatus').innerText = '';

@@ -274,7 +274,9 @@ button, .btn, .install-btn { transition-property: transform, opacity, background
 /* маленькая галочка рядом с текстом статуса */
 .ccs-check-inline { display: inline-block; width: 1.05em; height: 1.05em; margin-right: .3em; vertical-align: -.15em; animation: ccsPopIn .3s ease-out both; }
 .ccs-check-inline path { fill: none; stroke: var(--ccs-ok); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 44; stroke-dashoffset: 44; animation: ccsDraw .3s .08s ease-out forwards; }
-.ccs-bounce { animation: ccsPopIn .45s cubic-bezier(.34, 1.56, .64, 1); }
+/* ЭТАП 8: мягкий «толчок» существующего элемента (карточка push и т.п.) — без исчезновения, в отличие от ccsPopIn */
+@keyframes ccsBump { 0% { transform: scale(.97); } 55% { transform: scale(1.025); } 100% { transform: scale(1); } }
+.ccs-bounce { animation: ccsBump .42s cubic-bezier(.34, 1.56, .64, 1); }
 
 /* ===================== 5. REDUCED MOTION / ЛЁГКИЙ РЕЖИМ ===================== */
 /* Системная настройка «уменьшить движение»: все декоративные анимации и

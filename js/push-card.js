@@ -43,7 +43,7 @@
     // переносится (moveCard_/insertBefore) к якорю #notifBottomAnchor внизу
     // кабинета, ничего не перекрывая.
     style.textContent =
-      '#' + cardId + '.push-card-anim{transition:opacity .22s ease,transform .22s ease;}' +
+      '#' + cardId + '.push-card-anim{transition:opacity .22s ease,transform .42s cubic-bezier(.34,1.56,.64,1);}' +
       '#' + cardId + '.push-card-compact{padding:8px 12px !important;margin-bottom:8px !important;}' +
       '#' + cardId + '.push-card-compact #' + cfg.statusId + '{font-size:12px;color:var(--muted);}' +
       '#' + cardId + '.push-card-hide-cta #' + cfg.btnId + ',' +
@@ -174,8 +174,9 @@
     var statusEl = document.getElementById(cfg.statusId);
     var btn = document.getElementById(cfg.btnId);
     if (btn) btn.disabled = true;
-    Notification.requestPermission().then(function () {
+    Notification.requestPermission().then(function (perm) {
       refresh_(cfg, state);
+      if (perm === 'granted' && global.CCSUI) global.CCSUI.success('Уведомления разрешены'); // ЭТАП 8 (A.3)
     }).catch(function () {
       refresh_(cfg, state);
     });
@@ -207,6 +208,8 @@
           if (!res.ok) throw new Error(res.error || 'Сервер отклонил регистрацию');
           localStorage.setItem(cfg.tokenKey, token);
           refresh_(cfg, state);
+          // ЭТАП 8 (A.3): подтверждение включения push — галочка + лёгкий bounce карточки
+          if (global.CCSUI) { global.CCSUI.success('Уведомления включены'); global.CCSUI.bounce(document.getElementById(cfg.cardId)); }
         });
       })
       .catch(function (err) {
